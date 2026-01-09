@@ -90,6 +90,39 @@ RUN echo 'PS1="\\[\\033[1;35m\\]🎲 yolo\\[\\033[0m\\]:\\[\\033[1;36m\\]\\w\\[\
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
     && echo 'alias yeet="rm -rf"' >> ~/.bashrc
 
+# AI CLI wrappers in yolo mode - these find the real binary dynamically,
+# so they survive updates (npm update -g, claude upgrade, etc.)
+USER root
+RUN mkdir -p /opt/yolobox/bin
+
+# Generic wrapper template that finds real binary by excluding wrapper dir from PATH
+RUN echo '#!/bin/bash' > /opt/yolobox/wrapper-template \
+    && echo 'WRAPPER_DIR=/opt/yolobox/bin' >> /opt/yolobox/wrapper-template \
+    && echo 'CMD=$(basename "$0")' >> /opt/yolobox/wrapper-template \
+    && echo 'CLEAN_PATH=$(echo "$PATH" | tr ":" "\n" | grep -v "^$WRAPPER_DIR$" | tr "\n" ":" | sed "s/:$//" )' >> /opt/yolobox/wrapper-template \
+    && echo 'REAL_BIN=$(PATH="$CLEAN_PATH" which "$CMD" 2>/dev/null)' >> /opt/yolobox/wrapper-template \
+    && echo 'if [ -z "$REAL_BIN" ]; then echo "Error: $CMD not found" >&2; exit 1; fi' >> /opt/yolobox/wrapper-template
+
+# Claude wrapper
+RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/claude \
+    && echo 'exec "$REAL_BIN" --dangerously-skip-permissions "$@"' >> /opt/yolobox/bin/claude \
+    && chmod +x /opt/yolobox/bin/claude
+
+# Codex wrapper
+RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/codex \
+    && echo 'exec "$REAL_BIN" --dangerously-bypass-approvals-and-sandbox "$@"' >> /opt/yolobox/bin/codex \
+    && chmod +x /opt/yolobox/bin/codex
+
+# Gemini wrapper
+RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/gemini \
+    && echo 'exec "$REAL_BIN" --yolo "$@"' >> /opt/yolobox/bin/gemini \
+    && chmod +x /opt/yolobox/bin/gemini
+
+# Add wrapper dir to PATH (prepend so wrappers take priority)
+ENV PATH="/opt/yolobox/bin:$PATH"
+
+USER yolo
+
 # Welcome message
 RUN echo 'echo ""' >> ~/.bashrc \
     && echo 'echo -e "\\033[1;35m  Welcome to yolobox!\\033[0m"' >> ~/.bashrc \

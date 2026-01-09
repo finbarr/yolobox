@@ -49,7 +49,7 @@ You're now in a sandboxed shell. Run `claude` and let it rip.
 ## What's in the Box?
 
 The base image comes batteries-included:
-- **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex
+- **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex (all aliased to run in full-auto mode!)
 - **Node.js 22** + npm/yarn/pnpm
 - **Python 3** + pip + venv
 - **Build tools**: make, cmake, gcc
@@ -57,6 +57,18 @@ The base image comes batteries-included:
 - **Common utilities**: ripgrep, fd, fzf, jq, vim
 
 Need something else? You have sudo.
+
+## AI CLIs Run in YOLO Mode
+
+Inside yolobox, the AI CLIs are aliased to skip all permission prompts:
+
+| Command | Expands to |
+|---------|------------|
+| `claude` | `claude --dangerously-skip-permissions` |
+| `codex` | `codex --dangerously-bypass-approvals-and-sandbox` |
+| `gemini` | `gemini --yolo` |
+
+No confirmations, no guardrails—just pure unfiltered AI, the way nature intended.
 
 ## Commands
 
