@@ -19,7 +19,9 @@ lint:
 	@which golangci-lint > /dev/null && golangci-lint run || echo "golangci-lint not installed, skipping"
 
 image:
-	docker build -t $(IMAGE) .
+	@docker buildx version >/dev/null 2>&1 && \
+		docker buildx build -t $(IMAGE) . || \
+		docker build -t $(IMAGE) .
 
 install: build
 	mkdir -p $(BINDIR)
