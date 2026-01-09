@@ -47,7 +47,7 @@ make image
 # 6. Pre-installed tools
 ./yolobox run node --version            # Node.js
 ./yolobox run python3 --version         # Python
-./yolobox run which claude              # Claude Code
+./yolobox run claude --version          # Claude Code (native build)
 ./yolobox run gh --version              # GitHub CLI
 
 # 7. Flag tests (flags go AFTER subcommand)
@@ -57,6 +57,9 @@ make image
 
 # 8. API key passthrough
 ANTHROPIC_API_KEY=test ./yolobox run printenv ANTHROPIC_API_KEY  # Should output: test
+
+# 9. Claude config sharing (if ~/.claude exists on host)
+./yolobox run ls /home/yolo/.claude      # Should show host's claude config
 ```
 
 ## Architecture
@@ -88,3 +91,4 @@ All code lives in `cmd/yolobox/main.go` (~700 lines):
 - Sets `YOLOBOX=1` env var inside container
 - Runs as `yolo` user with full sudo access
 - Host home is NOT mounted unless `--unsafe-host` is passed
+- Host `~/.claude` is auto-mounted to share Claude Code settings/history
