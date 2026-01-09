@@ -526,6 +526,16 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	args = append(args, "-v", "yolobox-cache:/var/cache")
 	args = append(args, "-v", "yolobox-tools:/opt/tools")
 
+	// Mount Claude config from host if it exists
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	claudeConfigPath := filepath.Join(home, ".claude")
+	if _, err := os.Stat(claudeConfigPath); err == nil {
+		args = append(args, "-v", claudeConfigPath+":/home/yolo/.claude")
+	}
+
 	// Extra mounts
 	for _, mount := range cfg.Mounts {
 		resolved, err := resolveMount(mount, absProject)
@@ -559,10 +569,6 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// Unsafe host home mount
 	if cfg.UnsafeHost {
 		warn("--unsafe-host enabled: your home directory is accessible at /host-home")
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return nil, err
-		}
 		args = append(args, "-v", home+":/host-home")
 	}
 

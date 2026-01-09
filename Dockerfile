@@ -55,7 +55,6 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 
 # Install global npm packages (as root, before creating user)
 RUN npm install -g \
-    @anthropic-ai/claude-code \
     typescript \
     ts-node \
     yarn \
@@ -72,6 +71,15 @@ RUN mkdir -p /workspace /output /secrets \
 
 USER yolo
 WORKDIR /home/yolo
+
+# Install Claude Code (native build) - download binary directly to /usr/local/bin
+RUN GCS_BUCKET="https://storage.googleapis.com/claude-code-dist-86c565f3-f756-42ad-8dfa-d59b1c096819/claude-code-releases" \
+    && VERSION=$(curl -fsSL "$GCS_BUCKET/latest") \
+    && ARCH=$(uname -m | sed 's/x86_64/x64/' | sed 's/aarch64/arm64/') \
+    && PLATFORM="linux-$ARCH" \
+    && curl -fsSL "$GCS_BUCKET/$VERSION/$PLATFORM/claude" -o /tmp/claude \
+    && chmod +x /tmp/claude \
+    && sudo mv /tmp/claude /usr/local/bin/claude
 
 # Set up a nice prompt
 RUN echo 'PS1="\\[\\033[1;35m\\]yolobox\\[\\033[0m\\]:\\[\\033[1;34m\\]\\w\\[\\033[0m\\]\\$ "' >> ~/.bashrc \
