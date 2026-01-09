@@ -82,7 +82,6 @@ yolobox help                # Show help
 | `--ssh-agent` | Forward SSH agent socket |
 | `--no-network` | Disable network access |
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
-| `--unsafe-host` | Mount host home to `/host-home` (you asked for it) |
 
 ## Auto-Forwarded Environment Variables
 

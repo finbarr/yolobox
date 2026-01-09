@@ -90,7 +90,7 @@ All code lives in `cmd/yolobox/main.go` (~700 lines):
 - `/output` volume created when using `--readonly-project`
 - Sets `YOLOBOX=1` env var inside container
 - Runs as `yolo` user with full sudo access
-- Host home is NOT mounted unless `--unsafe-host` is passed
+- Host home is NOT mounted (use `--mount ~:/host-home` if you really need it)
 - Host `~/.claude` is auto-mounted to share Claude Code settings/history
 
 ## Hard-Won Learnings

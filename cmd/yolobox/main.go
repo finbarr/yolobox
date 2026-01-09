@@ -56,7 +56,6 @@ type Config struct {
 	Mounts          []string `toml:"mounts"`
 	Env             []string `toml:"env"`
 	SSHAgent        bool     `toml:"ssh_agent"`
-	UnsafeHost      bool     `toml:"unsafe_host"`
 	ReadonlyProject bool     `toml:"readonly_project"`
 	NoNetwork       bool     `toml:"no_network"`
 }
@@ -165,7 +164,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
-	fmt.Fprintln(os.Stderr, "  --unsafe-host         Mount host home to /host-home (danger!)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
@@ -202,7 +200,6 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 		runtimeFlag     string
 		imageFlag       string
 		sshAgent        bool
-		unsafeHost      bool
 		readonlyProject bool
 		noNetwork       bool
 		mounts          stringSliceFlag
@@ -212,7 +209,6 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
-	fs.BoolVar(&unsafeHost, "unsafe-host", false, "mount host home to /host-home")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
 	fs.Var(&mounts, "mount", "extra mount src:dst")
@@ -234,9 +230,6 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 	}
 	if sshAgent {
 		cfg.SSHAgent = true
-	}
-	if unsafeHost {
-		cfg.UnsafeHost = true
 	}
 	if readonlyProject {
 		cfg.ReadonlyProject = true
@@ -323,9 +316,6 @@ func mergeConfig(dst *Config, src Config) {
 	if src.SSHAgent {
 		dst.SSHAgent = true
 	}
-	if src.UnsafeHost {
-		dst.UnsafeHost = true
-	}
 	if src.ReadonlyProject {
 		dst.ReadonlyProject = true
 	}
@@ -335,8 +325,34 @@ func mergeConfig(dst *Config, src Config) {
 }
 
 func runShell(cfg Config) error {
-	success("Spinning up your sandbox...")
+	printActiveConfig(cfg)
 	return runCommand(cfg, []string{"bash"}, true)
+}
+
+func printActiveConfig(cfg Config) {
+	// Show active non-default settings
+	var active []string
+	if cfg.SSHAgent {
+		active = append(active, "ssh-agent")
+	}
+	if cfg.NoNetwork {
+		active = append(active, "no-network")
+	}
+	if cfg.ReadonlyProject {
+		active = append(active, "readonly-project")
+	}
+	if len(cfg.Mounts) > 0 {
+		active = append(active, fmt.Sprintf("%d extra mount(s)", len(cfg.Mounts)))
+	}
+	if len(cfg.Env) > 0 {
+		active = append(active, fmt.Sprintf("%d env var(s)", len(cfg.Env)))
+	}
+
+	if len(active) > 0 {
+		info("Active: %s", strings.Join(active, ", "))
+	}
+
+	success("Spinning up your sandbox...")
 }
 
 func runCommand(cfg Config, command []string, interactive bool) error {
@@ -360,7 +376,6 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
-	fmt.Printf("%sunsafe_host:%s %t\n", colorBold, colorReset, cfg.UnsafeHost)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
 	fmt.Printf("%sno_network:%s %t\n", colorBold, colorReset, cfg.NoNetwork)
 	if len(cfg.Mounts) > 0 {
@@ -497,12 +512,6 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			args = append(args, "-v", sock+":/ssh-agent")
 			args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
 		}
-	}
-
-	// Unsafe host home mount
-	if cfg.UnsafeHost {
-		warn("--unsafe-host enabled: your home directory is accessible at /host-home")
-		args = append(args, "-v", home+":/host-home")
 	}
 
 	// Network isolation
