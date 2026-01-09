@@ -330,6 +330,8 @@ func runShell(cfg Config) error {
 }
 
 func printActiveConfig(cfg Config) {
+	fmt.Fprint(os.Stderr, colorCyan+logo+colorReset)
+
 	// Show active non-default settings
 	var active []string
 	if cfg.SSHAgent {
@@ -351,8 +353,6 @@ func printActiveConfig(cfg Config) {
 	if len(active) > 0 {
 		info("Active: %s", strings.Join(active, ", "))
 	}
-
-	success("Spinning up your sandbox...")
 }
 
 func runCommand(cfg Config, command []string, interactive bool) error {
