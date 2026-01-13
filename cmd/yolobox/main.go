@@ -405,20 +405,68 @@ func mergeConfigFile(path string, cfg *Config, restricted bool) error {
 
 	if restricted {
 		var safeMounts []string
+		projectDir := filepath.Dir(path)
 		for _, m := range fileCfg.Mounts {
 			parts := strings.SplitN(m, ":", 2)
 			src := parts[0]
-			
-			isUnsafe := filepath.IsAbs(src) || 
-				strings.HasPrefix(src, "~") || 
-				strings.HasPrefix(src, "$") || 
+
+			// String-based checks for obviously unsafe patterns
+			isUnsafe := filepath.IsAbs(src) ||
+				strings.HasPrefix(src, "~") ||
+				strings.HasPrefix(src, "$") ||
 				strings.Contains(src, "..")
-			
+
 			if isUnsafe {
 				warn("Ignoring unsafe mount in project config: %s (use global config or CLI flags for host paths)", m)
-			} else {
-				safeMounts = append(safeMounts, m)
+				continue
 			}
+
+			// Resolve the path relative to project directory
+			fullPath := filepath.Join(projectDir, src)
+
+			// Get absolute project directory for containment checks
+			absProject, err := filepath.Abs(projectDir)
+			if err != nil {
+				warn("Ignoring mount in project config: %s (cannot resolve project path)", m)
+				continue
+			}
+
+			// Check if this is a symlink (even if target doesn't exist)
+			fileInfo, err := os.Lstat(fullPath)
+			if err == nil && fileInfo.Mode()&os.ModeSymlink != 0 {
+				// It's a symlink - read where it points
+				linkTarget, err := os.Readlink(fullPath)
+				if err != nil {
+					warn("Ignoring unsafe mount in project config: %s (cannot read symlink)", m)
+					continue
+				}
+
+				// Resolve the link target to an absolute path
+				var resolvedTarget string
+				if filepath.IsAbs(linkTarget) {
+					resolvedTarget = filepath.Clean(linkTarget)
+				} else {
+					resolvedTarget = filepath.Clean(filepath.Join(filepath.Dir(fullPath), linkTarget))
+				}
+
+				// Check if symlink target escapes project directory
+				if !strings.HasPrefix(resolvedTarget, absProject+string(filepath.Separator)) && resolvedTarget != absProject {
+					warn("Ignoring unsafe mount in project config: %s (symlink escapes project directory)", m)
+					continue
+				}
+			} else if err == nil {
+				// Regular file/directory - resolve any symlinks in parent path components
+				resolvedPath, err := filepath.EvalSymlinks(fullPath)
+				if err == nil {
+					if !strings.HasPrefix(resolvedPath, absProject+string(filepath.Separator)) && resolvedPath != absProject {
+						warn("Ignoring unsafe mount in project config: %s (path escapes project directory)", m)
+						continue
+					}
+				}
+			}
+			// If path doesn't exist, allow it (Docker will error if invalid)
+
+			safeMounts = append(safeMounts, m)
 		}
 		fileCfg.Mounts = safeMounts
 	}
