@@ -117,7 +117,8 @@ RUN echo '#!/bin/bash' > /opt/yolobox/wrapper-template \
     && echo 'CMD=$(basename "$0")' >> /opt/yolobox/wrapper-template \
     && echo 'CLEAN_PATH=$(echo "$PATH" | tr ":" "\n" | grep -v "^$WRAPPER_DIR$" | tr "\n" ":" | sed "s/:$//" )' >> /opt/yolobox/wrapper-template \
     && echo 'REAL_BIN=$(PATH="$CLEAN_PATH" which "$CMD" 2>/dev/null)' >> /opt/yolobox/wrapper-template \
-    && echo 'if [ -z "$REAL_BIN" ]; then echo "Error: $CMD not found" >&2; exit 1; fi' >> /opt/yolobox/wrapper-template
+    && echo 'if [ -z "$REAL_BIN" ]; then echo "Error: $CMD not found" >&2; exit 1; fi' >> /opt/yolobox/wrapper-template \
+    && echo 'if [ "$MINDFUL_MODE" = "1" ]; then exec "$REAL_BIN" "$@"; fi' >> /opt/yolobox/wrapper-template
 
 # Claude wrapper
 RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/claude \

@@ -173,6 +173,26 @@ func TestBuildRunArgs(t *testing.T) {
 	}
 }
 
+func TestBuildRunArgsMindfulMode(t *testing.T) {
+	cfg := Config{
+		Image:       "test-image",
+		MindfulMode: true,
+	}
+
+	args, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "YOLOBOX=1") {
+		t.Error("expected YOLOBOX=1 env var to be present")
+	}
+	if !strings.Contains(argsStr, "MINDFUL_MODE=1") {
+		t.Error("expected MINDFUL_MODE=1 env var to be present")
+	}
+}
+
 func TestBuildRunArgsNoNetwork(t *testing.T) {
 	cfg := Config{
 		Image:     "test-image",

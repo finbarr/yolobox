@@ -94,6 +94,7 @@ yolobox help                # Show help
 | `--env <KEY=val>` | Set environment variable (repeatable) |
 | `--ssh-agent` | Forward SSH agent socket |
 | `--no-network` | Disable network access |
+| `--mindful-mode` | Disable auto-confirmations (mindful mode) |
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
 | `--claude-config` | Copy host `~/.claude` config into container |
 
