@@ -61,6 +61,8 @@ make image
 # 6. Pre-installed tools
 ./yolobox run node --version            # Node.js
 ./yolobox run python3 --version         # Python
+./yolobox run go version                # Go
+./yolobox run uv --version              # uv (Python package manager)
 ./yolobox run claude --version          # Claude Code
 ./yolobox run gemini --version          # Gemini CLI
 ./yolobox run codex --version           # OpenAI Codex

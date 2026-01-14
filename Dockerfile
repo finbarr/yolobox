@@ -1,3 +1,7 @@
+# Stage: Go source
+FROM golang:1.25.5 AS go-source
+
+# Stage: Claude Code installer
 FROM ubuntu:24.04 AS claude-installer
 
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
@@ -68,6 +72,13 @@ RUN npm install -g \
     @google/gemini-cli \
     @openai/codex \
     opencode-ai
+
+# Install Go (from official image)
+COPY --from=go-source /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:$PATH"
+
+# Install uv (fast Python package manager)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
 # Create yolo user with passwordless sudo
 RUN useradd -m -s /bin/bash yolo \
