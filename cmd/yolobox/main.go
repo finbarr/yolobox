@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"golang.org/x/term"
 )
 
 var Version = "dev"
@@ -736,7 +737,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	args := []string{"run", "--rm"}
-	if interactive {
+
+	// Add -it if explicitly interactive, or if stdin/stdout are both terminals
+	// This allows "yolobox run claude" to work interactively while still
+	// supporting piping (e.g., "echo foo | yolobox run cat")
+	isTTY := term.IsTerminal(int(os.Stdin.Fd())) && term.IsTerminal(int(os.Stdout.Fd()))
+	if interactive || isTTY {
 		args = append(args, "-it")
 	}
 
@@ -745,8 +751,8 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if cfg.NoYolo {
 		args = append(args, "-e", "NO_YOLO=1")
 	}
-	if term := os.Getenv("TERM"); term != "" {
-		args = append(args, "-e", "TERM="+term)
+	if termEnv := os.Getenv("TERM"); termEnv != "" {
+		args = append(args, "-e", "TERM="+termEnv)
 	}
 	if lang := os.Getenv("LANG"); lang != "" {
 		args = append(args, "-e", "LANG="+lang)
