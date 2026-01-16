@@ -221,7 +221,7 @@ yolobox doesn't currently expose this as a flag, but you can achieve it by runni
 make image
 ```
 
-This builds `yolobox/base:latest` locally.
+This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the remote image.
 
 ## Why "yolobox"?
 

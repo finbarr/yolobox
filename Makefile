@@ -1,6 +1,6 @@
 BINARY ?= yolobox
 CMD_DIR := ./cmd/yolobox
-IMAGE ?= yolobox/base:latest
+IMAGE ?= ghcr.io/finbarr/yolobox:latest
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
