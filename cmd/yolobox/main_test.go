@@ -301,13 +301,7 @@ func TestBuildRunArgsScratchWithReadonlyProject(t *testing.T) {
 }
 
 func TestParseFlagsScratch(t *testing.T) {
-	// Change to a temp directory to avoid loading project config
-	origDir, _ := os.Getwd()
-	tmpDir := t.TempDir()
-	os.Chdir(tmpDir)
-	defer os.Chdir(origDir)
-
-	cfg, rest, err := parseBaseFlags("run", []string{"--scratch", "echo", "hello"})
+	cfg, rest, err := parseBaseFlags("run", []string{"--scratch", "echo", "hello"}, t.TempDir())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -358,5 +352,256 @@ func TestAutoPassthroughEnvVars(t *testing.T) {
 		if !found {
 			t.Errorf("expected %s in autoPassthroughEnvVars", key)
 		}
+	}
+}
+
+func TestValidateShell(t *testing.T) {
+	tests := []struct {
+		shell   string
+		wantErr bool
+	}{
+		{"", false},              // empty is valid (resolved to default elsewhere)
+		{"bash", false},          // valid
+		{"fish", false},          // valid
+		{"zsh", true},            // not supported
+		{"sh", true},             // not in whitelist
+		{"/bin/fish", true},      // absolute path rejected
+		{"bash -c id", true},     // injection attempt
+		{"bash\nid", true},       // newline injection
+		{"BASH", true},           // case sensitive - uppercase rejected
+		{"Fish", true},           // case sensitive - mixed case rejected
+		{"FISH", true},           // case sensitive - uppercase rejected
+	}
+	for _, tt := range tests {
+		t.Run(tt.shell, func(t *testing.T) {
+			err := validateShell(tt.shell)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateShell(%q) error = %v, wantErr %v", tt.shell, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMergeConfigShell(t *testing.T) {
+	// Test shell merging
+	dst := Config{Shell: "bash"}
+	src := Config{Shell: "fish"}
+	mergeConfig(&dst, src)
+	if dst.Shell != "fish" {
+		t.Errorf("expected shell 'fish', got %q", dst.Shell)
+	}
+
+	// Empty doesn't override
+	dst2 := Config{Shell: "fish"}
+	src2 := Config{Shell: ""}
+	mergeConfig(&dst2, src2)
+	if dst2.Shell != "fish" {
+		t.Errorf("empty shell should not override, got %q", dst2.Shell)
+	}
+}
+
+func TestDefaultConfigShell(t *testing.T) {
+	cfg := defaultConfig()
+	if cfg.Shell != "" {
+		t.Errorf("expected default shell to be empty, got %q", cfg.Shell)
+	}
+}
+
+func TestParseBaseFlagsShell(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--shell", "fish", "echo", "hi"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Shell != "fish" {
+		t.Errorf("expected shell 'fish', got %q", cfg.Shell)
+	}
+	if len(rest) != 2 {
+		t.Errorf("expected 2 remaining args, got %d", len(rest))
+	}
+}
+
+func TestParseBaseFlagsInvalidShell(t *testing.T) {
+	_, _, err := parseBaseFlags("run", []string{"--shell", "zsh"}, t.TempDir())
+	if err == nil {
+		t.Error("expected error for invalid shell")
+	}
+	if !strings.Contains(err.Error(), "unsupported shell") {
+		t.Errorf("expected 'unsupported shell' error, got %v", err)
+	}
+}
+
+func TestMergeConfigFileGlobalShellValidation(t *testing.T) {
+	// Test that invalid shell in global config returns hard error
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	// Write invalid shell to config
+	if err := os.WriteFile(configPath, []byte(`shell = "zsh"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	err := mergeConfigFile(configPath, &cfg, false) // restricted=false = global config
+
+	if err == nil {
+		t.Error("expected error for invalid shell in global config")
+	}
+	if !strings.Contains(err.Error(), "invalid shell") {
+		t.Errorf("expected 'invalid shell' error, got %v", err)
+	}
+}
+
+func TestMergeConfigFileGlobalValidShell(t *testing.T) {
+	// Test that valid shell in global config is accepted
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "config.toml")
+
+	if err := os.WriteFile(configPath, []byte(`shell = "fish"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	err := mergeConfigFile(configPath, &cfg, false) // restricted=false = global config
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Shell != "fish" {
+		t.Errorf("expected shell 'fish', got %q", cfg.Shell)
+	}
+}
+
+func TestMergeConfigFileProjectShellValidation(t *testing.T) {
+	// Test that invalid shell in project config is ignored (not a hard error)
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".yolobox.toml")
+
+	// Write invalid shell to project config
+	if err := os.WriteFile(configPath, []byte(`shell = "zsh"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	err := mergeConfigFile(configPath, &cfg, true) // restricted=true = project config
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Invalid shell should be ignored (cfg.Shell should remain empty/default)
+	if cfg.Shell != "" {
+		t.Errorf("expected invalid shell to be ignored, got %q", cfg.Shell)
+	}
+}
+
+func TestMergeConfigFileProjectValidShell(t *testing.T) {
+	// Test that valid shell in project config is accepted
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, ".yolobox.toml")
+
+	if err := os.WriteFile(configPath, []byte(`shell = "fish"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := defaultConfig()
+	err := mergeConfigFile(configPath, &cfg, true) // restricted=true = project config
+
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Shell != "fish" {
+		t.Errorf("expected shell 'fish', got %q", cfg.Shell)
+	}
+}
+
+func TestShellFlagOverridesProjectConfig(t *testing.T) {
+	// Test that --shell flag overrides project config
+	tmpDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmpDir, ".yolobox.toml"), []byte(`shell = "bash"`), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, rest, err := parseBaseFlags("run", []string{"--shell", "fish", "echo", "hi"}, tmpDir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Shell != "fish" {
+		t.Errorf("expected CLI flag to override config, got %q", cfg.Shell)
+	}
+	// Verify remaining args parsed correctly
+	if len(rest) != 2 {
+		t.Errorf("expected 2 remaining args, got %d", len(rest))
+	}
+	if len(rest) >= 2 && (rest[0] != "echo" || rest[1] != "hi") {
+		t.Errorf("unexpected remaining args: %v", rest)
+	}
+}
+
+func TestResolveShell(t *testing.T) {
+	tests := []struct {
+		name            string
+		cfgShell        string
+		shellEnv        string
+		wantShell       string
+		wantDetected    bool
+		wantUnsupported string
+	}{
+		// No config, no $SHELL -> default bash
+		{"default bash", "", "", "bash", false, ""},
+		// No config, valid $SHELL -> detected
+		{"detect bash", "", "/bin/bash", "bash", true, ""},
+		{"detect fish", "", "/usr/bin/fish", "fish", true, ""},
+		{"detect fish custom path", "", "/opt/homebrew/bin/fish", "fish", true, ""},
+		// No config, invalid $SHELL -> unsupported
+		{"zsh unsupported", "", "/bin/zsh", "bash", false, "zsh"},
+		{"sh unsupported", "", "/bin/sh", "bash", false, "sh"},
+		{"tcsh unsupported", "", "/bin/tcsh", "bash", false, "tcsh"},
+		// Explicit config overrides everything
+		{"config bash ignores env", "bash", "/usr/bin/fish", "bash", false, ""},
+		{"config fish ignores env", "fish", "/bin/bash", "fish", false, ""},
+		{"config fish no env", "fish", "", "fish", false, ""},
+		// Edge cases for $SHELL parsing
+		{"trailing slash", "", "/usr/bin/fish/", "fish", true, ""},
+		{"double slash", "", "/usr/bin//fish", "fish", true, ""},
+		{"just basename", "", "fish", "fish", true, ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := Config{Shell: tt.cfgShell}
+			res := resolveShell(cfg, tt.shellEnv)
+
+			if res.shell != tt.wantShell {
+				t.Errorf("resolveShell().shell = %q, want %q", res.shell, tt.wantShell)
+			}
+			if res.detected != tt.wantDetected {
+				t.Errorf("resolveShell().detected = %v, want %v", res.detected, tt.wantDetected)
+			}
+			if res.unsupported != tt.wantUnsupported {
+				t.Errorf("resolveShell().unsupported = %q, want %q", res.unsupported, tt.wantUnsupported)
+			}
+		})
+	}
+}
+
+func TestShellResolutionString(t *testing.T) {
+	tests := []struct {
+		name string
+		res  shellResolution
+		want string
+	}{
+		{"detected fish", shellResolution{shell: "fish", detected: true}, "fish (detected from $SHELL)"},
+		{"detected bash", shellResolution{shell: "bash", detected: true}, "bash (detected from $SHELL)"},
+		{"unsupported zsh", shellResolution{shell: "bash", unsupported: "zsh"}, "bash (default - zsh not supported)"},
+		{"explicit fish", shellResolution{shell: "fish"}, "fish"},
+		{"default bash", shellResolution{shell: "bash"}, "bash (default)"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := tt.res.String()
+			if got != tt.want {
+				t.Errorf("String() = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }

@@ -69,6 +69,7 @@ make image
 ./yolobox run opencode --version        # OpenCode
 ./yolobox run copilot --version         # GitHub Copilot CLI
 ./yolobox run gh --version              # GitHub CLI
+./yolobox run fish --version            # Fish shell
 
 # 7. Flag tests (flags go AFTER subcommand)
 ./yolobox run --env FOO=bar bash -c 'echo $FOO'           # Should output: bar
@@ -83,6 +84,17 @@ ANTHROPIC_API_KEY=test ./yolobox run printenv ANTHROPIC_API_KEY  # Should output
 
 # 10. Git config sharing (opt-in with --git-config)
 ./yolobox run --git-config cat /home/yolo/.gitconfig  # Should show copied host git config
+
+# 11. Shell preference tests
+./yolobox --shell fish              # Should start fish with yolo prompt
+./yolobox --shell zsh               # Should error: unsupported shell
+./yolobox config                    # Should show shell setting
+
+# 12. Shell auto-detection tests
+SHELL=/usr/bin/fish ./yolobox config            # Should show: fish (detected from $SHELL)
+SHELL=/usr/bin/fish ./yolobox                   # Should start fish, print detection message
+SHELL=/bin/zsh ./yolobox config                 # Should show: bash (default) - zsh not supported
+SHELL=/usr/bin/fish ./yolobox --shell bash      # Should start bash (flag overrides detection)
 ```
 
 ## Architecture
@@ -125,3 +137,5 @@ Document solutions here when something takes multiple attempts to figure out.
 - **Claude Code needs writable config**: Can't mount `~/.claude` read-only; Claude writes to it at runtime. Solution: mount to staging area (`/host-claude/`) and copy on container start via entrypoint.
 - **OAuth tokens on macOS are in Keychain**: Can't copy them to container. On Linux, Claude stores creds in `~/.claude/.credentials.json`. Users must either use API key or `/login` inside container.
 - **Colima defaults to 2GB RAM**: Claude Code gets OOM killed. Need 4GB+. yolobox now warns if Docker has < 4GB.
+- **Named volumes shadow image contents**: The `yolobox-home` volume mounts over `/home/yolo`, so new files added to the image's `/home/yolo` won't appear for existing users. Solution: put configs in `/etc/` if they must be visible without volume deletion.
+- **Bash vs Fish config locations differ**: Fish uses `/etc/fish/conf.d/yolobox.fish`. Bash uses `/etc/bash.bashrc` (append to it). Don't use `/etc/profile.d/` for bash—that's only sourced by login shells, and Docker starts non-login shells.

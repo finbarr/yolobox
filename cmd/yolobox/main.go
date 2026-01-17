@@ -58,6 +58,7 @@ var autoPassthroughEnvVars = []string{
 type Config struct {
 	Runtime         string   `toml:"runtime"`
 	Image           string   `toml:"image"`
+	Shell           string   `toml:"shell"`
 	Mounts          []string `toml:"mounts"`
 	Env             []string `toml:"env"`
 	SSHAgent        bool     `toml:"ssh_agent"`
@@ -197,8 +198,13 @@ func runCmd() error {
 		checkForUpdates()
 	}
 
+	projectDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get working directory: %w", err)
+	}
+
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
-		cfg, rest, err := parseBaseFlags("yolobox", args)
+		cfg, rest, err := parseBaseFlags("yolobox", args, projectDir)
 		if err != nil {
 			return err
 		}
@@ -210,7 +216,7 @@ func runCmd() error {
 
 	switch args[0] {
 	case "run":
-		cfg, rest, err := parseBaseFlags("run", args[1:])
+		cfg, rest, err := parseBaseFlags("run", args[1:], projectDir)
 		if err != nil {
 			return err
 		}
@@ -221,7 +227,7 @@ func runCmd() error {
 	case "upgrade":
 		return upgradeYolobox()
 	case "config":
-		cfg, rest, err := parseBaseFlags("config", args[1:])
+		cfg, rest, err := parseBaseFlags("config", args[1:], projectDir)
 		if err != nil {
 			return err
 		}
@@ -265,6 +271,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker or podman")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
+	fmt.Fprintln(os.Stderr, "  --shell <name>        Shell for interactive sessions (bash, fish)")
+	fmt.Fprintln(os.Stderr, "                        Auto-detects from $SHELL if not specified")
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
@@ -292,11 +300,10 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %sLet your AI go full send. Your home directory stays home.%s\n\n", colorPurple, colorReset)
 }
 
-func parseBaseFlags(name string, args []string) (Config, []string, error) {
-	projectDir, err := os.Getwd()
-	if err != nil {
-		return Config{}, nil, err
-	}
+// parseBaseFlags parses CLI flags and merges them with config files.
+// projectDir is passed as a parameter (rather than calling os.Getwd() inside)
+// to enable testing without mutating global working directory state.
+func parseBaseFlags(name string, args []string, projectDir string) (Config, []string, error) {
 	cfg, err := loadConfig(projectDir)
 	if err != nil {
 		return Config{}, nil, err
@@ -309,6 +316,7 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 	var (
 		runtimeFlag     string
 		imageFlag       string
+		shellFlag       string
 		sshAgent        bool
 		readonlyProject bool
 		noNetwork       bool
@@ -322,6 +330,7 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
+	fs.StringVar(&shellFlag, "shell", "", "shell for interactive sessions (bash, fish)")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
@@ -345,6 +354,12 @@ func parseBaseFlags(name string, args []string) (Config, []string, error) {
 	}
 	if imageFlag != "" {
 		cfg.Image = imageFlag
+	}
+	if shellFlag != "" {
+		if err := validateShell(shellFlag); err != nil {
+			return Config{}, nil, err
+		}
+		cfg.Shell = shellFlag
 	}
 	if sshAgent {
 		cfg.SSHAgent = true
@@ -424,6 +439,20 @@ func mergeConfigFile(path string, cfg *Config, restricted bool) error {
 	var fileCfg Config
 	if _, err := toml.DecodeFile(path, &fileCfg); err != nil {
 		return err
+	}
+
+	// Validate shell for all config files
+	if fileCfg.Shell != "" {
+		if err := validateShell(fileCfg.Shell); err != nil {
+			if restricted {
+				// Project config: warn and ignore (security boundary)
+				warn("Project config requests unsupported shell %q (allowed: bash, fish); using default. To set shell, use global config or --shell flag", fileCfg.Shell)
+				fileCfg.Shell = ""
+			} else {
+				// Global config: hard error (user's own config)
+				return fmt.Errorf("invalid shell in %s: %w", path, err)
+			}
+		}
 	}
 
 	if restricted {
@@ -537,6 +566,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Image != "" {
 		dst.Image = src.Image
 	}
+	if src.Shell != "" {
+		dst.Shell = src.Shell
+	}
 	if len(src.Mounts) > 0 {
 		dst.Mounts = append([]string{}, src.Mounts...)
 	}
@@ -568,7 +600,21 @@ func mergeConfig(dst *Config, src Config) {
 
 func runShell(cfg Config) error {
 	printActiveConfig(cfg)
-	return runCommand(cfg, []string{"bash"}, true)
+
+	res := resolveShell(cfg, os.Getenv("SHELL"))
+
+	// Print informational message based on how shell was resolved
+	if res.detected {
+		info("Using %s shell (detected from $SHELL)", res.shell)
+	} else if res.unsupported != "" {
+		warn("Host shell %q is not supported (allowed: bash, fish); using bash", res.unsupported)
+	}
+
+	err := runCommand(cfg, []string{res.shell}, true)
+	if err != nil {
+		return fmt.Errorf("failed to start %s shell (verify with: yolobox run %s --version): %w", res.shell, res.shell, err)
+	}
+	return nil
 }
 
 func printActiveConfig(cfg Config) {
@@ -596,6 +642,10 @@ func printActiveConfig(cfg Config) {
 	}
 	if cfg.GitConfig {
 		active = append(active, "git-config")
+	}
+	// Show shell only if explicitly configured (auto-detected shells are shown via info message)
+	if cfg.Shell != "" && cfg.Shell != "bash" {
+		active = append(active, fmt.Sprintf("shell=%s", cfg.Shell))
 	}
 	if len(cfg.Mounts) > 0 {
 		active = append(active, fmt.Sprintf("%d extra mount(s)", len(cfg.Mounts)))
@@ -640,6 +690,7 @@ func printConfig(cfg Config) error {
 	}
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
+	fmt.Printf("%sshell:%s %s\n", colorBold, colorReset, resolveShell(cfg, os.Getenv("SHELL")))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
@@ -994,6 +1045,57 @@ func checkDockerMemory(runtime string) {
 		warn("Docker has only %.1fGB RAM. Claude Code may get OOM killed.", memGB)
 		warn("Increase Docker/Colima memory to 4GB+ for best results.")
 	}
+}
+
+// validShells is the whitelist of allowed shell values
+var validShells = map[string]bool{"bash": true, "fish": true}
+
+// validateShell checks if the shell is supported
+func validateShell(shell string) error {
+	if shell == "" {
+		return nil // Empty means use default (bash)
+	}
+	if !validShells[shell] {
+		return fmt.Errorf("unsupported shell %q (supported: bash, fish)", shell)
+	}
+	return nil
+}
+
+type shellResolution struct {
+	shell       string // always valid: "bash" or "fish"
+	detected    bool   // true if auto-detected from $SHELL
+	unsupported string // e.g. "zsh" if $SHELL was set but rejected
+}
+
+func resolveShell(cfg Config, shellEnv string) shellResolution {
+	// If shell is explicitly configured, use it (already validated by parseBaseFlags/mergeConfigFile)
+	if cfg.Shell != "" {
+		return shellResolution{shell: cfg.Shell}
+	}
+
+	// Try to auto-detect from shellEnv (typically $SHELL environment variable)
+	if shellEnv != "" {
+		name := filepath.Base(shellEnv)
+		if validShells[name] {
+			return shellResolution{shell: name, detected: true}
+		}
+		return shellResolution{shell: "bash", unsupported: name}
+	}
+
+	return shellResolution{shell: "bash"}
+}
+
+func (r shellResolution) String() string {
+	if r.detected {
+		return r.shell + " (detected from $SHELL)"
+	}
+	if r.unsupported != "" {
+		return "bash (default - " + r.unsupported + " not supported)"
+	}
+	if r.shell != "bash" {
+		return r.shell
+	}
+	return "bash (default)"
 }
 
 func execCommand(bin string, args []string) error {
