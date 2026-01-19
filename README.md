@@ -46,43 +46,12 @@ yolobox claude    # Let it rip
 
 Or use any other AI tool: `yolobox codex`, `yolobox gemini`, `yolobox copilot`.
 
-## AI CLIs Run in YOLO Mode
+## Runtime Support
 
-Inside yolobox, the AI CLIs are aliased to skip all permission prompts:
+- **macOS**: Docker Desktop, OrbStack, or Colima
+- **Linux**: Docker or Podman
 
-| Command | Expands to |
-|---------|------------|
-| `claude` | `claude --dangerously-skip-permissions` |
-| `codex` | `codex --dangerously-bypass-approvals-and-sandbox` |
-| `gemini` | `gemini --yolo` |
-| `opencode` | `opencode` (no yolo flag available yet) |
-| `copilot` | `copilot --yolo` |
-
-No confirmations, no guardrails—just pure unfiltered AI, the way nature intended.
-
-## Philosophy: It's the AI's Box, Not Yours
-
-yolobox is designed for AI agents, not humans. The typical workflow is:
-
-```bash
-yolobox claude    # Launch Claude Code in the sandbox
-yolobox codex     # Or Codex, or any other AI tool
-```
-
-That's it. You launch the AI and let it work. You're not meant to manually enter the box and set things up—the AI does that itself.
-
-**Why?** The AI agent has full sudo access inside the container. If it needs a compiler, database, or framework—it just installs it. Named volumes persist these installations across sessions, so setup happens once. You point it at your project and let it cook.
-
-## What's in the Box?
-
-The base image comes batteries-included:
-- **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex, OpenCode, Copilot (all pre-configured for full-auto mode!)
-- **Runtimes**: Node.js 22, Python 3, Go, Bun
-- **Build tools**: make, cmake, gcc
-- **Git** + **GitHub CLI**
-- **Common utilities**: ripgrep, fd, fzf, jq, vim
-
-Need something else? The AI has sudo.
+> **Memory:** Claude Code needs **4GB+ RAM** allocated to Docker. Colima defaults to 2GB which will cause OOM kills. Increase with: `colima stop && colima start --memory 8`
 
 ## Commands
 
@@ -121,15 +90,6 @@ yolobox help                # Show help
 | `--claude-config` | Copy host `~/.claude` config into container |
 | `--git-config` | Copy host `~/.gitconfig` into container |
 
-## Auto-Forwarded Environment Variables
-
-These are automatically passed into the container if set:
-- `ANTHROPIC_API_KEY`
-- `OPENAI_API_KEY`
-- `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`
-- `OPENROUTER_API_KEY`
-- `GEMINI_API_KEY`
-
 ## Configuration
 
 Run `yolobox setup` to configure your preferences with an interactive wizard.
@@ -155,12 +115,52 @@ Priority: CLI flags > project config > global config > defaults.
 
 > **Note:** Setting `claude_config = true` in your config will copy your host Claude config on **every** container start, overwriting any changes made inside the container (including auth and history). Prefer using `--claude-config` for one-time syncs.
 
-## Runtime Support
+### Auto-Forwarded Environment Variables
 
-- **macOS**: Docker Desktop, OrbStack, or Colima
-- **Linux**: Docker or Podman
+These are automatically passed into the container if set:
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+- `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`
+- `OPENROUTER_API_KEY`
+- `GEMINI_API_KEY`
 
-> **Memory:** Claude Code needs **4GB+ RAM** allocated to Docker. Colima defaults to 2GB which will cause OOM kills. Increase with: `colima stop && colima start --memory 8`
+## What's in the Box?
+
+The base image comes batteries-included:
+- **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex, OpenCode, Copilot (all pre-configured for full-auto mode!)
+- **Runtimes**: Node.js 22, Python 3, Go, Bun
+- **Build tools**: make, cmake, gcc
+- **Git** + **GitHub CLI**
+- **Common utilities**: ripgrep, fd, fzf, jq, vim
+
+Need something else? The AI has sudo.
+
+### AI CLIs Run in YOLO Mode
+
+Inside yolobox, the AI CLIs are aliased to skip all permission prompts:
+
+| Command | Expands to |
+|---------|------------|
+| `claude` | `claude --dangerously-skip-permissions` |
+| `codex` | `codex --dangerously-bypass-approvals-and-sandbox` |
+| `gemini` | `gemini --yolo` |
+| `opencode` | `opencode` (no yolo flag available yet) |
+| `copilot` | `copilot --yolo` |
+
+No confirmations, no guardrails—just pure unfiltered AI, the way nature intended.
+
+## Philosophy: It's the AI's Box, Not Yours
+
+yolobox is designed for AI agents, not humans. The typical workflow is:
+
+```bash
+yolobox claude    # Launch Claude Code in the sandbox
+yolobox codex     # Or Codex, or any other AI tool
+```
+
+That's it. You launch the AI and let it work. You're not meant to manually enter the box and set things up—the AI does that itself.
+
+**Why?** The AI agent has full sudo access inside the container. If it needs a compiler, database, or framework—it just installs it. Named volumes persist these installations across sessions, so setup happens once. You point it at your project and let it cook.
 
 ## Security Model
 
@@ -271,10 +271,6 @@ echo 'image = "my-yolobox:latest"' > ~/.config/yolobox/config.toml
 ```
 
 Using a custom image name means `yolobox upgrade` won't overwrite your customization. When you update your Dockerfile, just rebuild with the same command.
-
-## Why "yolobox"?
-
-Because you want to tell your AI agent "just do it" without consequences. YOLO, but in a box.
 
 ## Development
 
