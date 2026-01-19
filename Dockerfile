@@ -370,6 +370,13 @@ RUN mkdir -p /host-claude /host-git && \
     '    chown yolo:yolo "$CLAUDE_JSON"' \
     'fi' \
     '' \
+    '# Create minimal .zshrc if missing (suppresses zsh-newuser-install wizard)' \
+    'if [ ! -f /home/yolo/.zshrc ]; then' \
+    '    echo "# yolobox zshrc - sources system config" > /home/yolo/.zshrc' \
+    '    echo "source /etc/zsh/zshrc" >> /home/yolo/.zshrc' \
+    '    chown yolo:yolo /home/yolo/.zshrc' \
+    'fi' \
+    '' \
     'exec "$@"' \
     > /usr/local/bin/yolobox-entrypoint.sh && \
     chmod +x /usr/local/bin/yolobox-entrypoint.sh
