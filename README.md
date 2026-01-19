@@ -137,7 +137,6 @@ Run `yolobox setup` to configure your preferences with an interactive wizard.
 Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
-shell = "fish"
 git_config = true
 ssh_agent = true
 no_network = true

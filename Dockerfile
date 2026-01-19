@@ -21,8 +21,6 @@ ENV LC_ALL=C.UTF-8
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Essentials
     bash \
-    fish \
-    zsh \
     ca-certificates \
     curl \
     wget \
@@ -126,74 +124,6 @@ RUN echo 'PS1="\\[\\033[35m\\]yolo\\[\\033[0m\\]:\\[\\033[36m\\]\\w\\[\\033[0m\\
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
     && echo 'alias yeet="rm -rf"' >> ~/.bashrc
 
-# Fish config (in /etc/ since fish doesn't have the skeleton PS1 issue)
-USER root
-RUN mkdir -p /etc/fish/conf.d && \
-    printf '%s\n' \
-    '# yolobox fish configuration' \
-    '# Disable default greeting' \
-    'set -g fish_greeting ""' \
-    '' \
-    '# Custom prompt matching yolo theme' \
-    'function fish_prompt' \
-    '    set_color magenta' \
-    '    echo -n "yolo"' \
-    '    set_color normal' \
-    '    echo -n ":"' \
-    '    set_color cyan' \
-    '    echo -n (prompt_pwd)' \
-    '    set_color normal' \
-    '    echo -n " 🎲 "' \
-    'end' \
-    '' \
-    '# Aliases (same as bash)' \
-    'alias ll "ls -la"' \
-    'alias la "ls -A"' \
-    'alias l "ls -CF"' \
-    'alias yeet "rm -rf"' \
-    '' \
-    '# Welcome message (interactive only)' \
-    'if status is-interactive' \
-    '    echo ""' \
-    '    set_color --bold magenta' \
-    '    echo "  Welcome to yolobox!"' \
-    '    set_color normal' \
-    '    set_color yellow' \
-    '    echo "  Your home directory is safe. Go wild."' \
-    '    set_color normal' \
-    '    echo ""' \
-    'end' \
-    > /etc/fish/conf.d/yolobox.fish
-
-# Verify fish configuration is valid
-RUN fish -c 'source /etc/fish/conf.d/yolobox.fish'
-
-# Zsh config (in /etc/zsh/zshrc for system-wide sourcing)
-RUN mkdir -p /etc/zsh && \
-    printf '%s\n' \
-    '# yolobox zsh configuration' \
-    '' \
-    '# Custom prompt matching yolo theme' \
-    'PROMPT="%F{magenta}yolo%f:%F{cyan}%~%f 🎲 "' \
-    '' \
-    '# Aliases (same as bash/fish)' \
-    'alias ll="ls -la"' \
-    'alias la="ls -A"' \
-    'alias l="ls -CF"' \
-    'alias yeet="rm -rf"' \
-    '' \
-    '# Welcome message (interactive only)' \
-    'if [[ -o interactive ]]; then' \
-    '    echo ""' \
-    '    print -P "%B%F{magenta}  Welcome to yolobox!%f%b"' \
-    '    print -P "%F{yellow}  Your home directory is safe. Go wild.%f"' \
-    '    echo ""' \
-    'fi' \
-    > /etc/zsh/zshrc
-
-# Verify zsh configuration is valid
-RUN zsh -c 'source /etc/zsh/zshrc'
-
 # Install Ghostty terminfo (not in Ubuntu's ncurses yet, needs 6.5+)
 # Prevents "Could not set up terminal" warnings when TERM=xterm-ghostty
 COPY ghostty.terminfo /tmp/ghostty.terminfo
@@ -288,13 +218,6 @@ RUN mkdir -p /host-claude /host-git && \
     '    TMP=$(mktemp)' \
     '    jq '"'"'.projects["/workspace"] = (.projects["/workspace"] // {}) + {"hasTrustDialogAccepted": true}'"'"' "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON"' \
     '    chown yolo:yolo "$CLAUDE_JSON"' \
-    'fi' \
-    '' \
-    '# Create minimal .zshrc if missing (suppresses zsh-newuser-install wizard)' \
-    'if [ ! -f /home/yolo/.zshrc ]; then' \
-    '    echo "# yolobox zshrc - sources system config" > /home/yolo/.zshrc' \
-    '    echo "source /etc/zsh/zshrc" >> /home/yolo/.zshrc' \
-    '    chown yolo:yolo /home/yolo/.zshrc' \
     'fi' \
     '' \
     'exec "$@"' \

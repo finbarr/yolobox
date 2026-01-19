@@ -69,7 +69,6 @@ var toolShortcuts = []string{
 type Config struct {
 	Runtime         string   `toml:"runtime"`
 	Image           string   `toml:"image"`
-	Shell           string   `toml:"shell"`
 	Mounts          []string `toml:"mounts"`
 	Env             []string `toml:"env"`
 	SSHAgent        bool     `toml:"ssh_agent"`
@@ -306,8 +305,6 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker or podman")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
-	fmt.Fprintln(os.Stderr, "  --shell <name>        Shell for interactive sessions (bash, fish, zsh)")
-	fmt.Fprintln(os.Stderr, "                        Auto-detects from $SHELL if not specified")
 	fmt.Fprintln(os.Stderr, "  --setup               Run interactive setup before starting")
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
@@ -352,7 +349,6 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	var (
 		runtimeFlag     string
 		imageFlag       string
-		shellFlag       string
 		sshAgent        bool
 		readonlyProject bool
 		noNetwork       bool
@@ -367,7 +363,6 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
-	fs.StringVar(&shellFlag, "shell", "", "shell for interactive sessions (bash, fish, zsh)")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
@@ -392,12 +387,6 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if imageFlag != "" {
 		cfg.Image = imageFlag
-	}
-	if shellFlag != "" {
-		if err := validateShell(shellFlag); err != nil {
-			return Config{}, nil, err
-		}
-		cfg.Shell = shellFlag
 	}
 	if sshAgent {
 		cfg.SSHAgent = true
@@ -482,13 +471,6 @@ func mergeConfigFile(path string, cfg *Config) error {
 		return err
 	}
 
-	// Validate shell
-	if fileCfg.Shell != "" {
-		if err := validateShell(fileCfg.Shell); err != nil {
-			return fmt.Errorf("invalid shell in %s: %w", path, err)
-		}
-	}
-
 	mergeConfig(cfg, fileCfg)
 	return nil
 }
@@ -499,9 +481,6 @@ func mergeConfig(dst *Config, src Config) {
 	}
 	if src.Image != "" {
 		dst.Image = src.Image
-	}
-	if src.Shell != "" {
-		dst.Shell = src.Shell
 	}
 	if len(src.Mounts) > 0 {
 		dst.Mounts = append([]string{}, src.Mounts...)
@@ -545,9 +524,6 @@ func runShell(cfg Config) error {
 			}
 		} else {
 			// Merge setup results into config (preserving any CLI overrides)
-			if cfg.Shell == "" {
-				cfg.Shell = newCfg.Shell
-			}
 			if !cfg.GitConfig {
 				cfg.GitConfig = newCfg.GitConfig
 			}
@@ -566,18 +542,9 @@ func runShell(cfg Config) error {
 	// Print logo before entering container
 	fmt.Fprint(os.Stderr, colorCyan+logo+colorReset)
 
-	res := resolveShell(cfg, os.Getenv("SHELL"))
-
-	// Print informational message based on how shell was resolved
-	if res.detected {
-		info("Using %s shell (detected from $SHELL)", res.shell)
-	} else if res.unsupported != "" {
-		warn("Host shell %q is not supported (allowed: bash, fish, zsh); using bash", res.unsupported)
-	}
-
-	err := runCommand(cfg, []string{res.shell}, true)
+	err := runCommand(cfg, []string{"bash"}, true)
 	if err != nil {
-		return fmt.Errorf("failed to start %s shell (verify with: yolobox run %s --version): %w", res.shell, res.shell, err)
+		return fmt.Errorf("failed to start shell: %w", err)
 	}
 	return nil
 }
@@ -613,7 +580,6 @@ func printConfig(cfg Config) error {
 	}
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
-	fmt.Printf("%sshell:%s %s\n", colorBold, colorReset, resolveShell(cfg, os.Getenv("SHELL")))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
@@ -662,9 +628,6 @@ func saveGlobalConfig(cfg Config) error {
 
 	// Build TOML content (only non-default values)
 	var lines []string
-	if cfg.Shell != "" {
-		lines = append(lines, fmt.Sprintf("shell = %q", cfg.Shell))
-	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")
 	}
@@ -729,25 +692,10 @@ func runSetup() (Config, error) {
 		}
 	}
 
-	// Determine default shell from $SHELL if not set
-	if cfg.Shell == "" {
-		if shellEnv := os.Getenv("SHELL"); shellEnv != "" {
-			name := filepath.Base(shellEnv)
-			if validShells[name] {
-				cfg.Shell = name
-			}
-		}
-		if cfg.Shell == "" {
-			cfg.Shell = "bash"
-		}
-	}
-
 	// Form fields
-	var shell string
 	var selectedOptions []string
 
 	// Initialize from current config
-	shell = cfg.Shell
 	if cfg.GitConfig {
 		selectedOptions = append(selectedOptions, "git_config")
 	}
@@ -775,15 +723,6 @@ func runSetup() (Config, error) {
 
 	form := huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().
-				Title("Pick your shell").
-				Options(
-					huh.NewOption("bash", "bash"),
-					huh.NewOption("fish", "fish"),
-					huh.NewOption("zsh", "zsh"),
-				).
-				Value(&shell),
-
 			huh.NewMultiSelect[string]().
 				Title("What do you want inside the box?").
 				Options(
@@ -805,7 +744,6 @@ func runSetup() (Config, error) {
 	}
 
 	// Build config from form values
-	cfg.Shell = shell
 	cfg.GitConfig = contains(selectedOptions, "git_config")
 	cfg.SSHAgent = contains(selectedOptions, "ssh_agent")
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
@@ -1169,57 +1107,6 @@ func checkDockerMemory(runtime string) {
 		warn("Docker has only %.1fGB RAM. Claude Code may get OOM killed.", memGB)
 		warn("Increase Docker/Colima memory to 4GB+ for best results.")
 	}
-}
-
-// validShells is the whitelist of allowed shell values
-var validShells = map[string]bool{"bash": true, "fish": true, "zsh": true}
-
-// validateShell checks if the shell is supported
-func validateShell(shell string) error {
-	if shell == "" {
-		return nil // Empty means use default (bash)
-	}
-	if !validShells[shell] {
-		return fmt.Errorf("unsupported shell %q (supported: bash, fish, zsh)", shell)
-	}
-	return nil
-}
-
-type shellResolution struct {
-	shell       string // always valid: "bash", "fish", or "zsh"
-	detected    bool   // true if auto-detected from $SHELL
-	unsupported string // e.g. "tcsh" if $SHELL was set but rejected
-}
-
-func resolveShell(cfg Config, shellEnv string) shellResolution {
-	// If shell is explicitly configured, use it (already validated by parseBaseFlags/mergeConfigFile)
-	if cfg.Shell != "" {
-		return shellResolution{shell: cfg.Shell}
-	}
-
-	// Try to auto-detect from shellEnv (typically $SHELL environment variable)
-	if shellEnv != "" {
-		name := filepath.Base(shellEnv)
-		if validShells[name] {
-			return shellResolution{shell: name, detected: true}
-		}
-		return shellResolution{shell: "bash", unsupported: name}
-	}
-
-	return shellResolution{shell: "bash"}
-}
-
-func (r shellResolution) String() string {
-	if r.detected {
-		return r.shell + " (detected from $SHELL)"
-	}
-	if r.unsupported != "" {
-		return "bash (default - " + r.unsupported + " not supported)"
-	}
-	if r.shell != "bash" {
-		return r.shell
-	}
-	return "bash (default)"
 }
 
 func execCommand(bin string, args []string) error {
