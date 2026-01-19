@@ -363,7 +363,7 @@ func TestValidateShell(t *testing.T) {
 		{"", false},              // empty is valid (resolved to default elsewhere)
 		{"bash", false},          // valid
 		{"fish", false},          // valid
-		{"zsh", true},            // not supported
+		{"zsh", false},           // valid
 		{"sh", true},             // not in whitelist
 		{"/bin/fish", true},      // absolute path rejected
 		{"bash -c id", true},     // injection attempt
@@ -421,7 +421,7 @@ func TestParseBaseFlagsShell(t *testing.T) {
 }
 
 func TestParseBaseFlagsInvalidShell(t *testing.T) {
-	_, _, err := parseBaseFlags("run", []string{"--shell", "zsh"}, t.TempDir())
+	_, _, err := parseBaseFlags("run", []string{"--shell", "tcsh"}, t.TempDir())
 	if err == nil {
 		t.Error("expected error for invalid shell")
 	}
@@ -436,7 +436,7 @@ func TestMergeConfigFileInvalidShell(t *testing.T) {
 	configPath := filepath.Join(tmpDir, "config.toml")
 
 	// Write invalid shell to config
-	if err := os.WriteFile(configPath, []byte(`shell = "zsh"`), 0644); err != nil {
+	if err := os.WriteFile(configPath, []byte(`shell = "tcsh"`), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -509,14 +509,18 @@ func TestResolveShell(t *testing.T) {
 		{"detect bash", "", "/bin/bash", "bash", true, ""},
 		{"detect fish", "", "/usr/bin/fish", "fish", true, ""},
 		{"detect fish custom path", "", "/opt/homebrew/bin/fish", "fish", true, ""},
+		{"detect zsh", "", "/bin/zsh", "zsh", true, ""},
+		{"detect zsh usr", "", "/usr/bin/zsh", "zsh", true, ""},
 		// No config, invalid $SHELL -> unsupported
-		{"zsh unsupported", "", "/bin/zsh", "bash", false, "zsh"},
 		{"sh unsupported", "", "/bin/sh", "bash", false, "sh"},
 		{"tcsh unsupported", "", "/bin/tcsh", "bash", false, "tcsh"},
+		{"csh unsupported", "", "/bin/csh", "bash", false, "csh"},
 		// Explicit config overrides everything
 		{"config bash ignores env", "bash", "/usr/bin/fish", "bash", false, ""},
 		{"config fish ignores env", "fish", "/bin/bash", "fish", false, ""},
 		{"config fish no env", "fish", "", "fish", false, ""},
+		{"config zsh ignores env", "zsh", "/bin/bash", "zsh", false, ""},
+		{"config zsh no env", "zsh", "", "zsh", false, ""},
 		// Edge cases for $SHELL parsing
 		{"trailing slash", "", "/usr/bin/fish/", "fish", true, ""},
 		{"double slash", "", "/usr/bin//fish", "fish", true, ""},
@@ -549,7 +553,7 @@ func TestShellResolutionString(t *testing.T) {
 	}{
 		{"detected fish", shellResolution{shell: "fish", detected: true}, "fish (detected from $SHELL)"},
 		{"detected bash", shellResolution{shell: "bash", detected: true}, "bash (detected from $SHELL)"},
-		{"unsupported zsh", shellResolution{shell: "bash", unsupported: "zsh"}, "bash (default - zsh not supported)"},
+		{"unsupported tcsh", shellResolution{shell: "bash", unsupported: "tcsh"}, "bash (default - tcsh not supported)"},
 		{"explicit fish", shellResolution{shell: "fish"}, "fish"},
 		{"default bash", shellResolution{shell: "bash"}, "bash (default)"},
 	}

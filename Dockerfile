@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Essentials
     bash \
     fish \
+    zsh \
     ca-certificates \
     curl \
     wget \
@@ -166,6 +167,32 @@ RUN mkdir -p /etc/fish/conf.d && \
 
 # Verify fish configuration is valid
 RUN fish -c 'source /etc/fish/conf.d/yolobox.fish'
+
+# Zsh config (in /etc/zsh/zshrc for system-wide sourcing)
+RUN mkdir -p /etc/zsh && \
+    printf '%s\n' \
+    '# yolobox zsh configuration' \
+    '' \
+    '# Custom prompt matching yolo theme' \
+    'PROMPT="%F{magenta}yolo%f:%F{cyan}%~%f 🎲 "' \
+    '' \
+    '# Aliases (same as bash/fish)' \
+    'alias ll="ls -la"' \
+    'alias la="ls -A"' \
+    'alias l="ls -CF"' \
+    'alias yeet="rm -rf"' \
+    '' \
+    '# Welcome message (interactive only)' \
+    'if [[ -o interactive ]]; then' \
+    '    echo ""' \
+    '    print -P "%B%F{magenta}  Welcome to yolobox!%f%b"' \
+    '    print -P "%F{yellow}  Your home directory is safe. Go wild.%f"' \
+    '    echo ""' \
+    'fi' \
+    > /etc/zsh/zshrc
+
+# Verify zsh configuration is valid
+RUN zsh -c 'source /etc/zsh/zshrc'
 
 # Install Ghostty terminfo (not in Ubuntu's ncurses yet, needs 6.5+)
 # Prevents "Could not set up terminal" warnings when TERM=xterm-ghostty

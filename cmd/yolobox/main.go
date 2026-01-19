@@ -271,7 +271,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker or podman")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
-	fmt.Fprintln(os.Stderr, "  --shell <name>        Shell for interactive sessions (bash, fish)")
+	fmt.Fprintln(os.Stderr, "  --shell <name>        Shell for interactive sessions (bash, fish, zsh)")
 	fmt.Fprintln(os.Stderr, "                        Auto-detects from $SHELL if not specified")
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
@@ -330,7 +330,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
-	fs.StringVar(&shellFlag, "shell", "", "shell for interactive sessions (bash, fish)")
+	fs.StringVar(&shellFlag, "shell", "", "shell for interactive sessions (bash, fish, zsh)")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
@@ -500,7 +500,7 @@ func runShell(cfg Config) error {
 	if res.detected {
 		info("Using %s shell (detected from $SHELL)", res.shell)
 	} else if res.unsupported != "" {
-		warn("Host shell %q is not supported (allowed: bash, fish); using bash", res.unsupported)
+		warn("Host shell %q is not supported (allowed: bash, fish, zsh); using bash", res.unsupported)
 	}
 
 	err := runCommand(cfg, []string{res.shell}, true)
@@ -941,7 +941,7 @@ func checkDockerMemory(runtime string) {
 }
 
 // validShells is the whitelist of allowed shell values
-var validShells = map[string]bool{"bash": true, "fish": true}
+var validShells = map[string]bool{"bash": true, "fish": true, "zsh": true}
 
 // validateShell checks if the shell is supported
 func validateShell(shell string) error {
@@ -949,15 +949,15 @@ func validateShell(shell string) error {
 		return nil // Empty means use default (bash)
 	}
 	if !validShells[shell] {
-		return fmt.Errorf("unsupported shell %q (supported: bash, fish)", shell)
+		return fmt.Errorf("unsupported shell %q (supported: bash, fish, zsh)", shell)
 	}
 	return nil
 }
 
 type shellResolution struct {
-	shell       string // always valid: "bash" or "fish"
+	shell       string // always valid: "bash", "fish", or "zsh"
 	detected    bool   // true if auto-detected from $SHELL
-	unsupported string // e.g. "zsh" if $SHELL was set but rejected
+	unsupported string // e.g. "tcsh" if $SHELL was set but rejected
 }
 
 func resolveShell(cfg Config, shellEnv string) shellResolution {
