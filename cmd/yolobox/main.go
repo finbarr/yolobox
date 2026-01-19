@@ -57,6 +57,15 @@ var autoPassthroughEnvVars = []string{
 	"GEMINI_API_KEY",
 }
 
+// Tool shortcuts - these become direct subcommands (e.g., "yolobox claude")
+var toolShortcuts = []string{
+	"claude",
+	"codex",
+	"gemini",
+	"opencode",
+	"copilot",
+}
+
 type Config struct {
 	Runtime         string   `toml:"runtime"`
 	Image           string   `toml:"image"`
@@ -254,6 +263,16 @@ func runCmd() error {
 		printUsage()
 		return errHelp
 	default:
+		// Check if it's a tool shortcut (e.g., "yolobox claude", "yolobox codex")
+		if isToolShortcut(args[0]) {
+			cfg, rest, err := parseBaseFlags(args[0], args[1:], projectDir)
+			if err != nil {
+				return err
+			}
+			// Build command: tool name + any remaining args
+			command := append([]string{args[0]}, rest...)
+			return runCommand(cfg, command, false)
+		}
 		return fmt.Errorf("unknown command: %s (try 'yolobox help')", args[0])
 	}
 }
@@ -276,6 +295,11 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
 	fmt.Fprintln(os.Stderr, "  yolobox version             Show version info")
 	fmt.Fprintln(os.Stderr, "  yolobox help                Show this help")
+	fmt.Fprintln(os.Stderr, "")
+	fmt.Fprintf(os.Stderr, "%sTOOL SHORTCUTS:%s\n", colorBold, colorReset)
+	for _, tool := range toolShortcuts {
+		fmt.Fprintf(os.Stderr, "  yolobox %-20sRun %s in sandbox\n", tool, tool)
+	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker or podman")
@@ -805,6 +829,11 @@ func contains(slice []string, val string) bool {
 		}
 	}
 	return false
+}
+
+// isToolShortcut checks if a command is a tool shortcut
+func isToolShortcut(cmd string) bool {
+	return contains(toolShortcuts, cmd)
 }
 
 func resetVolumes(args []string) error {

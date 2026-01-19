@@ -567,3 +567,28 @@ func TestShellResolutionString(t *testing.T) {
 		})
 	}
 }
+
+func TestToolShortcuts(t *testing.T) {
+	// Check that expected tools are shortcuts
+	expected := []string{
+		"claude",
+		"codex",
+		"gemini",
+		"opencode",
+		"copilot",
+	}
+
+	for _, tool := range expected {
+		if !isToolShortcut(tool) {
+			t.Errorf("expected %s to be a tool shortcut", tool)
+		}
+	}
+
+	// Check that non-tools are not shortcuts
+	nonTools := []string{"run", "help", "version", "setup", "foo"}
+	for _, cmd := range nonTools {
+		if isToolShortcut(cmd) {
+			t.Errorf("expected %s NOT to be a tool shortcut", cmd)
+		}
+	}
+}
