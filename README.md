@@ -25,21 +25,6 @@ AI coding agents are incredibly powerful when you let them run commands without 
 
 The AI can go absolutely wild inside the sandbox. Your actual home directory? Untouchable.
 
-## Philosophy: It's the AI's Box, Not Yours
-
-yolobox is designed for AI agents, not humans. The typical workflow is:
-
-```bash
-yolobox claude    # Launch Claude Code in the sandbox
-yolobox codex     # Or Codex, or any other AI tool
-```
-
-That's it. You launch the AI and let it work. You're not meant to manually enter the box and set things up—the AI does that itself.
-
-**Why?** The AI agent has full sudo access inside the container. If it needs Rust, it runs `curl -fsSL https://sh.rustup.rs | sh`. If it needs a specific Python package, it installs it. Named volumes persist these installations across sessions, so the AI only sets up once.
-
-This is intentional. Each AI agent can make the box exactly what it needs for the current project. The base image stays lean (Node, Python, Bun, common tools), and the AI handles the rest. You just point it at your project and let it cook.
-
 ## Quick Start
 
 ```bash
@@ -60,6 +45,21 @@ yolobox claude    # Let it rip
 ```
 
 Or use any other AI tool: `yolobox codex`, `yolobox gemini`, `yolobox copilot`.
+
+## Philosophy: It's the AI's Box, Not Yours
+
+yolobox is designed for AI agents, not humans. The typical workflow is:
+
+```bash
+yolobox claude    # Launch Claude Code in the sandbox
+yolobox codex     # Or Codex, or any other AI tool
+```
+
+That's it. You launch the AI and let it work. You're not meant to manually enter the box and set things up—the AI does that itself.
+
+**Why?** The AI agent has full sudo access inside the container. If it needs Rust, it runs `curl -fsSL https://sh.rustup.rs | sh`. If it needs a specific Python package, it installs it. Named volumes persist these installations across sessions, so the AI only sets up once.
+
+This is intentional. Each AI agent can make the box exactly what it needs for the current project. The base image stays lean (Node, Python, Bun, common tools), and the AI handles the rest. You just point it at your project and let it cook.
 
 ## What's in the Box?
 
