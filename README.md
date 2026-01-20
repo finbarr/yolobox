@@ -28,13 +28,11 @@ The AI can go absolutely wild inside the sandbox. Your actual home directory? Un
 ## Quick Start
 
 ```bash
-# Install (requires Go)
-curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
+# Install via Homebrew (macOS/Linux)
+brew install finbarr/tap/yolobox
 
-# Or clone and build
-git clone https://github.com/finbarr/yolobox.git
-cd yolobox
-make install
+# Or install via script (requires Go)
+curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 ```
 
 Then from any project:
