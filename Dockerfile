@@ -96,12 +96,6 @@ ENV PATH="/usr/local/go/bin:$PATH"
 # Install uv (fast Python package manager)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
-# Install Ghostty terminfo (not in Ubuntu's ncurses yet, needs 6.5+)
-# Prevents "Could not set up terminal" warnings when TERM=xterm-ghostty
-# Must be done as root to install to system terminfo directory
-COPY ghostty.terminfo /tmp/ghostty.terminfo
-RUN tic -x -o /usr/share/terminfo /tmp/ghostty.terminfo && rm /tmp/ghostty.terminfo
-
 # Create yolo user with passwordless sudo
 RUN useradd -m -s /bin/bash yolo \
     && echo "yolo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/yolo \
@@ -130,9 +124,13 @@ RUN echo 'PS1="\\[\\033[35m\\]yolo\\[\\033[0m\\]:\\[\\033[36m\\]\\w\\[\\033[0m\\
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
     && echo 'alias yeet="rm -rf"' >> ~/.bashrc
 
+# Install Ghostty terminfo (not in Ubuntu's ncurses yet, needs 6.5+)
+# Prevents "Could not set up terminal" warnings when TERM=xterm-ghostty
+COPY ghostty.terminfo /tmp/ghostty.terminfo
+RUN tic -x /tmp/ghostty.terminfo && rm /tmp/ghostty.terminfo
+
 # AI CLI wrappers in yolo mode - these find the real binary dynamically,
 # so they survive updates (npm update -g, claude upgrade, etc.)
-USER root
 RUN mkdir -p /opt/yolobox/bin
 
 # Generic wrapper template that finds real binary by excluding wrapper dir from PATH

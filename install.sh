@@ -69,37 +69,21 @@ download_binary() {
   local platform="$1"
   local version="$2"
   local bindir="$3"
-
-  # Try tar.gz archive first (GoReleaser format), then fall back to raw binary (legacy)
-  local archive_url="https://github.com/${REPO}/releases/download/${version}/yolobox-${platform}.tar.gz"
-  local binary_url="https://github.com/${REPO}/releases/download/${version}/yolobox-${platform}"
+  local url="https://github.com/${REPO}/releases/download/${version}/yolobox-${platform}"
 
   info "Downloading yolobox ${version} for ${platform}..."
 
-  local tmpdir
-  tmpdir="$(mktemp -d)"
-
-  # Try archive format first
-  if curl -fsSL "$archive_url" -o "$tmpdir/yolobox.tar.gz" 2>/dev/null; then
-    tar -xzf "$tmpdir/yolobox.tar.gz" -C "$tmpdir"
-    if [ -f "$tmpdir/yolobox" ]; then
-      mkdir -p "$bindir"
-      install -m 0755 "$tmpdir/yolobox" "$bindir/yolobox"
-      rm -rf "$tmpdir"
-      return 0
-    fi
-  fi
-
-  # Fall back to raw binary (legacy releases)
-  if curl -fsSL "$binary_url" -o "$tmpdir/yolobox" 2>/dev/null; then
+  local tmp
+  tmp="$(mktemp)"
+  if curl -fsSL "$url" -o "$tmp"; then
     mkdir -p "$bindir"
-    install -m 0755 "$tmpdir/yolobox" "$bindir/yolobox"
-    rm -rf "$tmpdir"
+    install -m 0755 "$tmp" "$bindir/yolobox"
+    rm -f "$tmp"
     return 0
+  else
+    rm -f "$tmp"
+    return 1
   fi
-
-  rm -rf "$tmpdir"
-  return 1
 }
 
 build_from_source() {
