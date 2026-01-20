@@ -58,6 +58,63 @@ jobs:
           draft: false
           prerelease: false
 
+  homebrew:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    needs: release
+    steps:
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+          echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Calculate source tarball sha256
+        id: sha
+        run: |
+          SHA=$(curl -sL "https://github.com/finbarr/yolobox/archive/refs/tags/${{ steps.version.outputs.TAG }}.tar.gz" | sha256sum | cut -d' ' -f1)
+          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Update Homebrew tap
+        env:
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          SHA256: ${{ steps.sha.outputs.SHA256 }}
+        run: |
+          git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/finbarr/homebrew-tap.git
+          cd homebrew-tap
+
+          cat > Formula/yolobox.rb << EOF
+          class Yolobox < Formula
+            desc "Run AI coding agents in a sandboxed container"
+            homepage "https://github.com/finbarr/yolobox"
+            url "https://github.com/finbarr/yolobox/archive/refs/tags/v${VERSION}.tar.gz"
+            sha256 "${SHA256}"
+            license "MIT"
+
+            depends_on "go" => :build
+
+            def install
+              ldflags = "-s -w -X main.Version=\#{version}"
+              system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/yolobox"
+            end
+
+            test do
+              assert_match version.to_s, shell_output("\#{bin}/yolobox version")
+            end
+          end
+          EOF
+
+          # Remove leading whitespace from heredoc
+          sed -i 's/^          //' Formula/yolobox.rb
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/yolobox.rb
+          git commit -m "Update yolobox to v${VERSION}"
+          git push
+
   docker:
     name: Publish Docker Image
     runs-on: ubuntu-latest
