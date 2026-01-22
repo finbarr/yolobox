@@ -10,35 +10,110 @@ permissions:
   packages: write
 
 jobs:
-  release:
-    name: Release
+  build-linux:
+    name: Build Linux Binaries
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
           go-version: '1.22'
 
-      - name: Build binaries
+      - name: Build Linux binaries
         run: |
           VERSION=${GITHUB_REF#refs/tags/}
           LDFLAGS="-X main.Version=$VERSION"
 
-          # Linux amd64
           GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o yolobox-linux-amd64 ./cmd/yolobox
-
-          # Linux arm64
           GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o yolobox-linux-arm64 ./cmd/yolobox
 
-          # macOS amd64 (Intel)
-          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o yolobox-darwin-amd64 ./cmd/yolobox
+      - name: Upload Linux artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-binaries
+          path: yolobox-linux-*
 
-          # macOS arm64 (Apple Silicon)
+  build-macos:
+    name: Build and Sign macOS Binaries
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build macOS binaries
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          LDFLAGS="-X main.Version=$VERSION"
+
+          GOOS=darwin GOARCH=amd64 go build -ldflags "$LDFLAGS" -o yolobox-darwin-amd64 ./cmd/yolobox
           GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o yolobox-darwin-arm64 ./cmd/yolobox
+
+      - name: Import Apple certificate
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          echo "$CERTIFICATE" | base64 -d > cert.p12
+          security create-keychain -p "temp" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "temp" build.keychain
+          security import cert.p12 -k build.keychain -P "$PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "temp" build.keychain
+          rm cert.p12
+
+      - name: Sign macOS binaries
+        env:
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Find the signing identity
+          IDENTITY=$(security find-identity -v -p codesigning build.keychain | grep "Developer ID Application" | head -1 | awk -F'"' '{print $2}')
+          echo "Signing with identity: $IDENTITY"
+
+          codesign --force --options runtime --sign "$IDENTITY" yolobox-darwin-amd64
+          codesign --force --options runtime --sign "$IDENTITY" yolobox-darwin-arm64
+
+          # Verify signatures
+          codesign -vv yolobox-darwin-amd64
+          codesign -vv yolobox-darwin-arm64
+
+      - name: Notarize macOS binaries
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          for bin in yolobox-darwin-amd64 yolobox-darwin-arm64; do
+            echo "Notarizing $bin..."
+            zip "${bin}.zip" "$bin"
+            xcrun notarytool submit "${bin}.zip" \
+              --apple-id "$APPLE_ID" \
+              --password "$APPLE_ID_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --wait
+            rm "${bin}.zip"
+          done
+
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-binaries
+          path: yolobox-darwin-*
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build-linux, build-macos]
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
 
       - name: Create checksums
         run: |
