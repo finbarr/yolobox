@@ -108,8 +108,8 @@ RUN useradd -m -s /bin/bash yolo \
     && chmod 0440 /etc/sudoers.d/yolo
 
 # Set up directories
-RUN mkdir -p /workspace /output /secrets \
-    && chown yolo:yolo /workspace /output
+RUN mkdir -p /output /secrets \
+    && chown yolo:yolo /output
 
 # Copy Claude Code from installer stage
 COPY --from=claude-installer /root/.local/bin/claude /usr/local/bin/claude
@@ -210,6 +210,11 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     '    sudo chown yolo:yolo /home/yolo/.gitconfig' \
     'fi' \
     '' \
+    '# Mark project directory as safe for git (ownership differs from container user)' \
+    'if [ -n "$YOLOBOX_PROJECT_PATH" ]; then' \
+    '    git config --global --add safe.directory "$YOLOBOX_PROJECT_PATH"' \
+    'fi' \
+    '' \
     '# Copy global agent instruction files from host staging area if present' \
     'COPIED_AGENT_INSTRUCTIONS=0' \
     '# Claude: CLAUDE.md' \
@@ -245,16 +250,17 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     '    echo -e "\033[33m→ Copying global agent instructions to container\033[0m" >&2' \
     'fi' \
     '' \
-    '# Auto-trust /workspace for Claude Code (this is yolobox after all)' \
-    'CLAUDE_JSON="/home/yolo/.claude.json"' \
-    'if [ ! -f "$CLAUDE_JSON" ]; then' \
-    '    echo '"'"'{"projects":{}}'"'"' > "$CLAUDE_JSON"' \
-    'fi' \
-    '# Add /workspace as trusted project' \
-    'if command -v jq &> /dev/null; then' \
-    '    TMP=$(mktemp)' \
-    '    jq '"'"'.projects["/workspace"] = (.projects["/workspace"] // {}) + {"hasTrustDialogAccepted": true}'"'"' "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON"' \
-    '    chown yolo:yolo "$CLAUDE_JSON"' \
+    '# Auto-trust project directory for Claude Code (this is yolobox after all)' \
+    'if [ -n "$YOLOBOX_PROJECT_PATH" ]; then' \
+    '    CLAUDE_JSON="/home/yolo/.claude.json"' \
+    '    if [ ! -f "$CLAUDE_JSON" ]; then' \
+    '        echo '"'"'{"projects":{}}'"'"' > "$CLAUDE_JSON"' \
+    '    fi' \
+    '    if command -v jq &> /dev/null; then' \
+    '        TMP=$(mktemp)' \
+    '        jq --arg path "$YOLOBOX_PROJECT_PATH" '"'"'.projects[$path] = (.projects[$path] // {}) + {"hasTrustDialogAccepted": true}'"'"' "$CLAUDE_JSON" > "$TMP" && mv "$TMP" "$CLAUDE_JSON"' \
+    '        chown yolo:yolo "$CLAUDE_JSON"' \
+    '    fi' \
     'fi' \
     '' \
     'exec "$@"' \
@@ -262,7 +268,7 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     chmod +x /usr/local/bin/yolobox-entrypoint.sh
 USER yolo
 
-WORKDIR /workspace
+# Working directory is set by yolobox CLI to the actual project path
 
 ENTRYPOINT ["/usr/local/bin/yolobox-entrypoint.sh"]
 CMD ["bash"]

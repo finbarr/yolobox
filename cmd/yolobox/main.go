@@ -910,8 +910,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		args = append(args, "-it")
 	}
 
-	args = append(args, "-w", "/workspace")
+	args = append(args, "-w", absProject)
 	args = append(args, "-e", "YOLOBOX=1")
+	args = append(args, "-e", "YOLOBOX_PROJECT_PATH="+absProject)
 	if cfg.NoYolo {
 		args = append(args, "-e", "NO_YOLO=1")
 	}
@@ -934,8 +935,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		args = append(args, "-e", env)
 	}
 
-	// Project mount (optionally read-only)
-	projectMount := absProject + ":/workspace"
+	// Project mount at its real host path (for session continuity)
+	// A symlink /workspace -> real path is created by the entrypoint
+	projectMount := absProject + ":" + absProject
 	if cfg.ReadonlyProject {
 		projectMount += ":ro"
 		// Create a writable output directory

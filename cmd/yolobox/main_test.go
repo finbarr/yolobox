@@ -155,11 +155,14 @@ func TestBuildRunArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "-it") {
 		t.Error("expected -it flag for interactive mode")
 	}
-	if !strings.Contains(argsStr, "-w /workspace") {
-		t.Error("expected -w /workspace")
+	if !strings.Contains(argsStr, "-w /test/project") {
+		t.Error("expected -w /test/project (workdir should be actual project path)")
 	}
 	if !strings.Contains(argsStr, "YOLOBOX=1") {
 		t.Error("expected YOLOBOX=1 env var")
+	}
+	if !strings.Contains(argsStr, "YOLOBOX_PROJECT_PATH=/test/project") {
+		t.Error("expected YOLOBOX_PROJECT_PATH env var")
 	}
 	if !strings.Contains(argsStr, "FOO=bar") {
 		t.Error("expected FOO=bar env var")
@@ -226,8 +229,8 @@ func TestBuildRunArgsReadonlyProject(t *testing.T) {
 	}
 
 	argsStr := strings.Join(args, " ")
-	if !strings.Contains(argsStr, "/workspace:ro") {
-		t.Error("expected /workspace:ro for ReadonlyProject")
+	if !strings.Contains(argsStr, "/test/project:/test/project:ro") {
+		t.Error("expected /test/project:/test/project:ro for ReadonlyProject")
 	}
 	if !strings.Contains(argsStr, "yolobox-output:/output") {
 		t.Error("expected yolobox-output volume for ReadonlyProject")
@@ -268,8 +271,8 @@ func TestBuildRunArgsScratch(t *testing.T) {
 	if strings.Contains(argsStr, "yolobox-cache:/var/cache") {
 		t.Error("expected no yolobox-cache volume with Scratch")
 	}
-	// Verify project mount is still present
-	if !strings.Contains(argsStr, "/test/project:/workspace") {
+	// Verify project mount is still present (at real path)
+	if !strings.Contains(argsStr, "/test/project:/test/project") {
 		t.Error("expected project mount to still be present with Scratch")
 	}
 	// Verify no /output volume without ReadonlyProject

@@ -53,7 +53,7 @@ make image
 # 4. Container functionality tests
 ./yolobox run echo "hello"              # Basic execution
 ./yolobox run whoami                    # Should output: yolo
-./yolobox run pwd                       # Should output: /workspace
+./yolobox run pwd                       # Should output: actual project path (e.g., /Users/foo/project)
 
 # 5. Security tests
 ./yolobox run ls /host-home             # Should fail (not mounted)
@@ -79,7 +79,7 @@ make image
 # 7. Flag tests (flags go AFTER subcommand)
 ./yolobox run --env FOO=bar bash -c 'echo $FOO'           # Should output: bar
 ./yolobox run --no-network curl https://google.com        # Should fail
-./yolobox run --readonly-project touch /workspace/x       # Should fail
+./yolobox run --readonly-project touch testfile           # Should fail (project is read-only)
 
 # 8. API key passthrough
 ANTHROPIC_API_KEY=test ./yolobox run printenv ANTHROPIC_API_KEY  # Should output: test
@@ -121,9 +121,9 @@ All code lives in `cmd/yolobox/main.go` (~700 lines):
 
 ### Container Behavior
 
-- Project mounted at `/workspace` (read-write by default, read-only with `--readonly-project`)
+- Project mounted at its **real host path** (e.g., `/Users/foo/project`) for session continuity
 - `/output` volume created when using `--readonly-project`
-- Sets `YOLOBOX=1` env var inside container
+- Sets `YOLOBOX=1` and `YOLOBOX_PROJECT_PATH` env vars inside container
 - Runs as `yolo` user with full sudo access
 - Host home is NOT mounted (use `--mount ~:/host-home` if you really need it)
 - Host `~/.claude` can be copied to container with `--claude-config` flag (or `claude_config = true` in config)

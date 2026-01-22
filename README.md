@@ -18,10 +18,11 @@ AI coding agents are incredibly powerful when you let them run commands without 
 ## The Solution
 
 `yolobox` runs your AI agent inside a container where:
-- ✅ Your **project directory** is mounted at `/workspace`
+- ✅ Your **project directory** is mounted at its real path (e.g., `/Users/you/project`)
 - ✅ The agent has **full permissions** and **sudo** inside the container
 - ✅ Your **home directory is NOT mounted** (unless you explicitly opt in)
 - ✅ Persistent volumes keep tools and configs across sessions
+- ✅ **Session continuity** - AI sessions can be resumed across host/container boundary
 
 The AI can go absolutely wild inside the sandbox. Your actual home directory? Untouchable.
 
@@ -184,7 +185,7 @@ That's it. You launch the AI and let it work. You're not meant to manually enter
 
 yolobox uses **container isolation** (Docker or Podman) as its security boundary. When you run `yolobox`, it:
 
-1. Starts a container with your project mounted at `/workspace`
+1. Starts a container with your project mounted at its real path
 2. Runs as user `yolo` with sudo access *inside* the container
 3. Does NOT mount your home directory (unless explicitly requested)
 4. Uses Linux namespaces to isolate the container's filesystem, process tree, and network
