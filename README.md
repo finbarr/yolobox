@@ -87,6 +87,7 @@ yolobox help                # Show help
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
 | `--claude-config` | Copy host `~/.claude` config into container |
 | `--git-config` | Copy host `~/.gitconfig` into container |
+| `--copy-agent-instructions` | Copy global agent instruction files (see below) |
 
 ## Configuration
 
@@ -112,6 +113,23 @@ no_network = true
 Priority: CLI flags > project config > global config > defaults.
 
 > **Note:** Setting `claude_config = true` in your config will copy your host Claude config on **every** container start, overwriting any changes made inside the container (including auth and history). Prefer using `--claude-config` for one-time syncs.
+
+### Copying Global Agent Instructions
+
+The `--copy-agent-instructions` flag copies your **global/user-level** agent instruction files into the container. This is useful when you have custom rules or preferences defined globally that you want available inside yolobox.
+
+Files copied (if they exist on your host):
+
+| Tool | Source | Destination |
+|------|--------|-------------|
+| Claude | `~/.claude/CLAUDE.md` | `/home/yolo/.claude/CLAUDE.md` |
+| Gemini | `~/.gemini/GEMINI.md` | `/home/yolo/.gemini/GEMINI.md` |
+| Codex | `~/.codex/AGENTS.md` | `/home/yolo/.codex/AGENTS.md` |
+| Copilot | `~/.copilot/agents/` | `/home/yolo/.copilot/agents/` |
+
+**Note:** This only copies global instruction files, not full configs (credentials, settings, history). For Claude's full config, use `--claude-config` instead.
+
+You can also set `copy_agent_instructions = true` in your config file for persistent use.
 
 ### Auto-Forwarded Environment Variables
 

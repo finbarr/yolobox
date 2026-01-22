@@ -89,6 +89,12 @@ ANTHROPIC_API_KEY=test ./yolobox run printenv ANTHROPIC_API_KEY  # Should output
 
 # 10. Git config sharing (opt-in with --git-config)
 ./yolobox run --git-config cat /home/yolo/.gitconfig  # Should show copied host git config
+
+# 11. Global agent instructions (opt-in with --copy-agent-instructions)
+# Creates test file, copies it, then cleans up
+mkdir -p ~/.claude && echo "test" > ~/.claude/CLAUDE.md
+./yolobox run --copy-agent-instructions cat /home/yolo/.claude/CLAUDE.md  # Should output: test
+rm ~/.claude/CLAUDE.md
 ```
 
 ## Architecture

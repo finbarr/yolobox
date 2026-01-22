@@ -183,7 +183,7 @@ RUN echo 'echo ""' >> ~/.bashrc \
 
 # Create entrypoint script
 USER root
-RUN mkdir -p /host-claude /host-git && \
+RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -208,6 +208,41 @@ RUN mkdir -p /host-claude /host-git && \
     '    sudo rm -f /home/yolo/.gitconfig' \
     '    sudo cp -a /host-git/.gitconfig /home/yolo/.gitconfig' \
     '    sudo chown yolo:yolo /home/yolo/.gitconfig' \
+    'fi' \
+    '' \
+    '# Copy global agent instruction files from host staging area if present' \
+    'COPIED_AGENT_INSTRUCTIONS=0' \
+    '# Claude: CLAUDE.md' \
+    'if [ -f /host-agent-instructions/claude/CLAUDE.md ]; then' \
+    '    mkdir -p /home/yolo/.claude' \
+    '    sudo cp -a /host-agent-instructions/claude/CLAUDE.md /home/yolo/.claude/CLAUDE.md' \
+    '    sudo chown yolo:yolo /home/yolo/.claude/CLAUDE.md' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
+    '# Gemini: GEMINI.md' \
+    'if [ -f /host-agent-instructions/gemini/GEMINI.md ]; then' \
+    '    mkdir -p /home/yolo/.gemini' \
+    '    sudo cp -a /host-agent-instructions/gemini/GEMINI.md /home/yolo/.gemini/GEMINI.md' \
+    '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
+    '# Codex: AGENTS.md' \
+    'if [ -f /host-agent-instructions/codex/AGENTS.md ]; then' \
+    '    mkdir -p /home/yolo/.codex' \
+    '    sudo cp -a /host-agent-instructions/codex/AGENTS.md /home/yolo/.codex/AGENTS.md' \
+    '    sudo chown -R yolo:yolo /home/yolo/.codex' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
+    '# Copilot: agents/ directory' \
+    'if [ -d /host-agent-instructions/copilot/agents ]; then' \
+    '    mkdir -p /home/yolo/.copilot' \
+    '    sudo rm -rf /home/yolo/.copilot/agents' \
+    '    sudo cp -a /host-agent-instructions/copilot/agents /home/yolo/.copilot/agents' \
+    '    sudo chown -R yolo:yolo /home/yolo/.copilot' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
+    'if [ "$COPIED_AGENT_INSTRUCTIONS" = "1" ]; then' \
+    '    echo -e "\033[33m→ Copying global agent instructions to container\033[0m" >&2' \
     'fi' \
     '' \
     '# Auto-trust /workspace for Claude Code (this is yolobox after all)' \

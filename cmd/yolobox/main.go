@@ -67,17 +67,18 @@ var toolShortcuts = []string{
 }
 
 type Config struct {
-	Runtime         string   `toml:"runtime"`
-	Image           string   `toml:"image"`
-	Mounts          []string `toml:"mounts"`
-	Env             []string `toml:"env"`
-	SSHAgent        bool     `toml:"ssh_agent"`
-	ReadonlyProject bool     `toml:"readonly_project"`
-	NoNetwork       bool     `toml:"no_network"`
-	NoYolo          bool     `toml:"no_yolo"`
-	Scratch         bool     `toml:"scratch"`
-	ClaudeConfig    bool     `toml:"claude_config"`
-	GitConfig       bool     `toml:"git_config"`
+	Runtime               string   `toml:"runtime"`
+	Image                 string   `toml:"image"`
+	Mounts                []string `toml:"mounts"`
+	Env                   []string `toml:"env"`
+	SSHAgent              bool     `toml:"ssh_agent"`
+	ReadonlyProject       bool     `toml:"readonly_project"`
+	NoNetwork             bool     `toml:"no_network"`
+	NoYolo                bool     `toml:"no_yolo"`
+	Scratch               bool     `toml:"scratch"`
+	ClaudeConfig          bool     `toml:"claude_config"`
+	GitConfig             bool     `toml:"git_config"`
+	CopyAgentInstructions bool     `toml:"copy_agent_instructions"`
 
 	// Runtime-only fields (not persisted to config file)
 	Setup bool `toml:"-"` // Run interactive setup before starting
@@ -315,6 +316,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
+	fmt.Fprintln(os.Stderr, "  --copy-agent-instructions  Copy global agent instruction files")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
@@ -347,18 +349,19 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.Usage = printUsage
 
 	var (
-		runtimeFlag     string
-		imageFlag       string
-		sshAgent        bool
-		readonlyProject bool
-		noNetwork       bool
-		noYolo          bool
-		scratch         bool
-		claudeConfig    bool
-		gitConfig       bool
-		setup           bool
-		mounts          stringSliceFlag
-		envVars         stringSliceFlag
+		runtimeFlag           string
+		imageFlag             string
+		sshAgent              bool
+		readonlyProject       bool
+		noNetwork             bool
+		noYolo                bool
+		scratch               bool
+		claudeConfig          bool
+		gitConfig             bool
+		copyAgentInstructions bool
+		setup                 bool
+		mounts                stringSliceFlag
+		envVars               stringSliceFlag
 	)
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
@@ -370,6 +373,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
+	fs.BoolVar(&copyAgentInstructions, "copy-agent-instructions", false, "copy agent instruction files (CLAUDE.md, GEMINI.md, AGENTS.md)")
 	fs.BoolVar(&setup, "setup", false, "run interactive setup before starting")
 	fs.Var(&mounts, "mount", "extra mount src:dst")
 	fs.Var(&envVars, "env", "environment variable KEY=value")
@@ -408,6 +412,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if gitConfig {
 		cfg.GitConfig = true
+	}
+	if copyAgentInstructions {
+		cfg.CopyAgentInstructions = true
 	}
 	if setup {
 		cfg.Setup = true
@@ -509,6 +516,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.GitConfig {
 		dst.GitConfig = true
 	}
+	if src.CopyAgentInstructions {
+		dst.CopyAgentInstructions = true
+	}
 }
 
 func runShell(cfg Config) error {
@@ -588,6 +598,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sscratch:%s %t\n", colorBold, colorReset, cfg.Scratch)
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
 	fmt.Printf("%sgit_config:%s %t\n", colorBold, colorReset, cfg.GitConfig)
+	fmt.Printf("%scopy_agent_instructions:%s %t\n", colorBold, colorReset, cfg.CopyAgentInstructions)
 	if len(cfg.Mounts) > 0 {
 		fmt.Printf("%smounts:%s\n", colorBold, colorReset)
 		for _, m := range cfg.Mounts {
@@ -967,6 +978,35 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		gitConfigFile := filepath.Join(home, ".gitconfig")
 		if _, err := os.Stat(gitConfigFile); err == nil {
 			args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
+		}
+	}
+
+	// Mount global agent instruction files from host to staging area (copied by entrypoint)
+	// These are the global/user-level instruction files, not project-level ones
+	if cfg.CopyAgentInstructions {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		// Claude: ~/.claude/CLAUDE.md
+		claudeMd := filepath.Join(home, ".claude", "CLAUDE.md")
+		if _, err := os.Stat(claudeMd); err == nil {
+			args = append(args, "-v", claudeMd+":/host-agent-instructions/claude/CLAUDE.md:ro")
+		}
+		// Gemini: ~/.gemini/GEMINI.md
+		geminiMd := filepath.Join(home, ".gemini", "GEMINI.md")
+		if _, err := os.Stat(geminiMd); err == nil {
+			args = append(args, "-v", geminiMd+":/host-agent-instructions/gemini/GEMINI.md:ro")
+		}
+		// Codex: ~/.codex/AGENTS.md
+		codexMd := filepath.Join(home, ".codex", "AGENTS.md")
+		if _, err := os.Stat(codexMd); err == nil {
+			args = append(args, "-v", codexMd+":/host-agent-instructions/codex/AGENTS.md:ro")
+		}
+		// Copilot: ~/.copilot/agents/ directory
+		copilotAgents := filepath.Join(home, ".copilot", "agents")
+		if info, err := os.Stat(copilotAgents); err == nil && info.IsDir() {
+			args = append(args, "-v", copilotAgents+":/host-agent-instructions/copilot/agents:ro")
 		}
 	}
 
