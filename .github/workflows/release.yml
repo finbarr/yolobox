@@ -145,17 +145,29 @@ jobs:
           echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
           echo "TAG=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Calculate source tarball sha256
+      - name: Calculate binary sha256 checksums
         id: sha
+        env:
+          TAG: ${{ steps.version.outputs.TAG }}
         run: |
-          SHA=$(curl -sL "https://github.com/finbarr/yolobox/archive/refs/tags/${{ steps.version.outputs.TAG }}.tar.gz" | sha256sum | cut -d' ' -f1)
-          echo "SHA256=$SHA" >> $GITHUB_OUTPUT
+          SHA_DARWIN_ARM64=$(curl -sL "https://github.com/finbarr/yolobox/releases/download/${TAG}/yolobox-darwin-arm64" | sha256sum | cut -d' ' -f1)
+          SHA_DARWIN_AMD64=$(curl -sL "https://github.com/finbarr/yolobox/releases/download/${TAG}/yolobox-darwin-amd64" | sha256sum | cut -d' ' -f1)
+          SHA_LINUX_ARM64=$(curl -sL "https://github.com/finbarr/yolobox/releases/download/${TAG}/yolobox-linux-arm64" | sha256sum | cut -d' ' -f1)
+          SHA_LINUX_AMD64=$(curl -sL "https://github.com/finbarr/yolobox/releases/download/${TAG}/yolobox-linux-amd64" | sha256sum | cut -d' ' -f1)
+          echo "SHA_DARWIN_ARM64=$SHA_DARWIN_ARM64" >> $GITHUB_OUTPUT
+          echo "SHA_DARWIN_AMD64=$SHA_DARWIN_AMD64" >> $GITHUB_OUTPUT
+          echo "SHA_LINUX_ARM64=$SHA_LINUX_ARM64" >> $GITHUB_OUTPUT
+          echo "SHA_LINUX_AMD64=$SHA_LINUX_AMD64" >> $GITHUB_OUTPUT
 
       - name: Update Homebrew tap
         env:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           VERSION: ${{ steps.version.outputs.VERSION }}
-          SHA256: ${{ steps.sha.outputs.SHA256 }}
+          TAG: ${{ steps.version.outputs.TAG }}
+          SHA_DARWIN_ARM64: ${{ steps.sha.outputs.SHA_DARWIN_ARM64 }}
+          SHA_DARWIN_AMD64: ${{ steps.sha.outputs.SHA_DARWIN_AMD64 }}
+          SHA_LINUX_ARM64: ${{ steps.sha.outputs.SHA_LINUX_ARM64 }}
+          SHA_LINUX_AMD64: ${{ steps.sha.outputs.SHA_LINUX_AMD64 }}
         run: |
           git clone https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/finbarr/homebrew-tap.git
           cd homebrew-tap
@@ -164,15 +176,33 @@ jobs:
           class Yolobox < Formula
             desc "Run AI coding agents in a sandboxed container"
             homepage "https://github.com/finbarr/yolobox"
-            url "https://github.com/finbarr/yolobox/archive/refs/tags/v__VERSION__.tar.gz"
-            sha256 "__SHA256__"
+            version "__VERSION__"
             license "MIT"
 
-            depends_on "go" => :build
+            on_macos do
+              on_arm do
+                url "https://github.com/finbarr/yolobox/releases/download/__TAG__/yolobox-darwin-arm64"
+                sha256 "__SHA_DARWIN_ARM64__"
+              end
+              on_intel do
+                url "https://github.com/finbarr/yolobox/releases/download/__TAG__/yolobox-darwin-amd64"
+                sha256 "__SHA_DARWIN_AMD64__"
+              end
+            end
+
+            on_linux do
+              on_arm do
+                url "https://github.com/finbarr/yolobox/releases/download/__TAG__/yolobox-linux-arm64"
+                sha256 "__SHA_LINUX_ARM64__"
+              end
+              on_intel do
+                url "https://github.com/finbarr/yolobox/releases/download/__TAG__/yolobox-linux-amd64"
+                sha256 "__SHA_LINUX_AMD64__"
+              end
+            end
 
             def install
-              ldflags = "-s -w -X main.Version=#{version}"
-              system "go", "build", *std_go_args(ldflags: ldflags), "./cmd/yolobox"
+              bin.install Dir["yolobox-*"].first => "yolobox"
             end
 
             test do
@@ -181,10 +211,14 @@ jobs:
           end
           EOF
 
-          # Remove leading whitespace and substitute version/sha
+          # Remove leading whitespace and substitute values
           sed -i 's/^          //' Formula/yolobox.rb
           sed -i "s/__VERSION__/${VERSION}/g" Formula/yolobox.rb
-          sed -i "s/__SHA256__/${SHA256}/g" Formula/yolobox.rb
+          sed -i "s/__TAG__/${TAG}/g" Formula/yolobox.rb
+          sed -i "s/__SHA_DARWIN_ARM64__/${SHA_DARWIN_ARM64}/g" Formula/yolobox.rb
+          sed -i "s/__SHA_DARWIN_AMD64__/${SHA_DARWIN_AMD64}/g" Formula/yolobox.rb
+          sed -i "s/__SHA_LINUX_ARM64__/${SHA_LINUX_ARM64}/g" Formula/yolobox.rb
+          sed -i "s/__SHA_LINUX_AMD64__/${SHA_LINUX_AMD64}/g" Formula/yolobox.rb
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
