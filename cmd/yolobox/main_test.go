@@ -178,6 +178,11 @@ func TestBuildRunArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "yolobox-cache:/var/cache") {
 		t.Error("expected yolobox-cache volume")
 	}
+
+	// Verify no --network flag when using default network
+	if strings.Contains(argsStr, "--network") {
+		t.Error("expected no --network flag for default network behavior")
+	}
 }
 
 func TestBuildRunArgsNoYolo(t *testing.T) {
