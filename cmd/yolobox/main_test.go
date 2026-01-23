@@ -382,3 +382,59 @@ func TestToolShortcuts(t *testing.T) {
 		}
 	}
 }
+
+func TestBuildRunArgsNetwork(t *testing.T) {
+	cfg := Config{
+		Image:   "test-image",
+		Network: "dev_network",
+	}
+
+	args, err := buildRunArgs(cfg, "/test/project", []string{"echo"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "--network dev_network") {
+		t.Error("expected --network dev_network")
+	}
+}
+
+func TestMergeConfigNetwork(t *testing.T) {
+	dst := Config{
+		Runtime: "docker",
+		Image:   "old-image",
+	}
+	src := Config{
+		Network: "my_network",
+	}
+
+	mergeConfig(&dst, src)
+
+	if dst.Network != "my_network" {
+		t.Errorf("expected Network to be my_network, got %s", dst.Network)
+	}
+}
+
+func TestParseFlagsNetwork(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--network", "mynet", "echo"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Network != "mynet" {
+		t.Errorf("expected Network=mynet, got %s", cfg.Network)
+	}
+	if len(rest) != 1 || rest[0] != "echo" {
+		t.Errorf("expected remaining args [echo], got %v", rest)
+	}
+}
+
+func TestParseFlagsNetworkConflict(t *testing.T) {
+	_, _, err := parseBaseFlags("run", []string{"--network", "mynet", "--no-network", "echo"}, t.TempDir())
+	if err == nil {
+		t.Error("expected error for --network with --no-network")
+	}
+	if err != nil && !strings.Contains(err.Error(), "cannot use --network with --no-network") {
+		t.Errorf("expected conflict error message, got: %v", err)
+	}
+}
