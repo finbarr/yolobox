@@ -84,12 +84,14 @@ yolobox help                # Show help
 | `--setup` | Run interactive setup before starting |
 | `--ssh-agent` | Forward SSH agent socket |
 | `--no-network` | Disable network access |
-| `--network <name>` | Join container network (e.g., docker compose) |
+| `--network <name>` | Join specific network (e.g., docker compose) |
 | `--no-yolo` | Disable auto-confirmations (mindful mode) |
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
 | `--claude-config` | Copy host `~/.claude` config into container |
 | `--git-config` | Copy host `~/.gitconfig` into container |
 | `--copy-agent-instructions` | Copy global agent instruction files (see below) |
+
+> **Networking:** By default, yolobox uses Docker's bridge network (internet access, no container DNS). Use `--network <name>` to join a docker compose network and access services by name. Use `--no-network` for complete isolation.
 
 ## Configuration
 
