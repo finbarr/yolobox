@@ -311,7 +311,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
-	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access")
+	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
