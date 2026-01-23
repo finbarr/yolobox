@@ -74,6 +74,7 @@ type Config struct {
 	SSHAgent              bool     `toml:"ssh_agent"`
 	ReadonlyProject       bool     `toml:"readonly_project"`
 	NoNetwork             bool     `toml:"no_network"`
+	Network               string   `toml:"network"`
 	NoYolo                bool     `toml:"no_yolo"`
 	Scratch               bool     `toml:"scratch"`
 	ClaudeConfig          bool     `toml:"claude_config"`
@@ -311,6 +312,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access")
+	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
@@ -351,6 +353,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	var (
 		runtimeFlag           string
 		imageFlag             string
+		networkFlag           string
 		sshAgent              bool
 		readonlyProject       bool
 		noNetwork             bool
@@ -366,6 +369,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
+	fs.StringVar(&networkFlag, "network", "", "container network to join")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
@@ -401,6 +405,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	if noNetwork {
 		cfg.NoNetwork = true
 	}
+	if networkFlag != "" {
+		cfg.Network = networkFlag
+	}
 	if noYolo {
 		cfg.NoYolo = true
 	}
@@ -424,6 +431,11 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if len(envVars) > 0 {
 		cfg.Env = append(cfg.Env, envVars...)
+	}
+
+	// Validate conflicting options
+	if cfg.Network != "" && cfg.NoNetwork {
+		return cfg, nil, fmt.Errorf("cannot use --network with --no-network")
 	}
 
 	return cfg, fs.Args(), nil
@@ -503,6 +515,9 @@ func mergeConfig(dst *Config, src Config) {
 	}
 	if src.NoNetwork {
 		dst.NoNetwork = true
+	}
+	if src.Network != "" {
+		dst.Network = src.Network
 	}
 	if src.NoYolo {
 		dst.NoYolo = true
@@ -594,6 +609,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
 	fmt.Printf("%sno_network:%s %t\n", colorBold, colorReset, cfg.NoNetwork)
+	fmt.Printf("%snetwork:%s %s\n", colorBold, colorReset, cfg.Network)
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
 	fmt.Printf("%sscratch:%s %t\n", colorBold, colorReset, cfg.Scratch)
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
@@ -647,6 +663,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.NoNetwork {
 		lines = append(lines, "no_network = true")
+	}
+	if cfg.Network != "" {
+		lines = append(lines, fmt.Sprintf("network = %q", cfg.Network))
 	}
 	if cfg.NoYolo {
 		lines = append(lines, "no_yolo = true")
@@ -1032,9 +1051,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 	}
 
-	// Network isolation
+	// Network configuration
 	if cfg.NoNetwork {
 		args = append(args, "--network", "none")
+	} else if cfg.Network != "" {
+		args = append(args, "--network", cfg.Network)
 	}
 
 	args = append(args, cfg.Image)
