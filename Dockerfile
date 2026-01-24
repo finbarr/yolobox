@@ -183,12 +183,16 @@ RUN echo 'echo ""' >> ~/.bashrc \
 
 # Create entrypoint script
 USER root
-RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
+RUN mkdir -p /host-claude /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
+    '# Apple container workaround: files are in /host-files/ instead of separate mounts' \
+    '# Check YOLOBOX_HOST_FILES env var for the mount location' \
+    'HF="${YOLOBOX_HOST_FILES:-}"' \
+    '' \
     '# Copy Claude config from host staging area if present' \
-    'if [ -d /host-claude/.claude ] || [ -f /host-claude/.claude.json ]; then' \
+    'if [ -d /host-claude/.claude ] || [ -f /host-claude/.claude.json ] || [ -f "$HF/claude/.claude.json" ]; then' \
     '    echo -e "\033[33m→ Copying host Claude config to container\033[0m" >&2' \
     'fi' \
     'if [ -d /host-claude/.claude ]; then' \
@@ -200,6 +204,10 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     '    sudo rm -f /home/yolo/.claude.json' \
     '    sudo cp -a /host-claude/.claude.json /home/yolo/.claude.json' \
     '    sudo chown yolo:yolo /home/yolo/.claude.json' \
+    'elif [ -f "$HF/claude/.claude.json" ]; then' \
+    '    sudo rm -f /home/yolo/.claude.json' \
+    '    sudo cp -a "$HF/claude/.claude.json" /home/yolo/.claude.json' \
+    '    sudo chown yolo:yolo /home/yolo/.claude.json' \
     'fi' \
     '' \
     '# Copy git config from host staging area if present' \
@@ -207,6 +215,11 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     '    echo -e "\033[33m→ Copying host git config to container\033[0m" >&2' \
     '    sudo rm -f /home/yolo/.gitconfig' \
     '    sudo cp -a /host-git/.gitconfig /home/yolo/.gitconfig' \
+    '    sudo chown yolo:yolo /home/yolo/.gitconfig' \
+    'elif [ -f "$HF/git/.gitconfig" ]; then' \
+    '    echo -e "\033[33m→ Copying host git config to container\033[0m" >&2' \
+    '    sudo rm -f /home/yolo/.gitconfig' \
+    '    sudo cp -a "$HF/git/.gitconfig" /home/yolo/.gitconfig' \
     '    sudo chown yolo:yolo /home/yolo/.gitconfig' \
     'fi' \
     '' \
@@ -218,23 +231,29 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions && \
     '# Copy global agent instruction files from host staging area if present' \
     'COPIED_AGENT_INSTRUCTIONS=0' \
     '# Claude: CLAUDE.md' \
-    'if [ -f /host-agent-instructions/claude/CLAUDE.md ]; then' \
+    'CLAUDE_MD="/host-agent-instructions/claude/CLAUDE.md"' \
+    '[ ! -f "$CLAUDE_MD" ] && [ -f "$HF/agent-instructions/claude/CLAUDE.md" ] && CLAUDE_MD="$HF/agent-instructions/claude/CLAUDE.md"' \
+    'if [ -f "$CLAUDE_MD" ]; then' \
     '    mkdir -p /home/yolo/.claude' \
-    '    sudo cp -a /host-agent-instructions/claude/CLAUDE.md /home/yolo/.claude/CLAUDE.md' \
+    '    sudo cp -a "$CLAUDE_MD" /home/yolo/.claude/CLAUDE.md' \
     '    sudo chown yolo:yolo /home/yolo/.claude/CLAUDE.md' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \
     '# Gemini: GEMINI.md' \
-    'if [ -f /host-agent-instructions/gemini/GEMINI.md ]; then' \
+    'GEMINI_MD="/host-agent-instructions/gemini/GEMINI.md"' \
+    '[ ! -f "$GEMINI_MD" ] && [ -f "$HF/agent-instructions/gemini/GEMINI.md" ] && GEMINI_MD="$HF/agent-instructions/gemini/GEMINI.md"' \
+    'if [ -f "$GEMINI_MD" ]; then' \
     '    mkdir -p /home/yolo/.gemini' \
-    '    sudo cp -a /host-agent-instructions/gemini/GEMINI.md /home/yolo/.gemini/GEMINI.md' \
+    '    sudo cp -a "$GEMINI_MD" /home/yolo/.gemini/GEMINI.md' \
     '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \
     '# Codex: AGENTS.md' \
-    'if [ -f /host-agent-instructions/codex/AGENTS.md ]; then' \
+    'CODEX_MD="/host-agent-instructions/codex/AGENTS.md"' \
+    '[ ! -f "$CODEX_MD" ] && [ -f "$HF/agent-instructions/codex/AGENTS.md" ] && CODEX_MD="$HF/agent-instructions/codex/AGENTS.md"' \
+    'if [ -f "$CODEX_MD" ]; then' \
     '    mkdir -p /home/yolo/.codex' \
-    '    sudo cp -a /host-agent-instructions/codex/AGENTS.md /home/yolo/.codex/AGENTS.md' \
+    '    sudo cp -a "$CODEX_MD" /home/yolo/.codex/AGENTS.md' \
     '    sudo chown -R yolo:yolo /home/yolo/.codex' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \

@@ -304,7 +304,7 @@ func printUsage() {
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
-	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker or podman")
+	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker, podman, or container")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
 	fmt.Fprintln(os.Stderr, "  --setup               Run interactive setup before starting")
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
@@ -894,11 +894,49 @@ func loadConfigFromEnv() (Config, error) {
 	return loadConfig(projectDir)
 }
 
+// isAppleContainer checks if the resolved runtime is Apple's container tool
+func isAppleContainer(runtime string) bool {
+	path, err := resolveRuntime(runtime)
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(path, "/container")
+}
+
+// prepareFileMountDir creates a temp directory with copies of files for Apple container
+// (which only supports directory mounts, not file mounts). Returns the temp dir path.
+func prepareFileMountDir(files map[string]string) (string, error) {
+	tmpDir, err := os.MkdirTemp("", "yolobox-mounts-*")
+	if err != nil {
+		return "", fmt.Errorf("failed to create temp dir for file mounts: %w", err)
+	}
+
+	for srcPath, destName := range files {
+		data, err := os.ReadFile(srcPath)
+		if err != nil {
+			continue // Skip files that can't be read
+		}
+		destPath := filepath.Join(tmpDir, destName)
+		// Create subdirectories if needed
+		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+			continue
+		}
+		if err := os.WriteFile(destPath, data, 0644); err != nil {
+			continue
+		}
+	}
+
+	return tmpDir, nil
+}
+
 func buildRunArgs(cfg Config, projectDir string, command []string, interactive bool) ([]string, error) {
 	absProject, err := filepath.Abs(projectDir)
 	if err != nil {
 		return nil, err
 	}
+
+	// Check if we're using Apple container (doesn't support file mounts)
+	appleContainer := isAppleContainer(cfg.Runtime)
 
 	args := []string{"run", "--rm"}
 
@@ -955,6 +993,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		args = append(args, "-v", "yolobox-cache:/var/cache")
 	}
 
+	// For Apple container, we need to collect files and mount via a temp directory
+	// (Apple container only supports directory mounts, not file mounts)
+	var appleContainerFiles map[string]string
+	if appleContainer {
+		appleContainerFiles = make(map[string]string)
+	}
+
 	// Mount Claude config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.ClaudeConfig {
 		home, err := os.UserHomeDir()
@@ -967,7 +1012,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 		claudeConfigFile := filepath.Join(home, ".claude.json")
 		if _, err := os.Stat(claudeConfigFile); err == nil {
-			args = append(args, "-v", claudeConfigFile+":/host-claude/.claude.json:ro")
+			if appleContainer {
+				appleContainerFiles[claudeConfigFile] = "claude/.claude.json"
+			} else {
+				args = append(args, "-v", claudeConfigFile+":/host-claude/.claude.json:ro")
+			}
 		}
 	}
 
@@ -979,7 +1028,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 		gitConfigFile := filepath.Join(home, ".gitconfig")
 		if _, err := os.Stat(gitConfigFile); err == nil {
-			args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
+			if appleContainer {
+				appleContainerFiles[gitConfigFile] = "git/.gitconfig"
+			} else {
+				args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
+			}
 		}
 	}
 
@@ -993,23 +1046,46 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// Claude: ~/.claude/CLAUDE.md
 		claudeMd := filepath.Join(home, ".claude", "CLAUDE.md")
 		if _, err := os.Stat(claudeMd); err == nil {
-			args = append(args, "-v", claudeMd+":/host-agent-instructions/claude/CLAUDE.md:ro")
+			if appleContainer {
+				appleContainerFiles[claudeMd] = "agent-instructions/claude/CLAUDE.md"
+			} else {
+				args = append(args, "-v", claudeMd+":/host-agent-instructions/claude/CLAUDE.md:ro")
+			}
 		}
 		// Gemini: ~/.gemini/GEMINI.md
 		geminiMd := filepath.Join(home, ".gemini", "GEMINI.md")
 		if _, err := os.Stat(geminiMd); err == nil {
-			args = append(args, "-v", geminiMd+":/host-agent-instructions/gemini/GEMINI.md:ro")
+			if appleContainer {
+				appleContainerFiles[geminiMd] = "agent-instructions/gemini/GEMINI.md"
+			} else {
+				args = append(args, "-v", geminiMd+":/host-agent-instructions/gemini/GEMINI.md:ro")
+			}
 		}
 		// Codex: ~/.codex/AGENTS.md
 		codexMd := filepath.Join(home, ".codex", "AGENTS.md")
 		if _, err := os.Stat(codexMd); err == nil {
-			args = append(args, "-v", codexMd+":/host-agent-instructions/codex/AGENTS.md:ro")
+			if appleContainer {
+				appleContainerFiles[codexMd] = "agent-instructions/codex/AGENTS.md"
+			} else {
+				args = append(args, "-v", codexMd+":/host-agent-instructions/codex/AGENTS.md:ro")
+			}
 		}
-		// Copilot: ~/.copilot/agents/ directory
+		// Copilot: ~/.copilot/agents/ directory (this is already a directory, works with Apple container)
 		copilotAgents := filepath.Join(home, ".copilot", "agents")
 		if info, err := os.Stat(copilotAgents); err == nil && info.IsDir() {
 			args = append(args, "-v", copilotAgents+":/host-agent-instructions/copilot/agents:ro")
 		}
+	}
+
+	// For Apple container: create temp dir with collected files and mount it
+	if appleContainer && len(appleContainerFiles) > 0 {
+		tmpDir, err := prepareFileMountDir(appleContainerFiles)
+		if err != nil {
+			return nil, err
+		}
+		// Mount the temp dir; entrypoint will need to handle the different paths
+		args = append(args, "-v", tmpDir+":/host-files:ro")
+		args = append(args, "-e", "YOLOBOX_HOST_FILES=/host-files")
 	}
 
 	// Extra mounts
@@ -1023,12 +1099,17 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// SSH agent forwarding
 	if cfg.SSHAgent {
-		sock := os.Getenv("SSH_AUTH_SOCK")
-		if sock == "" {
-			warn("SSH_AUTH_SOCK not set; skipping ssh-agent mount")
+		if appleContainer {
+			// Apple container uses --ssh flag instead of socket mounts
+			args = append(args, "--ssh")
 		} else {
-			args = append(args, "-v", sock+":/ssh-agent")
-			args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
+			sock := os.Getenv("SSH_AUTH_SOCK")
+			if sock == "" {
+				warn("SSH_AUTH_SOCK not set; skipping ssh-agent mount")
+			} else {
+				args = append(args, "-v", sock+":/ssh-agent")
+				args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
+			}
 		}
 	}
 
@@ -1106,7 +1187,10 @@ func resolveRuntime(name string) (string, error) {
 		if path, err := exec.LookPath("podman"); err == nil {
 			return path, nil
 		}
-		return "", fmt.Errorf("no container runtime found. Install docker or podman and try again")
+		if path, err := exec.LookPath("container"); err == nil {
+			return path, nil
+		}
+		return "", fmt.Errorf("no container runtime found. Install docker, podman, or Apple container and try again")
 	}
 	if name == "colima" {
 		name = "docker"
@@ -1130,6 +1214,11 @@ func execRuntime(runtime string, args []string) error {
 func checkDockerMemory(runtime string) {
 	runtimePath, err := resolveRuntime(runtime)
 	if err != nil {
+		return
+	}
+
+	// Skip memory check for Apple container (uses native VM with dynamic memory)
+	if strings.HasSuffix(runtimePath, "/container") {
 		return
 	}
 
