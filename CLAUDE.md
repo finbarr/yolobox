@@ -28,6 +28,14 @@ git push origin master --tags
 
 **Always commit changes after completing work.** Don't leave uncommitted changes - if you modified files, commit them before finishing.
 
+**When adding new flags or config options:**
+1. Add the flag to `cmd/yolobox/main.go` (Config struct, parseBaseFlags, mergeConfig, buildRunArgs, printConfig, saveGlobalConfig, runSetup)
+2. Update `README.md`:
+   - Add to the Flags table
+   - Add to the example config.toml if it's a persistent option
+   - Add any relevant notes (e.g., in Auto-Forwarded Environment Variables section)
+3. Update verification tests in this file if needed
+
 ## Verification
 
 After making changes, run this verification sequence:
@@ -136,5 +144,6 @@ Document solutions here when something takes multiple attempts to figure out.
 - **Claude Code config lives in TWO places**: `~/.claude/` (settings, history) AND `~/.claude.json` (onboarding state, preferences). Mount both.
 - **Claude Code needs writable config**: Can't mount `~/.claude` read-only; Claude writes to it at runtime. Solution: mount to staging area (`/host-claude/`) and copy on container start via entrypoint.
 - **OAuth tokens on macOS are in Keychain**: Can't copy them to container. On Linux, Claude stores creds in `~/.claude/.credentials.json`. Users must either use API key or `/login` inside container.
+- **GitHub CLI tokens on macOS are in Keychain**: `~/.config/gh/hosts.yml` only has user metadata, not the token. Use `gh auth token` to extract it, then pass as `GH_TOKEN` env var. This is what `--gh-token` does.
 - **Colima defaults to 2GB RAM**: Claude Code gets OOM killed. Need 4GB+. yolobox now warns if Docker has < 4GB.
 - **Named volumes shadow image contents**: The `yolobox-home` volume mounts over `/home/yolo`, so new files added to the image's `/home/yolo` won't appear for existing users. Solution: put configs in `/etc/` if they must be visible without volume deletion.
