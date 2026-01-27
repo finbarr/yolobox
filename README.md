@@ -95,6 +95,7 @@ yolobox help                # Show help
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
 | `--claude-config` | Copy host `~/.claude` config into container |
 | `--git-config` | Copy host `~/.gitconfig` into container |
+| `--gh-token` | Forward GitHub CLI token (extracts from keychain via `gh auth token`) |
 | `--copy-agent-instructions` | Copy global agent instruction files (see below) |
 
 ## Configuration
@@ -105,6 +106,7 @@ Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
 git_config = true
+gh_token = true
 ssh_agent = true
 no_network = true
 no_yolo = true
@@ -147,6 +149,8 @@ These are automatically passed into the container if set:
 - `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`
 - `OPENROUTER_API_KEY`
 - `GEMINI_API_KEY`
+
+> **Note:** On macOS, `gh` CLI stores tokens in Keychain, not environment variables. Use `--gh-token` (or `gh_token = true` in config) to extract and forward your GitHub CLI token.
 
 ## What's in the Box?
 
