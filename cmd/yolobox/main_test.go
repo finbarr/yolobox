@@ -545,3 +545,46 @@ func TestSplitToolArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestPreprocessClaudeConfig(t *testing.T) {
+	// Create a temp file with test config
+	tmpDir := t.TempDir()
+	srcPath := filepath.Join(tmpDir, ".claude.json")
+
+	// Config with installMethod that should be removed
+	srcContent := `{
+  "numStartups": 10,
+  "installMethod": "native",
+  "autoUpdates": false
+}`
+	if err := os.WriteFile(srcPath, []byte(srcContent), 0644); err != nil {
+		t.Fatalf("failed to write test file: %v", err)
+	}
+
+	// Run preprocessing
+	resultPath := preprocessClaudeConfig(srcPath)
+	if resultPath == "" {
+		t.Fatal("preprocessClaudeConfig returned empty path")
+	}
+
+	// Read the result
+	result, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("failed to read result file: %v", err)
+	}
+
+	resultStr := string(result)
+
+	// Should NOT contain installMethod
+	if strings.Contains(resultStr, "installMethod") {
+		t.Errorf("result should not contain installMethod, got: %s", resultStr)
+	}
+
+	// Should still contain other fields
+	if !strings.Contains(resultStr, "numStartups") {
+		t.Errorf("result should contain numStartups, got: %s", resultStr)
+	}
+	if !strings.Contains(resultStr, "autoUpdates") {
+		t.Errorf("result should contain autoUpdates, got: %s", resultStr)
+	}
+}

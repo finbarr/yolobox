@@ -1127,10 +1127,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 		claudeConfigFile := filepath.Join(home, ".claude.json")
 		if _, err := os.Stat(claudeConfigFile); err == nil {
-			if appleContainer {
-				appleContainerFiles[claudeConfigFile] = "claude/.claude.json"
-			} else {
-				args = append(args, "-v", claudeConfigFile+":/host-claude/.claude.json:ro")
+			// Preprocess to remove installMethod (host install method doesn't apply in container)
+			if processedPath := preprocessClaudeConfig(claudeConfigFile); processedPath != "" {
+				if appleContainer {
+					appleContainerFiles[processedPath] = "claude/.claude.json"
+				} else {
+					args = append(args, "-v", processedPath+":/host-claude/.claude.json:ro")
+				}
 			}
 		}
 		// On macOS, extract OAuth credentials from Keychain and mount as .credentials.json
@@ -1364,6 +1367,45 @@ func getClaudeCredentials() string {
 		return ""
 	}
 	return strings.TrimSpace(string(output))
+}
+
+// preprocessClaudeConfig reads ~/.claude.json, removes installMethod (which is
+// host-specific and causes issues in the container), and writes to a temp file.
+// Returns the temp file path, or empty string on error.
+func preprocessClaudeConfig(srcPath string) string {
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return ""
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return ""
+	}
+
+	// Remove installMethod - let Claude detect it fresh in the container
+	// The host's installMethod (e.g., "native") doesn't apply inside the container
+	delete(config, "installMethod")
+
+	processed, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return ""
+	}
+
+	// Write to temp file in ~/.yolobox/tmp/
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	tmpDir := filepath.Join(home, ".yolobox", "tmp")
+	os.MkdirAll(tmpDir, 0700)
+	tmpPath := filepath.Join(tmpDir, "claude-config.json")
+
+	if err := os.WriteFile(tmpPath, processed, 0644); err != nil {
+		return ""
+	}
+
+	return tmpPath
 }
 
 // checkDockerMemory warns if Docker has less than 4GB RAM available
