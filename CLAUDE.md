@@ -95,10 +95,13 @@ ANTHROPIC_API_KEY=test ./yolobox run printenv ANTHROPIC_API_KEY  # Should output
 # 9. Claude config sharing (opt-in with --claude-config)
 ./yolobox run --claude-config ls /home/yolo/.claude   # Should show copied host claude config
 
-# 10. Git config sharing (opt-in with --git-config)
+# 10. Gemini config sharing (opt-in with --gemini-config)
+./yolobox run --gemini-config ls /home/yolo/.gemini   # Should show copied host gemini config
+
+# 11. Git config sharing (opt-in with --git-config)
 ./yolobox run --git-config cat /home/yolo/.gitconfig  # Should show copied host git config
 
-# 11. Global agent instructions (opt-in with --copy-agent-instructions)
+# 12. Global agent instructions (opt-in with --copy-agent-instructions)
 # Creates test file, copies it, then cleans up
 mkdir -p ~/.claude && echo "test" > ~/.claude/CLAUDE.md
 ./yolobox run --copy-agent-instructions cat /home/yolo/.claude/CLAUDE.md  # Should output: test

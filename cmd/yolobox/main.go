@@ -78,6 +78,7 @@ type Config struct {
 	NoYolo                bool     `toml:"no_yolo"`
 	Scratch               bool     `toml:"scratch"`
 	ClaudeConfig          bool     `toml:"claude_config"`
+	GeminiConfig          bool     `toml:"gemini_config"`
 	GitConfig             bool     `toml:"git_config"`
 	GhToken               bool     `toml:"gh_token"`
 	CopyAgentInstructions bool     `toml:"copy_agent_instructions"`
@@ -326,6 +327,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
+	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini config to container")
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
 	fmt.Fprintln(os.Stderr, "  --gh-token            Forward GitHub CLI token (from gh auth token)")
 	fmt.Fprintln(os.Stderr, "  --copy-agent-instructions  Copy global agent instruction files")
@@ -370,6 +372,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		noYolo                bool
 		scratch               bool
 		claudeConfig          bool
+		geminiConfig          bool
 		gitConfig             bool
 		ghToken               bool
 		copyAgentInstructions bool
@@ -387,6 +390,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
+	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini config to container")
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
 	fs.BoolVar(&ghToken, "gh-token", false, "forward GitHub CLI token (from gh auth token)")
 	fs.BoolVar(&copyAgentInstructions, "copy-agent-instructions", false, "copy agent instruction files (CLAUDE.md, GEMINI.md, AGENTS.md)")
@@ -428,6 +432,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if claudeConfig {
 		cfg.ClaudeConfig = true
+	}
+	if geminiConfig {
+		cfg.GeminiConfig = true
 	}
 	if gitConfig {
 		cfg.GitConfig = true
@@ -543,6 +550,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.ClaudeConfig {
 		dst.ClaudeConfig = true
 	}
+	if src.GeminiConfig {
+		dst.GeminiConfig = true
+	}
 	if src.GitConfig {
 		dst.GitConfig = true
 	}
@@ -634,6 +644,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
 	fmt.Printf("%sscratch:%s %t\n", colorBold, colorReset, cfg.Scratch)
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
+	fmt.Printf("%sgemini_config:%s %t\n", colorBold, colorReset, cfg.GeminiConfig)
 	fmt.Printf("%sgit_config:%s %t\n", colorBold, colorReset, cfg.GitConfig)
 	fmt.Printf("%sgh_token:%s %t\n", colorBold, colorReset, cfg.GhToken)
 	fmt.Printf("%scopy_agent_instructions:%s %t\n", colorBold, colorReset, cfg.CopyAgentInstructions)
@@ -844,9 +855,9 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"runtime": true, "image": true, "network": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
-		"git-config": true, "gh-token": true, "copy-agent-instructions": true,
-		"setup": true, "mount": true, "env": true,
-		"h": true, "help": true,
+		"gemini-config": true, "git-config": true, "gh-token": true,
+		"copy-agent-instructions": true, "setup": true, "mount": true,
+		"env": true, "h": true, "help": true,
 	}
 
 	flagsWithValues := map[string]bool{
@@ -1149,6 +1160,18 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 					args = append(args, "-v", credsPath+":/host-claude/.credentials.json:ro")
 				}
 			}
+		}
+	}
+
+	// Mount Gemini config from host to staging area (copied to /home/yolo by entrypoint)
+	if cfg.GeminiConfig {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+		geminiConfigDir := filepath.Join(home, ".gemini")
+		if _, err := os.Stat(geminiConfigDir); err == nil {
+			args = append(args, "-v", geminiConfigDir+":/host-gemini/.gemini:ro")
 		}
 	}
 

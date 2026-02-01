@@ -97,6 +97,7 @@ yolobox help                # Show help
 | `--no-yolo` | Disable auto-confirmations (mindful mode) |
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) |
 | `--claude-config` | Copy host `~/.claude` config into container |
+| `--gemini-config` | Copy host `~/.gemini` config into container |
 | `--git-config` | Copy host `~/.gitconfig` into container |
 | `--gh-token` | Forward GitHub CLI token (extracts from keychain via `gh auth token`) |
 | `--copy-agent-instructions` | Copy global agent instruction files (see below) |
@@ -128,7 +129,7 @@ no_network = true
 
 Priority: CLI flags > project config > global config > defaults.
 
-> **Note:** Setting `claude_config = true` in your config will copy your host Claude config on **every** container start, overwriting any changes made inside the container (including auth and history). Prefer using `--claude-config` for one-time syncs.
+> **Note:** Setting `claude_config = true` or `gemini_config = true` in your config will copy your host config on **every** container start, overwriting any changes made inside the container (including auth and history). Prefer using `--claude-config` or `--gemini-config` for one-time syncs.
 
 ### Copying Global Agent Instructions
 

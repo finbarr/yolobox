@@ -183,7 +183,7 @@ RUN echo 'echo ""' >> ~/.bashrc \
 
 # Create entrypoint script
 USER root
-RUN mkdir -p /host-claude /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-gemini /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -217,6 +217,14 @@ RUN mkdir -p /host-claude /host-git /host-agent-instructions /host-files && \
     '    sudo cp -a "$CREDS_FILE" /home/yolo/.claude/.credentials.json' \
     '    sudo chown yolo:yolo /home/yolo/.claude/.credentials.json' \
     '    sudo chmod 600 /home/yolo/.claude/.credentials.json' \
+    'fi' \
+    '' \
+    '# Copy Gemini config from host staging area if present' \
+    'if [ -d /host-gemini/.gemini ]; then' \
+    '    echo -e "\033[33m→ Copying host Gemini config to container\033[0m" >&2' \
+    '    sudo rm -rf /home/yolo/.gemini' \
+    '    sudo cp -a /host-gemini/.gemini /home/yolo/.gemini' \
+    '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
     'fi' \
     '' \
     '# Copy git config from host staging area if present' \
