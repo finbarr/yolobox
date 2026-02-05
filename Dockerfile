@@ -170,10 +170,16 @@ RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/copilot \
     && chmod +x /opt/yolobox/bin/copilot
 
 
-# Add wrapper dir and ~/.local/bin to PATH (wrappers take priority)
-ENV PATH="/opt/yolobox/bin:/home/yolo/.local/bin:$PATH"
+# Configure npm to use a user-writable prefix so yolo can `npm install -g` without sudo
+ENV NPM_CONFIG_PREFIX=/home/yolo/.npm-global
+
+# Add wrapper dir, npm-global bin, and ~/.local/bin to PATH (wrappers take priority)
+ENV PATH="/opt/yolobox/bin:/home/yolo/.npm-global/bin:/home/yolo/.local/bin:$PATH"
 
 USER yolo
+
+# Create npm-global prefix dir (also created in entrypoint for existing named volumes)
+RUN mkdir -p /home/yolo/.npm-global
 
 # Welcome message
 RUN echo 'echo ""' >> ~/.bashrc \
@@ -285,6 +291,9 @@ RUN mkdir -p /host-claude /host-gemini /host-git /host-agent-instructions /host-
     'if [ "$COPIED_AGENT_INSTRUCTIONS" = "1" ]; then' \
     '    echo -e "\033[33m→ Copying global agent instructions to container\033[0m" >&2' \
     'fi' \
+    '' \
+    '# Ensure npm-global prefix dir exists (named volume may shadow /home/yolo)' \
+    'mkdir -p /home/yolo/.npm-global' \
     '' \
     '# Auto-trust project directory for Claude Code (this is yolobox after all)' \
     'if [ -n "$YOLOBOX_PROJECT_PATH" ]; then' \

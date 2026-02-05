@@ -150,3 +150,4 @@ Document solutions here when something takes multiple attempts to figure out.
 - **GitHub CLI tokens on macOS are in Keychain**: `~/.config/gh/hosts.yml` only has user metadata, not the token. Use `gh auth token` to extract it, then pass as `GH_TOKEN` env var. This is what `--gh-token` does.
 - **Colima defaults to 2GB RAM**: Claude Code gets OOM killed. Need 4GB+. yolobox now warns if Docker has < 4GB.
 - **Named volumes shadow image contents**: The `yolobox-home` volume mounts over `/home/yolo`, so new files added to the image's `/home/yolo` won't appear for existing users. Solution: put configs in `/etc/` if they must be visible without volume deletion.
+- **npm install -g fails as yolo user**: Global npm packages install to `/usr/lib/node_modules/` (root-owned). Solution: set `NPM_CONFIG_PREFIX=/home/yolo/.npm-global` and add its `bin/` to PATH. The entrypoint creates the dir for existing named volumes.
