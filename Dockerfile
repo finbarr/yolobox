@@ -51,6 +51,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     unzip \
     zip \
+    tzdata \
     # For native node modules
     libssl-dev \
     # For terminfo compilation (Ghostty support)

@@ -1080,6 +1080,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if lang := os.Getenv("LANG"); lang != "" {
 		args = append(args, "-e", "LANG="+lang)
 	}
+	if tz := detectTimezone(); tz != "" {
+		args = append(args, "-e", "TZ="+tz)
+	}
 
 	// Auto-passthrough common API keys
 	for _, key := range autoPassthroughEnvVars {
@@ -1430,6 +1433,30 @@ func preprocessClaudeConfig(srcPath string) string {
 	}
 
 	return tmpPath
+}
+
+// detectTimezone returns the host's IANA timezone (e.g., "America/New_York").
+// Returns empty string if detection fails.
+func detectTimezone() string {
+	// Check TZ env var first
+	if tz := os.Getenv("TZ"); tz != "" {
+		return tz
+	}
+
+	// Try reading /etc/localtime symlink (works on macOS and Linux)
+	target, err := os.Readlink("/etc/localtime")
+	if err != nil {
+		return ""
+	}
+
+	// Extract timezone from path like /var/db/timezone/zoneinfo/America/New_York
+	// or /usr/share/zoneinfo/America/New_York
+	const marker = "zoneinfo/"
+	if idx := strings.LastIndex(target, marker); idx != -1 {
+		return target[idx+len(marker):]
+	}
+
+	return ""
 }
 
 // checkDockerMemory warns if Docker has less than 4GB RAM available

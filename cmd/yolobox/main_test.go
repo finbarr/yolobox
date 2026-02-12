@@ -547,6 +547,41 @@ func TestSplitToolArgs(t *testing.T) {
 	}
 }
 
+func TestDetectTimezone(t *testing.T) {
+	// Test with TZ env var set
+	t.Setenv("TZ", "Europe/London")
+	tz := detectTimezone()
+	if tz != "Europe/London" {
+		t.Errorf("expected Europe/London from TZ env, got %q", tz)
+	}
+
+	// Test without TZ env var (falls back to /etc/localtime)
+	t.Setenv("TZ", "")
+	tz = detectTimezone()
+	// On most systems /etc/localtime exists; just verify it doesn't crash
+	// and returns either a valid timezone or empty string
+	if tz != "" && !strings.Contains(tz, "/") {
+		t.Errorf("expected IANA timezone with '/' or empty string, got %q", tz)
+	}
+}
+
+func TestBuildRunArgsTimezone(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	cfg := Config{
+		Image: "test-image",
+	}
+
+	args, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "TZ=America/New_York") {
+		t.Error("expected TZ=America/New_York in args")
+	}
+}
+
 func TestPreprocessClaudeConfig(t *testing.T) {
 	// Create a temp file with test config
 	tmpDir := t.TempDir()
