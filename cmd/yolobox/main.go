@@ -49,6 +49,7 @@ const (
 // Common API keys to auto-passthrough
 var autoPassthroughEnvVars = []string{
 	"ANTHROPIC_API_KEY",
+	"CLAUDE_CODE_OAUTH_TOKEN",
 	"OPENAI_API_KEY",
 	"COPILOT_GITHUB_TOKEN",
 	"GITHUB_TOKEN",
