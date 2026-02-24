@@ -136,7 +136,7 @@ jobs:
   homebrew:
     name: Update Homebrew Formula
     runs-on: ubuntu-latest
-    needs: release
+    needs: [release, docker]
     steps:
       - name: Extract version
         id: version
