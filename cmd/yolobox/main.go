@@ -25,7 +25,7 @@ import (
 var Version = "dev"
 
 const (
-	logo    = `
+	logo = `
   ██╗   ██╗ ██████╗ ██╗      ██████╗ ██████╗  ██████╗ ██╗  ██╗
   ╚██╗ ██╔╝██╔═══██╗██║     ██╔═══██╗██╔══██╗██╔═══██╗╚██╗██╔╝
    ╚████╔╝ ██║   ██║██║     ██║   ██║██████╔╝██║   ██║ ╚███╔╝
@@ -258,6 +258,9 @@ func runCmd() error {
 		if len(rest) != 0 {
 			return fmt.Errorf("unexpected args: %v", rest)
 		}
+		if err := validateRuntimeConstraints(cfg); err != nil {
+			return err
+		}
 		return printConfig(cfg)
 	case "reset":
 		return resetVolumes(args[1:])
@@ -471,26 +474,48 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		cfg.Env = append(cfg.Env, envVars...)
 	}
 
-	// Validate conflicting options
-	if cfg.Network != "" && cfg.NoNetwork {
-		return cfg, nil, fmt.Errorf("cannot use --network with --no-network")
-	}
-	if cfg.Docker && cfg.NoNetwork {
-		return cfg, nil, fmt.Errorf("cannot use --docker with --no-network")
-	}
-	if cfg.Pod != "" {
-		if cfg.Network != "" {
-			return cfg, nil, fmt.Errorf("cannot use --pod with --network")
-		}
-		if cfg.NoNetwork {
-			return cfg, nil, fmt.Errorf("cannot use --pod with --no-network")
-		}
-		if cfg.Docker {
-			return cfg, nil, fmt.Errorf("cannot use --pod with --docker")
-		}
+	// Validate conflicting options after config + CLI values have been merged.
+	if err := validateConfigConflicts(cfg); err != nil {
+		return cfg, nil, err
 	}
 
 	return cfg, fs.Args(), nil
+}
+
+func validateConfigConflicts(cfg Config) error {
+	if cfg.Network != "" && cfg.NoNetwork {
+		return fmt.Errorf("cannot use --network with --no-network")
+	}
+	if cfg.Docker && cfg.NoNetwork {
+		return fmt.Errorf("cannot use --docker with --no-network")
+	}
+	if cfg.Pod != "" {
+		if cfg.Network != "" {
+			return fmt.Errorf("cannot use --pod with --network")
+		}
+		if cfg.NoNetwork {
+			return fmt.Errorf("cannot use --pod with --no-network")
+		}
+		if cfg.Docker {
+			return fmt.Errorf("cannot use --pod with --docker")
+		}
+	}
+	return nil
+}
+
+func validateRuntimeConstraints(cfg Config) error {
+	if cfg.Pod == "" {
+		return nil
+	}
+
+	runtimePath, err := resolveRuntime(cfg.Runtime)
+	if err != nil {
+		return err
+	}
+	if filepath.Base(runtimePath) != "podman" {
+		return fmt.Errorf("--pod requires the podman runtime (set --runtime podman)")
+	}
+	return nil
 }
 
 func defaultConfig() Config {
@@ -658,14 +683,8 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		}
 	}
 
-	if cfg.Pod != "" {
-		runtimePath, err := resolveRuntime(cfg.Runtime)
-		if err != nil {
-			return err
-		}
-		if filepath.Base(runtimePath) != "podman" {
-			return fmt.Errorf("--pod requires the podman runtime (set --runtime podman)")
-		}
+	if err := validateRuntimeConstraints(cfg); err != nil {
+		return err
 	}
 
 	// Warn if Docker has low memory (can cause OOM with Claude)
@@ -771,6 +790,9 @@ func saveGlobalConfig(cfg Config) error {
 	if cfg.Docker {
 		lines = append(lines, "docker = true")
 	}
+	if cfg.Pod != "" {
+		lines = append(lines, fmt.Sprintf("pod = %q", cfg.Pod))
+	}
 
 	content := strings.Join(lines, "\n")
 	if content != "" {
@@ -788,10 +810,10 @@ func saveGlobalConfig(cfg Config) error {
 func yoloboxTheme() *huh.Theme {
 	t := huh.ThemeBase()
 
-	purple := lipgloss.Color("35")  // magenta/purple
-	cyan := lipgloss.Color("36")    // cyan
-	yellow := lipgloss.Color("33")  // yellow
-	white := lipgloss.Color("15")   // bright white
+	purple := lipgloss.Color("35") // magenta/purple
+	cyan := lipgloss.Color("36")   // cyan
+	yellow := lipgloss.Color("33") // yellow
+	white := lipgloss.Color("15")  // bright white
 
 	// Title styling - purple and bold
 	t.Focused.Title = t.Focused.Title.Foreground(purple).Bold(true)
@@ -825,6 +847,7 @@ func runSetup() (Config, error) {
 
 	// Form fields
 	var selectedOptions []string
+	podName := cfg.Pod
 
 	// Initialize from current config
 	if cfg.GitConfig {
@@ -872,6 +895,13 @@ func runSetup() (Config, error) {
 				).
 				Value(&selectedOptions),
 		),
+		huh.NewGroup(
+			huh.NewInput().
+				Title("Podman pod (optional)").
+				Description("Join an existing Podman pod by name (shares its network)").
+				Placeholder("e.g. mypod").
+				Value(&podName),
+		),
 	).WithTheme(yoloboxTheme())
 
 	err := form.Run()
@@ -889,6 +919,11 @@ func runSetup() (Config, error) {
 	cfg.Docker = contains(selectedOptions, "docker")
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
 	cfg.NoYolo = contains(selectedOptions, "no_yolo")
+	cfg.Pod = strings.TrimSpace(podName)
+
+	if err := validateConfigConflicts(cfg); err != nil {
+		return cfg, err
+	}
 
 	// Save to global config
 	if err := saveGlobalConfig(cfg); err != nil {
@@ -922,7 +957,7 @@ func isToolShortcut(cmd string) bool {
 // failing because --resume is not a known yolobox flag.
 func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
-		"runtime": true, "image": true, "network": true,
+		"runtime": true, "image": true, "network": true, "pod": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
 		"gemini-config": true, "git-config": true, "gh-token": true,
@@ -931,7 +966,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	}
 
 	flagsWithValues := map[string]bool{
-		"runtime": true, "image": true, "network": true,
+		"runtime": true, "image": true, "network": true, "pod": true,
 		"mount": true, "env": true,
 	}
 
@@ -1140,9 +1175,9 @@ func findDockerSocket() (string, error) {
 
 	home, _ := os.UserHomeDir()
 	candidates := []string{
-		"/var/run/docker.sock",                                    // Standard path (Linux, or macOS if symlinked)
-		filepath.Join(home, ".docker", "run", "docker.sock"),      // Docker Desktop macOS
-		filepath.Join(home, ".colima", "default", "docker.sock"),  // Colima macOS
+		"/var/run/docker.sock",                                   // Standard path (Linux, or macOS if symlinked)
+		filepath.Join(home, ".docker", "run", "docker.sock"),     // Docker Desktop macOS
+		filepath.Join(home, ".colima", "default", "docker.sock"), // Colima macOS
 	}
 
 	for _, sock := range candidates {

@@ -188,7 +188,7 @@ func TestBuildRunArgs(t *testing.T) {
 
 func TestBuildRunArgsNoYolo(t *testing.T) {
 	cfg := Config{
-		Image:    "test-image",
+		Image:  "test-image",
 		NoYolo: true,
 	}
 
@@ -407,6 +407,28 @@ func TestBuildRunArgsNetwork(t *testing.T) {
 	}
 }
 
+func TestBuildRunArgsPod(t *testing.T) {
+	cfg := Config{
+		Image:     "test-image",
+		Pod:       "dev-pod",
+		Network:   "ignored_network",
+		NoNetwork: true,
+	}
+
+	args, err := buildRunArgs(cfg, "/test/project", []string{"echo"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "--pod dev-pod") {
+		t.Error("expected --pod dev-pod")
+	}
+	if strings.Contains(argsStr, "--network ignored_network") || strings.Contains(argsStr, "--network none") {
+		t.Errorf("expected pod mode to suppress network flags, got: %s", argsStr)
+	}
+}
+
 func TestMergeConfigNetwork(t *testing.T) {
 	dst := Config{
 		Runtime: "docker",
@@ -423,6 +445,22 @@ func TestMergeConfigNetwork(t *testing.T) {
 	}
 }
 
+func TestMergeConfigPod(t *testing.T) {
+	dst := Config{
+		Runtime: "docker",
+		Image:   "old-image",
+	}
+	src := Config{
+		Pod: "my_pod",
+	}
+
+	mergeConfig(&dst, src)
+
+	if dst.Pod != "my_pod" {
+		t.Errorf("expected Pod to be my_pod, got %s", dst.Pod)
+	}
+}
+
 func TestParseFlagsNetwork(t *testing.T) {
 	cfg, rest, err := parseBaseFlags("run", []string{"--network", "mynet", "echo"}, t.TempDir())
 	if err != nil {
@@ -430,6 +468,19 @@ func TestParseFlagsNetwork(t *testing.T) {
 	}
 	if cfg.Network != "mynet" {
 		t.Errorf("expected Network=mynet, got %s", cfg.Network)
+	}
+	if len(rest) != 1 || rest[0] != "echo" {
+		t.Errorf("expected remaining args [echo], got %v", rest)
+	}
+}
+
+func TestParseFlagsPod(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--pod", "mypod", "echo"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Pod != "mypod" {
+		t.Errorf("expected Pod=mypod, got %s", cfg.Pod)
 	}
 	if len(rest) != 1 || rest[0] != "echo" {
 		t.Errorf("expected remaining args [echo], got %v", rest)
@@ -446,12 +497,32 @@ func TestParseFlagsNetworkConflict(t *testing.T) {
 	}
 }
 
+func TestParseFlagsPodNetworkConflict(t *testing.T) {
+	_, _, err := parseBaseFlags("run", []string{"--pod", "mypod", "--network", "mynet", "echo"}, t.TempDir())
+	if err == nil {
+		t.Error("expected error for --pod with --network")
+	}
+	if err != nil && !strings.Contains(err.Error(), "cannot use --pod with --network") {
+		t.Errorf("expected conflict error message, got: %v", err)
+	}
+}
+
+func TestParseFlagsPodNoNetworkConflict(t *testing.T) {
+	_, _, err := parseBaseFlags("run", []string{"--pod", "mypod", "--no-network", "echo"}, t.TempDir())
+	if err == nil {
+		t.Error("expected error for --pod with --no-network")
+	}
+	if err != nil && !strings.Contains(err.Error(), "cannot use --pod with --no-network") {
+		t.Errorf("expected conflict error message, got: %v", err)
+	}
+}
+
 func TestSplitToolArgs(t *testing.T) {
 	tests := []struct {
-		name         string
-		args         []string
-		wantYolobox  []string
-		wantTool     []string
+		name        string
+		args        []string
+		wantYolobox []string
+		wantTool    []string
 	}{
 		{
 			name:        "tool flag only",
@@ -469,6 +540,12 @@ func TestSplitToolArgs(t *testing.T) {
 			name:        "yolobox flag then tool flag",
 			args:        []string{"--no-network", "--resume"},
 			wantYolobox: []string{"--no-network"},
+			wantTool:    []string{"--resume"},
+		},
+		{
+			name:        "yolobox pod flag with value then tool flag",
+			args:        []string{"--pod", "mypod", "--resume"},
+			wantYolobox: []string{"--pod", "mypod"},
 			wantTool:    []string{"--resume"},
 		},
 		{
