@@ -117,6 +117,10 @@ RUN npm install -g --no-audit --no-fund \
 # USER SETUP — small layers, stable
 # =============================================================================
 
+# Remove existing "ubuntu" user, as its UID/GID may conflict with a
+# user on the host
+RUN userdel -r ubuntu
+
 # Create yolo user with passwordless sudo
 RUN useradd -m -s /bin/bash yolo \
     && echo "yolo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/yolo \
