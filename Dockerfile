@@ -118,8 +118,10 @@ RUN npm install -g --no-audit --no-fund \
 # =============================================================================
 
 # Create yolo user with passwordless sudo
+# Also grant same permissions to ubuntu user to handle UID collision edge cases
 RUN useradd -m -s /bin/bash yolo \
     && echo "yolo ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/yolo \
+    && echo "ubuntu ALL=(ALL) NOPASSWD:ALL" >> /etc/sudoers.d/yolo \
     && chmod 0440 /etc/sudoers.d/yolo
 
 # Set up directories
