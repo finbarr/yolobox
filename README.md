@@ -189,12 +189,29 @@ These are automatically passed into the container if set:
 
 The base image comes batteries-included:
 - **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex, OpenCode, Copilot (all pre-configured for full-auto mode!)
-- **Runtimes**: Node.js 22, Python 3, Go, Bun
+- **Runtimes**: Node.js 22, Python 3, Go, Bun, Java 25 (SDKMAN)
+- **Java tools**: Maven, Quarkus CLI (via SDKMAN)
 - **Build tools**: make, cmake, gcc
 - **Git** + **GitHub CLI**
 - **Common utilities**: ripgrep, fd, fzf, jq, vim
 
 Need something else? The AI has sudo.
+
+### Java / SDKMAN
+
+Java 25 (Eclipse Temurin), Maven, and Quarkus CLI are pre-installed via [SDKMAN](https://sdkman.io/). SDKMAN is installed system-wide at `/opt/sdkman`.
+
+```bash
+# Check installed versions
+yolobox run java --version
+yolobox run mvn --version
+yolobox run quarkus version
+
+# Use sdk to manage Java versions at runtime
+yolobox run sdk list java
+yolobox run sdk install java 21-tem
+yolobox run sdk use java 21-tem
+```
 
 ### AI CLIs Run in YOLO Mode
 

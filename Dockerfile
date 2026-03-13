@@ -95,6 +95,16 @@ RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 # Install uv (fast Python package manager)
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 
+# Install SDKMAN + Java 21 + Maven (system-wide so named volume doesn't shadow it)
+ENV SDKMAN_DIR=/opt/sdkman
+RUN curl -fsSL "https://get.sdkman.io" | bash \
+    && bash -c "source $SDKMAN_DIR/bin/sdkman-init.sh && sdk install java 25-tem && sdk install maven && sdk install quarkus" \
+    && rm -rf $SDKMAN_DIR/tmp/* $SDKMAN_DIR/archives/* \
+    && printf '%s\n' '#!/bin/bash' 'source /opt/sdkman/bin/sdkman-init.sh' 'sdk "$@"' > /usr/local/bin/sdk \
+    && chmod +x /usr/local/bin/sdk
+ENV JAVA_HOME=/opt/sdkman/candidates/java/current
+ENV PATH="$SDKMAN_DIR/candidates/java/current/bin:$SDKMAN_DIR/candidates/maven/current/bin:$SDKMAN_DIR/candidates/quarkus/current/bin:$PATH"
+
 # Install Ghostty terminfo (not in Ubuntu's ncurses yet, needs 6.5+)
 # Prevents "Could not set up terminal" warnings when TERM=xterm-ghostty
 # Must be done as root to install to system terminfo directory
@@ -344,7 +354,10 @@ RUN echo 'PS1="\\[\\033[35m\\]yolo\\[\\033[0m\\]:\\[\\033[36m\\]\\w\\[\\033[0m\\
     && echo 'alias ll="ls -la"' >> ~/.bashrc \
     && echo 'alias la="ls -A"' >> ~/.bashrc \
     && echo 'alias l="ls -CF"' >> ~/.bashrc \
-    && echo 'alias yeet="rm -rf"' >> ~/.bashrc
+    && echo 'alias yeet="rm -rf"' >> ~/.bashrc \
+    && echo '# SDKMAN' >> ~/.bashrc \
+    && echo 'export SDKMAN_DIR=/opt/sdkman' >> ~/.bashrc \
+    && echo '[[ -s "$SDKMAN_DIR/bin/sdkman-init.sh" ]] && source "$SDKMAN_DIR/bin/sdkman-init.sh"' >> ~/.bashrc
 
 # Welcome message
 RUN echo 'echo ""' >> ~/.bashrc \

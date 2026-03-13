@@ -23,7 +23,7 @@ image:
 		docker buildx build -t $(IMAGE) . || \
 		docker build -t $(IMAGE) .
 
-SMOKE_TOOLS := node bun python3 uv gh fish fd bat rg eza
+SMOKE_TOOLS := node bun python3 uv gh fish fd bat rg eza java mvn
 
 smoke-test: build
 	@echo "Running smoke tests..."
@@ -40,6 +40,18 @@ smoke-test: build
 		echo "  ✓ go"; \
 	else \
 		echo "  ✗ go"; \
+		failed=1; \
+	fi; \
+	if ./$(BINARY) run --scratch sdk version >/dev/null 2>&1; then \
+		echo "  ✓ sdk"; \
+	else \
+		echo "  ✗ sdk"; \
+		failed=1; \
+	fi; \
+	if ./$(BINARY) run --scratch quarkus version >/dev/null 2>&1; then \
+		echo "  ✓ quarkus"; \
+	else \
+		echo "  ✗ quarkus"; \
 		failed=1; \
 	fi; \
 	if ./$(BINARY) run --scratch claude --version >/dev/null 2>&1; then \

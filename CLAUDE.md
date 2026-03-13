@@ -83,6 +83,10 @@ make image
 ./yolobox run bun --version             # Bun
 ./yolobox run python3 --version         # Python
 ./yolobox run go version                # Go
+./yolobox run java --version            # Java 25 (SDKMAN)
+./yolobox run mvn --version             # Maven (SDKMAN)
+./yolobox run quarkus version           # Quarkus CLI (SDKMAN)
+./yolobox run sdk version               # SDKMAN
 ./yolobox run uv --version              # uv (Python package manager)
 ./yolobox run claude --version          # Claude Code
 ./yolobox run gemini --version          # Gemini CLI
