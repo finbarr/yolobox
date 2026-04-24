@@ -307,6 +307,10 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-git /host-agent-instruc
     '    sudo cp -a /host-codex/.codex /home/yolo/.codex' \
     '    sudo chown -R yolo:yolo /home/yolo/.codex' \
     'fi' \
+    'if [ -f /home/yolo/.codex/auth.json ] && [ ! -s /home/yolo/.codex/auth.json ]; then' \
+    '    echo -e "\033[33m→ Removing empty Codex auth file\033[0m" >&2' \
+    '    rm -f /home/yolo/.codex/auth.json' \
+    'fi' \
     '' \
     '# Copy git config from host staging area if present' \
     'if [ -f /host-git/.gitconfig ]; then' \

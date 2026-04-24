@@ -209,6 +209,8 @@ Each `runtime_args` entry is a single CLI argument. For flags that take a value,
 
 > **Note:** Setting `claude_config = true`, `codex_config = true`, or `gemini_config = true` in your config will copy your host config on **every** container start, overwriting any changes made inside the container (including auth and history). Prefer using `--claude-config`, `--codex-config`, or `--gemini-config` for one-time syncs.
 
+yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.
+
 ### Project File Filtering
 
 Use `--exclude` to hide matching project paths from the container by staging an empty readonly project view:

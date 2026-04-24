@@ -115,3 +115,4 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - When a built-in skill is renamed, the entrypoint must remove the old skill directory from `/home/yolo/.codex/skills` during startup. The named home volume preserves stale skill folders across image upgrades.
 - Built-in agent guidance should be injected into `CLAUDE.md` and `AGENTS.md` as a managed block. Do not replace user instruction files outright just to teach agents about yolobox behavior.
 - The built-in yolobox skill must not infer readonly project state from `/output` existing. `/output` is present in the base image; check the manifest and actual project access instead.
+- A zero-byte `/home/yolo/.codex/auth.json` makes recent Codex CLIs abort with `EOF while parsing a value`. Repair that stale persistent-home state during entrypoint startup instead of requiring users to reset the volume.

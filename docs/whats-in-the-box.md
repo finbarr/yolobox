@@ -46,7 +46,7 @@ Inside yolobox, AI CLIs are wrapped to skip approval prompts where the upstream 
 | Command | Expands to |
 |---------|------------|
 | `claude` | `claude --dangerously-skip-permissions` |
-| `codex` | `codex --dangerously-bypass-approvals-and-sandbox` |
+| `codex` | `codex --ask-for-approval never --sandbox danger-full-access` |
 | `gemini` | `gemini --yolo` |
 | `opencode` | `opencode` |
 | `copilot` | `copilot --yolo` |
