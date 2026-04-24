@@ -124,10 +124,10 @@ Every yolobox session mounts a runtime manifest at `/run/yolobox/context.json` a
 
 The manifest is intended for agents and scripts running inside the container. It exposes the resolved runtime and launch context in JSON, including an `inside_yolobox` confirmation, the effective config, container paths, launch command, and the keys of forwarded environment variables without copying their values into the manifest.
 
-The canonical skill packages live under [`skills/`](../skills):
+The canonical skill packages live under [`skills/`](https://github.com/finbarr/yolobox/tree/master/skills):
 
-- [`skills/yolobox`](../skills/yolobox) is the inside-the-box skill that orients the agent to the trusted yolobox sandbox it is running in, then uses this manifest to explain the current sandbox accurately. Its `Readonly project mode` line reports the launch mode; its `Project writable now` line is a live filesystem check. yolobox currently installs it for Claude and Codex sessions inside the container.
-- [`skills/yolobox-orchestrator`](../skills/yolobox-orchestrator) is the host-side skill for agents that need to launch or control yolobox itself.
+- [`skills/yolobox`](https://github.com/finbarr/yolobox/tree/master/skills/yolobox) is the inside-the-box skill that orients the agent to the trusted yolobox sandbox it is running in, then uses this manifest to explain the current sandbox accurately. Its `Readonly project mode` line reports the launch mode; its `Project writable now` line is a live filesystem check. yolobox currently installs it for Claude and Codex sessions inside the container.
+- [`skills/yolobox-orchestrator`](https://github.com/finbarr/yolobox/tree/master/skills/yolobox-orchestrator) is the host-side skill for agents that need to launch or control yolobox itself.
 
 yolobox also injects a managed guidance block into `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` so those agents know to use the `yolobox` skill when current sandbox assumptions matter.
 

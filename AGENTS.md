@@ -111,6 +111,7 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Rootless Podman named volumes need `:U` alongside `:Z` when using `--userns=keep-id`, or older subordinate-ID ownership on `yolobox-home` reappears in-container as uid/gid 999 and breaks `/home/yolo`.
 - If the entrypoint remaps `yolo` to the host project UID/GID, it must also re-own `/output`; otherwise `--readonly-project` leaves the writable output volume stuck at the image's original 1000:1000 ownership.
 - Built-in skills live under `skills/` as standard Agent Skills packages. When editing them, keep `SKILL.md` spec-compliant and validate with `uvx --from git+https://github.com/agentskills/agentskills#subdirectory=skills-ref skills-ref validate ./skills/<name>`.
+- VitePress docs links cannot point from `docs/` to repo-root paths such as `../skills`; use GitHub source links or add real docs pages, or the Pages build fails dead-link checking.
 - When a built-in skill is renamed, the entrypoint must remove the old skill directory from `/home/yolo/.codex/skills` during startup. The named home volume preserves stale skill folders across image upgrades.
 - Built-in agent guidance should be injected into `CLAUDE.md` and `AGENTS.md` as a managed block. Do not replace user instruction files outright just to teach agents about yolobox behavior.
 - The built-in yolobox skill must not infer readonly project state from `/output` existing. `/output` is present in the base image; check the manifest and actual project access instead.
