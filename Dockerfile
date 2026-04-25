@@ -277,6 +277,17 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-git /host-agent-instruc
     'warn_low_space /home/yolo /home/yolo' \
     'warn_low_space /tmp /tmp' \
     '' \
+    '# Materialize the runtime context manifest without a host-side temp bind mount' \
+    'if [ -n "${YOLOBOX_CONTEXT_JSON_B64:-}" ]; then' \
+    '    sudo mkdir -p /run/yolobox' \
+    '    if printf "%s" "$YOLOBOX_CONTEXT_JSON_B64" | base64 -d | sudo tee /run/yolobox/context.json >/dev/null; then' \
+    '        sudo chmod 0444 /run/yolobox/context.json' \
+    '    else' \
+    '        echo -e "\033[33m→ Failed to write yolobox context manifest\033[0m" >&2' \
+    '    fi' \
+    '    unset YOLOBOX_CONTEXT_JSON_B64' \
+    'fi' \
+    '' \
     '# Copy Claude config from host staging area if present' \
     'if [ -d /host-claude/.claude ] || [ -f /host-claude/.claude.json ] || [ -f "$HF/claude/.claude.json" ]; then' \
     '    echo -e "\033[33m→ Copying host Claude config to container\033[0m" >&2' \

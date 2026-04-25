@@ -1,15 +1,16 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 )
 
 const yoloboxContextFile = "/run/yolobox/context.json"
+const yoloboxContextPayloadEnv = "YOLOBOX_CONTEXT_JSON_B64"
 
 type contextManifest struct {
 	SchemaVersion  int                   `json:"schema_version"`
@@ -80,32 +81,12 @@ type contextCustomizeConfigManifest struct {
 	Dockerfile string   `json:"dockerfile"`
 }
 
-func prepareContextManifest(cfg Config, projectDir string, command []string, interactive bool, autoPassthroughEnvKeys []string, ghTokenForwarded bool) (string, error) {
-	tempRoot := projectDir
-	if info, err := os.Stat(projectDir); err != nil || !info.IsDir() {
-		// buildRunArgs is normally called with the current project directory. If a
-		// placeholder path is passed instead, fall back to the system temp dir so
-		// tests do not litter the repo tree with manifest directories.
-		tempRoot = ""
-	}
-
-	tmpDir, err := os.MkdirTemp(tempRoot, ".yolobox-context-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp dir for context manifest: %w", err)
-	}
-
+func encodeContextManifest(cfg Config, projectDir string, command []string, interactive bool, autoPassthroughEnvKeys []string, ghTokenForwarded bool) (string, error) {
 	data, err := json.MarshalIndent(buildContextManifest(cfg, projectDir, command, interactive, autoPassthroughEnvKeys, ghTokenForwarded), "", "  ")
 	if err != nil {
-		_ = os.RemoveAll(tmpDir)
 		return "", fmt.Errorf("failed to encode context manifest: %w", err)
 	}
-
-	if err := os.WriteFile(filepath.Join(tmpDir, "context.json"), data, 0644); err != nil {
-		_ = os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("failed to write context manifest: %w", err)
-	}
-
-	return tmpDir, nil
+	return base64.StdEncoding.EncodeToString(data), nil
 }
 
 func buildContextManifest(cfg Config, projectDir string, command []string, interactive bool, autoPassthroughEnvKeys []string, ghTokenForwarded bool) contextManifest {

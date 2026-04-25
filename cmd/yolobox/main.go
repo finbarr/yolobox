@@ -1378,12 +1378,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 	}
 
-	contextDir, err := prepareContextManifest(cfg, absProject, command, interactive, autoPassthroughEnvKeys, ghTokenForwarded)
+	contextPayload, err := encodeContextManifest(cfg, absProject, command, interactive, autoPassthroughEnvKeys, ghTokenForwarded)
 	if err != nil {
 		return nil, nil, err
 	}
-	cleanupPaths = append(cleanupPaths, contextDir)
-	args = append(args, "-v", contextDir+":/run/yolobox:ro")
+	args = append(args, "-e", yoloboxContextPayloadEnv+"="+contextPayload)
 	args = append(args, "-e", "YOLOBOX_CONTEXT_FILE="+yoloboxContextFile)
 
 	if len(cfg.RuntimeArgs) > 0 {

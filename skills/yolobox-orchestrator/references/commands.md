@@ -56,7 +56,7 @@ yolobox run --network my-compose_default sh -lc 'getent hosts db'
 
 ## Context handoff to the inside agent
 
-Every session mounts a manifest at `/run/yolobox/context.json` and exports `YOLOBOX_CONTEXT_FILE`.
+Every session provides a manifest at `/run/yolobox/context.json` and exports `YOLOBOX_CONTEXT_FILE`.
 
 If an agent inside the box needs to orient itself to the environment, direct it to use `yolobox`.
 

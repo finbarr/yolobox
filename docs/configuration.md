@@ -120,7 +120,7 @@ On macOS, `gh` stores tokens in Keychain, not environment variables. Use `--gh-t
 
 ## Runtime context manifest
 
-Every yolobox session mounts a runtime manifest at `/run/yolobox/context.json` and sets `YOLOBOX_CONTEXT_FILE` to that path.
+Every yolobox session provides a runtime manifest at `/run/yolobox/context.json` and sets `YOLOBOX_CONTEXT_FILE` to that path.
 
 The manifest is intended for agents and scripts running inside the container. It exposes the resolved runtime and launch context in JSON, including an `inside_yolobox` confirmation, the effective config, container paths, launch command, and the keys of forwarded environment variables without copying their values into the manifest.
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"os"
@@ -11,6 +12,16 @@ import (
 	"strings"
 	"testing"
 )
+
+func argEnvValue(args []string, key string) (string, bool) {
+	prefix := key + "="
+	for _, arg := range args {
+		if strings.HasPrefix(arg, prefix) {
+			return strings.TrimPrefix(arg, prefix), true
+		}
+	}
+	return "", false
+}
 
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
@@ -313,8 +324,14 @@ func TestBuildRunArgs(t *testing.T) {
 	if !strings.Contains(argsStr, "yolobox-cache:/var/cache") {
 		t.Error("expected yolobox-cache volume")
 	}
-	if len(cleanupPaths) == 0 || !strings.Contains(argsStr, cleanupPaths[len(cleanupPaths)-1]+":/run/yolobox:ro") {
-		t.Error("expected context manifest mount")
+	if _, ok := argEnvValue(args, yoloboxContextPayloadEnv); !ok {
+		t.Errorf("expected %s env var", yoloboxContextPayloadEnv)
+	}
+	if strings.Contains(argsStr, ":/run/yolobox:ro") {
+		t.Error("did not expect context manifest bind mount")
+	}
+	if len(cleanupPaths) != 0 {
+		t.Fatalf("did not expect cleanup paths for basic run args, got %v", cleanupPaths)
 	}
 
 	// Verify no --network flag when using default network
@@ -390,19 +407,26 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cleanupPaths) == 0 {
-		t.Fatal("expected context manifest cleanup path")
+	if len(cleanupPaths) != 0 {
+		t.Fatalf("did not expect context manifest cleanup path, got %v", cleanupPaths)
 	}
 
 	argsStr := strings.Join(args, " ")
-	contextDir := cleanupPaths[len(cleanupPaths)-1]
-	if !strings.Contains(argsStr, contextDir+":/run/yolobox:ro") {
-		t.Fatalf("expected context manifest mount, got %s", argsStr)
+	if strings.Contains(argsStr, ":/run/yolobox:ro") {
+		t.Fatalf("did not expect context manifest mount, got %s", argsStr)
 	}
-
-	data, err := os.ReadFile(filepath.Join(contextDir, "context.json"))
+	payload, ok := argEnvValue(args, yoloboxContextPayloadEnv)
+	if !ok {
+		t.Fatalf("expected %s env var, got %s", yoloboxContextPayloadEnv, argsStr)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
 	if err != nil {
-		t.Fatalf("failed to read context manifest: %v", err)
+		t.Fatalf("failed to decode context manifest payload: %v", err)
+	}
+	if matches, err := filepath.Glob(filepath.Join(projectDir, ".yolobox-context*")); err != nil {
+		t.Fatalf("failed to check project context temp dirs: %v", err)
+	} else if len(matches) != 0 {
+		t.Fatalf("did not expect context temp dirs in project: %v", matches)
 	}
 	if strings.Contains(string(data), "do-not-leak") {
 		t.Fatal("did not expect raw env values in context manifest")
@@ -564,14 +588,16 @@ func TestBuildRunArgsContextManifestAppleRuntime(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(cleanupPaths) == 0 {
-		t.Fatal("expected context manifest cleanup path")
+	if len(cleanupPaths) != 0 {
+		t.Fatalf("did not expect context manifest cleanup path, got %v", cleanupPaths)
 	}
 
 	argsStr := strings.Join(args, " ")
-	contextDir := cleanupPaths[len(cleanupPaths)-1]
-	if !strings.Contains(argsStr, contextDir+":/run/yolobox:ro") {
-		t.Fatalf("expected context manifest mount for Apple container runtime, got %s", argsStr)
+	if strings.Contains(argsStr, ":/run/yolobox:ro") {
+		t.Fatalf("did not expect context manifest mount for Apple container runtime, got %s", argsStr)
+	}
+	if _, ok := argEnvValue(args, yoloboxContextPayloadEnv); !ok {
+		t.Fatalf("expected %s env var for Apple container runtime, got %s", yoloboxContextPayloadEnv, argsStr)
 	}
 	if !strings.Contains(argsStr, "YOLOBOX_CONTEXT_FILE=/run/yolobox/context.json") {
 		t.Fatalf("expected context env var for Apple container runtime, got %s", argsStr)

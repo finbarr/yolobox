@@ -264,7 +264,7 @@ These are automatically passed into the container if set:
 
 ### Runtime Context Manifest
 
-Every yolobox session also mounts a machine-readable context manifest at `/run/yolobox/context.json` and exports its path as `YOLOBOX_CONTEXT_FILE`.
+Every yolobox session also provides a machine-readable context manifest at `/run/yolobox/context.json` and exports its path as `YOLOBOX_CONTEXT_FILE`.
 
 This gives agents and scripts a stable way to confirm they are inside yolobox and inspect the resolved launch context without scraping CLI output. The manifest includes:
 
