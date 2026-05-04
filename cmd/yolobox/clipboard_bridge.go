@@ -82,7 +82,7 @@ func (b *clipboardBridge) handleCopy(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 
 	data, err := io.ReadAll(io.LimitReader(r.Body, maxClipboardBytes+1))
 	if err != nil {
