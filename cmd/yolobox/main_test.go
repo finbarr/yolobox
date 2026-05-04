@@ -173,6 +173,30 @@ func TestLoadConfigCodexConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigOpencodeConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("opencode_config = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.OpencodeConfig {
+		t.Fatal("expected opencode_config to load from config file")
+	}
+}
+
 func TestLoadConfigClipboard(t *testing.T) {
 	projectDir := t.TempDir()
 	configHome := t.TempDir()
@@ -803,6 +827,34 @@ func TestBuildRunArgsCodexConfig(t *testing.T) {
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, codexConfigDir+":/host-codex/.codex:ro") {
 		t.Fatalf("expected codex config mount, got %s", argsStr)
+	}
+}
+
+func TestBuildRunArgsOpencodeConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	opencodeConfigDir := filepath.Join(home, ".config", "opencode")
+	if err := os.MkdirAll(opencodeConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create opencode config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(opencodeConfigDir, "config.json"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("failed to write opencode config file: %v", err)
+	}
+
+	cfg := Config{
+		Image:          "test-image",
+		OpencodeConfig: true,
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, opencodeConfigDir+":/host-opencode/.config/opencode:ro") {
+		t.Fatalf("expected opencode config mount, got %s", argsStr)
 	}
 }
 
@@ -1886,6 +1938,17 @@ func TestParseFlagsCodexConfig(t *testing.T) {
 		t.Fatal("expected CodexConfig to be true after parsing --codex-config")
 	}
 	expectSliceEqual(t, rest, []string{"codex", "--version"})
+}
+
+func TestParseFlagsOpencodeConfig(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--opencode-config", "opencode", "--version"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.OpencodeConfig {
+		t.Fatal("expected OpencodeConfig to be true after parsing --opencode-config")
+	}
+	expectSliceEqual(t, rest, []string{"opencode", "--version"})
 }
 
 func TestParseFlagsClipboard(t *testing.T) {

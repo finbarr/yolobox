@@ -271,6 +271,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Copy host Codex config to container")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini config to container")
+	fmt.Fprintln(os.Stderr, "  --opencode-config     Copy host OpenCode config to container")
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
 	fmt.Fprintln(os.Stderr, "  --gh-token            Forward GitHub token for gh and HTTPS git")
 	fmt.Fprintln(os.Stderr, "  --copy-agent-instructions  Copy global agent instructions and skills")
@@ -333,6 +334,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		claudeConfig          bool
 		codexConfig           bool
 		geminiConfig          bool
+		opencodeConfig        bool
 		gitConfig             bool
 		ghToken               bool
 		copyAgentInstructions bool
@@ -370,6 +372,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
 	fs.BoolVar(&codexConfig, "codex-config", false, "copy host Codex config to container")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini config to container")
+	fs.BoolVar(&opencodeConfig, "opencode-config", false, "copy host OpenCode config to container")
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
 	fs.BoolVar(&ghToken, "gh-token", false, "forward GitHub CLI token (from gh auth token)")
 	fs.BoolVar(&copyAgentInstructions, "copy-agent-instructions", false, "copy agent instruction files and skills (CLAUDE.md, ~/.claude/skills, GEMINI.md, AGENTS.md, ~/.codex/skills)")
@@ -437,6 +440,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if geminiConfig {
 		cfg.GeminiConfig = true
+	}
+	if opencodeConfig {
+		cfg.OpencodeConfig = true
 	}
 	if gitConfig {
 		cfg.GitConfig = true
@@ -965,7 +971,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"runtime": true, "image": true, "network": true, "pod": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
-		"codex-config": true, "gemini-config": true, "git-config": true, "gh-token": true,
+		"codex-config": true, "gemini-config": true, "opencode-config": true, "git-config": true, "gh-token": true,
 		"copy-agent-instructions": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true,
 		"exclude":   true, "copy-as": true,
@@ -1249,6 +1255,28 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 				}
 			}
 			args = append(args, "-v", mountSrc+":/host-gemini/.gemini:ro")
+		}
+	}
+
+	// Mount OpenCode config from host to staging area (copied to /home/yolo by entrypoint)
+	if cfg.OpencodeConfig {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, nil, err
+		}
+		opencodeConfigDir := filepath.Join(home, ".config", "opencode")
+		if _, err := os.Stat(opencodeConfigDir); err == nil {
+			mountSrc := opencodeConfigDir
+			if dirContainsSymlinks(opencodeConfigDir) {
+				staged, err := stageDirResolvingSymlinks(opencodeConfigDir)
+				if err != nil {
+					warn("Failed to resolve symlinks in %s: %s", opencodeConfigDir, err)
+				} else {
+					mountSrc = staged
+					cleanupPaths = append(cleanupPaths, staged)
+				}
+			}
+			args = append(args, "-v", mountSrc+":/host-opencode/.config/opencode:ro")
 		}
 	}
 

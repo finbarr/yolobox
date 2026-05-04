@@ -319,7 +319,7 @@ RUN printf '%s\n' \
     chmod +x /usr/local/bin/yolobox-uid-fix.sh
 
 # Create entrypoint script
-RUN mkdir -p /host-claude /host-codex /host-gemini /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -402,6 +402,15 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-git /host-agent-instruc
     '    sudo rm -rf /home/yolo/.gemini' \
     '    sudo cp -a /host-gemini/.gemini /home/yolo/.gemini' \
     '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
+    'fi' \
+    '' \
+    '# Copy OpenCode config from host staging area if present' \
+    'if [ -d /host-opencode/.config/opencode ]; then' \
+    '    echo -e "\033[33m→ Copying host OpenCode config to container\033[0m" >&2' \
+    '    sudo mkdir -p /home/yolo/.config' \
+    '    sudo rm -rf /home/yolo/.config/opencode' \
+    '    sudo cp -a /host-opencode/.config/opencode /home/yolo/.config/opencode' \
+    '    sudo chown -R yolo:yolo /home/yolo/.config/opencode' \
     'fi' \
     '' \
     '# Copy Codex config from host staging area if present' \

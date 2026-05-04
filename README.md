@@ -228,7 +228,7 @@ Priority: CLI flags > project config > global config > defaults.
 
 Each `runtime_args` entry is a single CLI argument. For flags that take a value, add them as separate entries so `--security-opt seccomp=unconfined` becomes `["--security-opt", "seccomp=unconfined"]`.
 
-> **Note:** Setting `claude_config = true`, `codex_config = true`, or `gemini_config = true` in your config will copy your host config on **every** container start. Claude and Gemini config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex` and preserves a valid in-container `auth.json` when the host copy has no usable auth file. Prefer using `--claude-config`, `--codex-config`, or `--gemini-config` for one-time syncs.
+> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, or `opencode_config = true` in your config will copy your host config on **every** container start. Claude, Gemini, and OpenCode config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex` and preserves a valid in-container `auth.json` when the host copy has no usable auth file. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, or `--opencode-config` for one-time syncs.
 
 yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.
 
@@ -269,7 +269,7 @@ Files copied (if they exist on your host):
 | Codex skills | `~/.codex/skills/` | `/home/yolo/.codex/skills/` |
 | Copilot | `~/.copilot/agents/` | `/home/yolo/.copilot/agents/` |
 
-**Note:** This copies instructions and skills, not full configs (credentials, settings, history). For full tool configs, use `--claude-config`, `--codex-config`, or `--gemini-config`.
+**Note:** This copies instructions and skills, not full configs (credentials, settings, history). For full tool configs, use `--claude-config`, `--codex-config`, `--gemini-config`, or `--opencode-config`.
 
 You can also set `copy_agent_instructions = true` in your config file for persistent use.
 
@@ -331,6 +331,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--claude-config` | Copy host `~/.claude` config into container | |
 | `--codex-config` | Copy host `~/.codex` config into container | |
 | `--gemini-config` | Copy host `~/.gemini` config into container | |
+| `--opencode-config` | Copy host `~/.config/opencode` config into container | |
 | `--git-config` | Copy host `~/.gitconfig` into container | |
 | `--gh-token` | Forward GitHub token for `gh` and HTTPS Git auth (extracts from keychain via `gh auth token`) | |
 | `--copy-agent-instructions` | Copy global agent instruction files and skills (see configuration below) | |
