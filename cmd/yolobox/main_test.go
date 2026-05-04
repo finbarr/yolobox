@@ -41,12 +41,13 @@ func TestMergeConfig(t *testing.T) {
 		Image:   "old-image",
 	}
 	src := Config{
-		Image:       "new-image",
-		SSHAgent:    true,
-		NoNetwork:   true,
-		Scratch:     true,
-		CodexConfig: true,
-		Clipboard:   true,
+		Image:          "new-image",
+		SSHAgent:       true,
+		NoNetwork:      true,
+		Scratch:        true,
+		CodexConfig:    true,
+		OpencodeConfig: true,
+		Clipboard:      true,
 	}
 
 	mergeConfig(&dst, src)
@@ -68,6 +69,9 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if !dst.CodexConfig {
 		t.Error("expected CodexConfig to be true")
+	}
+	if !dst.OpencodeConfig {
+		t.Error("expected OpencodeConfig to be true")
 	}
 	if !dst.Clipboard {
 		t.Error("expected Clipboard to be true")
@@ -194,6 +198,39 @@ func TestLoadConfigOpencodeConfig(t *testing.T) {
 	}
 	if !cfg.OpencodeConfig {
 		t.Fatal("expected opencode_config to load from config file")
+	}
+}
+
+func TestSaveGlobalConfigToolConfigs(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := Config{
+		ClaudeConfig:   true,
+		CodexConfig:    true,
+		GeminiConfig:   true,
+		OpencodeConfig: true,
+	}
+	if err := saveGlobalConfig(cfg); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+
+	path := filepath.Join(configHome, "yolobox", "config.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	content := string(data)
+	for _, want := range []string{
+		"claude_config = true",
+		"codex_config = true",
+		"gemini_config = true",
+		"opencode_config = true",
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("expected saved config to contain %q, got:\n%s", want, content)
+		}
 	}
 }
 
@@ -443,6 +480,7 @@ func TestBuildRunArgsCopyAgentInstructionsIncludesAgentSkills(t *testing.T) {
 
 func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENAI_API_KEY", "test-key")
 
 	cfg := Config{
@@ -450,6 +488,10 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 		Env:               []string{"FOO=bar", "SUPER_SECRET=do-not-leak", "DEBUG"},
 		ReadonlyProject:   true,
 		NoYolo:            true,
+		ClaudeConfig:      true,
+		CodexConfig:       true,
+		GeminiConfig:      true,
+		OpencodeConfig:    true,
 		Clipboard:         true,
 		ClipboardEndpoint: "http://host.docker.internal:12345",
 		ClipboardToken:    "test-token",
@@ -532,6 +574,18 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	}
 	if manifest.Config.Network != "devnet" {
 		t.Fatalf("expected network devnet, got %s", manifest.Config.Network)
+	}
+	if !manifest.Config.ClaudeConfig {
+		t.Fatal("expected claude_config in manifest config")
+	}
+	if !manifest.Config.CodexConfig {
+		t.Fatal("expected codex_config in manifest config")
+	}
+	if !manifest.Config.GeminiConfig {
+		t.Fatal("expected gemini_config in manifest config")
+	}
+	if !manifest.Config.OpencodeConfig {
+		t.Fatal("expected opencode_config in manifest config")
 	}
 	if !manifest.Config.Clipboard {
 		t.Fatal("expected clipboard in manifest config")

@@ -320,6 +320,18 @@ func saveGlobalConfig(cfg Config) error {
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")
 	}
+	if cfg.ClaudeConfig {
+		lines = append(lines, "claude_config = true")
+	}
+	if cfg.CodexConfig {
+		lines = append(lines, "codex_config = true")
+	}
+	if cfg.GeminiConfig {
+		lines = append(lines, "gemini_config = true")
+	}
+	if cfg.OpencodeConfig {
+		lines = append(lines, "opencode_config = true")
+	}
 	if cfg.GhToken {
 		lines = append(lines, "gh_token = true")
 	}

@@ -68,7 +68,9 @@ type contextConfigManifest struct {
 	NoYolo                bool                           `json:"no_yolo"`
 	Scratch               bool                           `json:"scratch"`
 	ClaudeConfig          bool                           `json:"claude_config"`
+	CodexConfig           bool                           `json:"codex_config"`
 	GeminiConfig          bool                           `json:"gemini_config"`
+	OpencodeConfig        bool                           `json:"opencode_config"`
 	GitConfig             bool                           `json:"git_config"`
 	GhToken               bool                           `json:"gh_token"`
 	CopyAgentInstructions bool                           `json:"copy_agent_instructions"`
@@ -158,7 +160,9 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			NoYolo:                cfg.NoYolo,
 			Scratch:               cfg.Scratch,
 			ClaudeConfig:          cfg.ClaudeConfig,
+			CodexConfig:           cfg.CodexConfig,
 			GeminiConfig:          cfg.GeminiConfig,
+			OpencodeConfig:        cfg.OpencodeConfig,
 			GitConfig:             cfg.GitConfig,
 			GhToken:               cfg.GhToken,
 			CopyAgentInstructions: cfg.CopyAgentInstructions,

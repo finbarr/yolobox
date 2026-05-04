@@ -801,6 +801,18 @@ func runSetup() (Config, error) {
 	if cfg.GitConfig {
 		selectedOptions = append(selectedOptions, "git_config")
 	}
+	if cfg.ClaudeConfig {
+		selectedOptions = append(selectedOptions, "claude_config")
+	}
+	if cfg.CodexConfig {
+		selectedOptions = append(selectedOptions, "codex_config")
+	}
+	if cfg.GeminiConfig {
+		selectedOptions = append(selectedOptions, "gemini_config")
+	}
+	if cfg.OpencodeConfig {
+		selectedOptions = append(selectedOptions, "opencode_config")
+	}
 	if cfg.GhToken {
 		selectedOptions = append(selectedOptions, "gh_token")
 	}
@@ -838,6 +850,10 @@ func runSetup() (Config, error) {
 				Title("What do you want inside the box?").
 				Options(
 					huh.NewOption("Git identity (copy ~/.gitconfig)", "git_config"),
+					huh.NewOption("Claude config (copy ~/.claude and ~/.claude.json)", "claude_config"),
+					huh.NewOption("Codex config (copy ~/.codex)", "codex_config"),
+					huh.NewOption("Gemini config (copy ~/.gemini)", "gemini_config"),
+					huh.NewOption("OpenCode config (copy ~/.config/opencode)", "opencode_config"),
 					huh.NewOption("GitHub token (gh + HTTPS git auth)", "gh_token"),
 					huh.NewOption("SSH agent (for git over SSH)", "ssh_agent"),
 					huh.NewOption("Docker socket (run containers from sandbox)", "docker"),
@@ -913,6 +929,10 @@ func runSetup() (Config, error) {
 
 	// Build config from form values
 	cfg.GitConfig = contains(selectedOptions, "git_config")
+	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
+	cfg.CodexConfig = contains(selectedOptions, "codex_config")
+	cfg.GeminiConfig = contains(selectedOptions, "gemini_config")
+	cfg.OpencodeConfig = contains(selectedOptions, "opencode_config")
 	cfg.GhToken = contains(selectedOptions, "gh_token")
 	cfg.SSHAgent = contains(selectedOptions, "ssh_agent")
 	cfg.Docker = contains(selectedOptions, "docker")

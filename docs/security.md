@@ -51,7 +51,7 @@ Some flags deliberately widen the trust boundary:
 
 - `--docker` mounts the host Docker socket into the container
 - `--clipboard` lets clipboard commands in the container read and write the host text clipboard through a short-lived proxy
-- `--claude-config`, `--codex-config`, `--gemini-config`, and `--git-config` copy selected host config into the container
+- `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, and `--git-config` copy selected host config into the container
 - `--gh-token` forwards a GitHub token for `gh` and HTTPS Git authentication
 - `--mount`, `--device`, and `--runtime-arg` expose extra host paths, devices, and low-level runtime capabilities
 

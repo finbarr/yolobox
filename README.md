@@ -198,6 +198,7 @@ Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
 git_config = true
+opencode_config = true
 gh_token = true
 ssh_agent = true
 docker = true
