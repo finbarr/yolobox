@@ -42,6 +42,7 @@ type Config struct {
 	GitConfig             bool     `toml:"git_config"`
 	GhToken               bool     `toml:"gh_token"`
 	CopyAgentInstructions bool     `toml:"copy_agent_instructions"`
+	NoProject             bool     `toml:"no_project"`
 	Docker                bool     `toml:"docker"`
 	Clipboard             bool     `toml:"clipboard"`
 
@@ -191,6 +192,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.CopyAgentInstructions {
 		dst.CopyAgentInstructions = true
 	}
+	if src.NoProject {
+		dst.NoProject = true
+	}
 	if src.Docker {
 		dst.Docker = true
 	}
@@ -252,6 +256,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sgit_config:%s %t\n", colorBold, colorReset, cfg.GitConfig)
 	fmt.Printf("%sgh_token:%s %t\n", colorBold, colorReset, cfg.GhToken)
 	fmt.Printf("%scopy_agent_instructions:%s %t\n", colorBold, colorReset, cfg.CopyAgentInstructions)
+	fmt.Printf("%sno_project:%s %t\n", colorBold, colorReset, cfg.NoProject)
 	fmt.Printf("%sdocker:%s %t\n", colorBold, colorReset, cfg.Docker)
 	fmt.Printf("%sclipboard:%s %t\n", colorBold, colorReset, cfg.Clipboard)
 
@@ -352,6 +357,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.NoYolo {
 		lines = append(lines, "no_yolo = true")
+	}
+	if cfg.NoProject {
+		lines = append(lines, "no_project = true")
 	}
 	if cfg.Docker {
 		lines = append(lines, "docker = true")

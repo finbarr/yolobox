@@ -318,8 +318,8 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--runtime <name>` | Use `docker`, `podman`, or `container` (Apple) | |
 | `--image <name>` | Custom base image | |
 | `--mount <src:dst>` | Extra mount (repeatable) | |
-| `--exclude <glob>` | Hide matching project paths from the container (repeatable) | Apple `container`, without `--readonly-project` |
-| `--copy-as <src:dst>` | Mount a file at another project path inside the container (repeatable) | Apple `container`, without `--readonly-project` |
+| `--exclude <glob>` | Hide matching project paths from the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
+| `--copy-as <src:dst>` | Mount a file at another project path inside the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Set environment variable (repeatable) | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
@@ -328,7 +328,8 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--pod <name>` | Join existing Podman pod (shares its network) | `--no-network`, `--network`, `--docker` |
 | `--no-yolo` | Disable auto-confirmations (mindful mode) | |
 | `--scratch` | Start with a fresh home/cache (nothing persists) | |
-| `--readonly-project` | Mount project read-only (outputs go to `/output`) | |
+| `--readonly-project` | Mount project read-only (outputs go to `/output`) | `--no-project` |
+| `--no-project` | Skip automatic project mount (caller provides `--mount` and `--runtime-arg=--workdir`) | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into container | |
 | `--codex-config` | Copy host `~/.codex` config into container | |
 | `--gemini-config` | Copy host `~/.gemini` config into container | |

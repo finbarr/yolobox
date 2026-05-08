@@ -275,6 +275,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
 	fmt.Fprintln(os.Stderr, "  --gh-token            Forward GitHub token for gh and HTTPS git")
 	fmt.Fprintln(os.Stderr, "  --copy-agent-instructions  Copy global agent instructions and skills")
+	fmt.Fprintln(os.Stderr, "  --no-project          Skip automatic project mount (caller provides mounts)")
 	fmt.Fprintln(os.Stderr, "  --docker              Mount Docker socket and join shared network")
 	fmt.Fprintln(os.Stderr, "  --clipboard           Bridge text clipboard copy/paste to the host")
 	fmt.Fprintln(os.Stderr, "  --cpus <count>        Limit number of CPUs (supports fractions)")
@@ -338,6 +339,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		gitConfig             bool
 		ghToken               bool
 		copyAgentInstructions bool
+		noProject             bool
 		docker                bool
 		clipboard             bool
 		setup                 bool
@@ -376,6 +378,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
 	fs.BoolVar(&ghToken, "gh-token", false, "forward GitHub CLI token (from gh auth token)")
 	fs.BoolVar(&copyAgentInstructions, "copy-agent-instructions", false, "copy agent instruction files and skills (CLAUDE.md, ~/.claude/skills, GEMINI.md, AGENTS.md, ~/.codex/skills)")
+	fs.BoolVar(&noProject, "no-project", false, "skip automatic project mount (caller provides mounts and workdir)")
 	fs.BoolVar(&docker, "docker", false, "mount Docker socket and join shared network")
 	fs.BoolVar(&clipboard, "clipboard", false, "bridge text clipboard copy/paste to the host")
 	fs.BoolVar(&setup, "setup", false, "run interactive setup before starting")
@@ -452,6 +455,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if copyAgentInstructions {
 		cfg.CopyAgentInstructions = true
+	}
+	if noProject {
+		cfg.NoProject = true
 	}
 	if docker {
 		cfg.Docker = true
@@ -536,6 +542,17 @@ func validateConfigConflicts(cfg Config) error {
 	}
 	if cfg.Clipboard && cfg.NoNetwork {
 		return fmt.Errorf("cannot use --clipboard with --no-network")
+	}
+	if cfg.NoProject {
+		if cfg.ReadonlyProject {
+			return fmt.Errorf("cannot use --no-project with --readonly-project")
+		}
+		if len(cfg.Exclude) > 0 {
+			return fmt.Errorf("cannot use --no-project with --exclude")
+		}
+		if len(cfg.CopyAs) > 0 {
+			return fmt.Errorf("cannot use --no-project with --copy-as")
+		}
 	}
 	if cfg.Pod != "" {
 		if cfg.Network != "" {
@@ -992,7 +1009,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"ssh-agent": true, "readonly-project": true, "no-network": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
 		"codex-config": true, "gemini-config": true, "opencode-config": true, "git-config": true, "gh-token": true,
-		"copy-agent-instructions": true, "docker": true, "setup": true, "mount": true,
+		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true,
 		"exclude":   true, "copy-as": true,
 		"env": true, "h": true, "help": true,
@@ -1094,18 +1111,21 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		args = append(args, "-i")
 	}
 
-	args = append(args, "-w", containerWorkingDir)
 	args = append(args, "-e", "YOLOBOX=1")
-	args = append(args, "-e", "YOLOBOX_PROJECT_PATH="+containerWorkingDir)
 
-	// Pass host UID/GID so the entrypoint can match the yolo user to the
-	// project directory owner (fixes virtiofs permission issues on Colima 0.10+).
-	// Skip for rootless Podman where --userns=keep-id handles UID mapping.
-	if !rootlessPodman {
-		if info, err := os.Stat(absProject); err == nil {
-			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-				args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_UID=%d", stat.Uid))
-				args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_GID=%d", stat.Gid))
+	if !cfg.NoProject {
+		args = append(args, "-w", containerWorkingDir)
+		args = append(args, "-e", "YOLOBOX_PROJECT_PATH="+containerWorkingDir)
+
+		// Pass host UID/GID so the entrypoint can match the yolo user to the
+		// project directory owner (fixes virtiofs permission issues on Colima 0.10+).
+		// Skip for rootless Podman where --userns=keep-id handles UID mapping.
+		if !rootlessPodman {
+			if info, err := os.Stat(absProject); err == nil {
+				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+					args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_UID=%d", stat.Uid))
+					args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_GID=%d", stat.Gid))
+				}
 			}
 		}
 	}
@@ -1154,25 +1174,27 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		args = append(args, "-e", env)
 	}
 
-	projectMountSource, overlayCleanupPaths, err := buildProjectFilterMounts(cfg, absProject)
-	if err != nil {
-		return nil, nil, err
-	}
-	cleanupPaths = append(cleanupPaths, overlayCleanupPaths...)
-
-	// Project mount at its real container path (for session continuity).
-	// A symlink /workspace -> real path is created by the entrypoint
-	projectMount := projectMountSource + ":" + projectMountTarget
-	if cfg.ReadonlyProject {
-		projectMount += ":ro"
-		// Create a writable output directory
-		if cfg.Scratch {
-			args = append(args, "-v", "/output") // anonymous volume, deleted with container
-		} else {
-			args = append(args, "-v", persistentVolumeMount("yolobox-output", "/output", rootlessPodman))
+	if !cfg.NoProject {
+		projectMountSource, overlayCleanupPaths, err := buildProjectFilterMounts(cfg, absProject)
+		if err != nil {
+			return nil, nil, err
 		}
+		cleanupPaths = append(cleanupPaths, overlayCleanupPaths...)
+
+		// Project mount at its real container path (for session continuity).
+		// A symlink /workspace -> real path is created by the entrypoint
+		projectMount := projectMountSource + ":" + projectMountTarget
+		if cfg.ReadonlyProject {
+			projectMount += ":ro"
+			// Create a writable output directory
+			if cfg.Scratch {
+				args = append(args, "-v", "/output") // anonymous volume, deleted with container
+			} else {
+				args = append(args, "-v", persistentVolumeMount("yolobox-output", "/output", rootlessPodman))
+			}
+		}
+		args = append(args, "-v", projectMount)
 	}
-	args = append(args, "-v", projectMount)
 
 	// Named volumes for persistence (skip if --scratch).
 	// Rootless Podman on SELinux-enabled hosts assigns per-container MCS

@@ -431,6 +431,78 @@ func TestBuildRunArgs(t *testing.T) {
 	}
 }
 
+func TestBuildRunArgsNoProject(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := Config{
+		Image:     "test-image",
+		NoProject: true,
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+
+	if strings.Contains(argsStr, "-w /test/project") {
+		t.Error("--no-project should skip workdir")
+	}
+	if strings.Contains(argsStr, "YOLOBOX_PROJECT_PATH") {
+		t.Error("--no-project should skip YOLOBOX_PROJECT_PATH")
+	}
+	if strings.Contains(argsStr, "YOLOBOX_HOST_UID") {
+		t.Error("--no-project should skip host UID")
+	}
+	for i, arg := range args {
+		if arg == "-v" && i+1 < len(args) && strings.Contains(args[i+1], "/test/project") {
+			t.Errorf("--no-project should skip project mount, found: %s", args[i+1])
+		}
+	}
+
+	// Named volumes should still be present
+	if !strings.Contains(argsStr, "yolobox-home:/home/yolo") {
+		t.Error("expected yolobox-home volume even with --no-project")
+	}
+}
+
+func TestNoProjectConflicts(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  Config
+		want string
+	}{
+		{
+			name: "no-project with readonly-project",
+			cfg:  Config{NoProject: true, ReadonlyProject: true},
+			want: "cannot use --no-project with --readonly-project",
+		},
+		{
+			name: "no-project with exclude",
+			cfg:  Config{NoProject: true, Exclude: []string{"node_modules"}},
+			want: "cannot use --no-project with --exclude",
+		},
+		{
+			name: "no-project with copy-as",
+			cfg:  Config{NoProject: true, CopyAs: []string{"a.txt:b.txt"}},
+			want: "cannot use --no-project with --copy-as",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateConfigConflicts(tt.cfg)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if err.Error() != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, err.Error())
+			}
+		})
+	}
+}
+
 func TestBuildRunArgsCopyAgentInstructionsIncludesAgentSkills(t *testing.T) {
 	projectDir := t.TempDir()
 	homeDir := t.TempDir()
