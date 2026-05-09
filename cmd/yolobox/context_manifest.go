@@ -62,6 +62,7 @@ type contextConfigManifest struct {
 	CopyAs                []string                       `json:"copy_as"`
 	SSHAgent              bool                           `json:"ssh_agent"`
 	ReadonlyProject       bool                           `json:"readonly_project"`
+	NoProject             bool                           `json:"no_project"`
 	NoNetwork             bool                           `json:"no_network"`
 	Network               string                         `json:"network"`
 	Pod                   string                         `json:"pod"`
@@ -106,8 +107,15 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		selectedRuntime = filepath.Base(runtimePath)
 	}
 
+	workingDir := projectDir
+	projectPath := projectDir
+	if cfg.NoProject {
+		workingDir = noProjectWorkingDir(cfg.RuntimeArgs)
+		projectPath = ""
+	}
+
 	paths := contextPaths{
-		Project: projectDir,
+		Project: projectPath,
 		Home:    "/home/yolo",
 	}
 	if cfg.ReadonlyProject {
@@ -138,7 +146,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		Launch: contextLaunch{
 			Interactive:            interactive,
 			Command:                append([]string{}, command...),
-			WorkingDir:             projectDir,
+			WorkingDir:             workingDir,
 			ContextFile:            yoloboxContextFile,
 			AutoPassthroughEnvKeys: append([]string{}, autoPassthroughEnvKeys...),
 			GhTokenForwarded:       ghTokenForwarded,
@@ -154,6 +162,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			CopyAs:                append([]string{}, cfg.CopyAs...),
 			SSHAgent:              cfg.SSHAgent,
 			ReadonlyProject:       cfg.ReadonlyProject,
+			NoProject:             cfg.NoProject,
 			NoNetwork:             cfg.NoNetwork,
 			Network:               cfg.Network,
 			Pod:                   cfg.Pod,
@@ -182,6 +191,29 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			},
 		},
 	}
+}
+
+func noProjectWorkingDir(runtimeArgs []string) string {
+	workingDir := "/home/yolo"
+	for i := 0; i < len(runtimeArgs); i++ {
+		arg := runtimeArgs[i]
+		switch {
+		case arg == "--workdir" || arg == "-w":
+			if i+1 < len(runtimeArgs) && runtimeArgs[i+1] != "" {
+				workingDir = runtimeArgs[i+1]
+				i++
+			}
+		case strings.HasPrefix(arg, "--workdir="):
+			if value := strings.TrimPrefix(arg, "--workdir="); value != "" {
+				workingDir = value
+			}
+		case strings.HasPrefix(arg, "-w="):
+			if value := strings.TrimPrefix(arg, "-w="); value != "" {
+				workingDir = value
+			}
+		}
+	}
+	return workingDir
 }
 
 func envKeys(envSpecs []string) []string {

@@ -255,6 +255,19 @@ yolobox claude --readonly-project --exclude ".env*" --copy-as ".env.sandbox:.env
 - `--exclude` and `--copy-as` currently require `--readonly-project`
 - `--exclude` and `--copy-as` are currently supported on Docker and Podman, not Apple's `container` runtime
 
+### Skipping the Automatic Project Mount
+
+Use `--no-project` when yolobox is running in an environment where its current working directory is not also visible to the Docker or Podman daemon, such as some Docker-in-Docker and remote-daemon setups. This skips the default project mount, default workdir, and `$YOLOBOX_PROJECT_PATH`; provide your own mount and workdir explicitly:
+
+```bash
+yolobox run --no-project \
+  --mount /host/path/to/project:/workspace \
+  --runtime-arg=--workdir=/workspace \
+  bash
+```
+
+`--no-project` is incompatible with `--readonly-project`, `--exclude`, and `--copy-as` because those options operate on the automatic project mount.
+
 ### Copying Global Agent Instructions
 
 The `--copy-agent-instructions` flag copies your **global/user-level** agent instruction files and skills into the container. This is useful when you have custom rules, preferences, or reusable skills defined globally that you want available inside yolobox.
@@ -361,7 +374,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 
 > **Clipboard bridge:** `--clipboard` starts a short-lived host proxy and exposes text clipboard command shims (`pbcopy`, `pbpaste`, `xclip`, `xsel`, `wl-copy`, `wl-paste`) inside the container.
 
-> **Project filtering:** `--exclude` globs are evaluated relative to the project root. `--copy-as` destinations must already exist as files in the project. Both flags currently require `--readonly-project`. Apple's `container` runtime does not support them yet.
+> **Project filtering:** `--exclude` globs are evaluated relative to the project root. `--copy-as` destinations must already exist as files in the project. Both flags currently require `--readonly-project` and are incompatible with `--no-project`. Apple's `container` runtime does not support them yet.
 
 ## Philosophy: It's the AI's Box, Not Yours
 

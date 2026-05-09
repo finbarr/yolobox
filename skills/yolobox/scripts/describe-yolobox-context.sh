@@ -82,12 +82,14 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
     jq -r \
         --arg project_writable "$project_writable" \
         '
+        (.config.no_project // false) as $no_project |
         [
             "Inside yolobox: yes",
             "Source: manifest",
-            "Project: " + .paths.project,
-            "Project writable now: " + $project_writable,
-            "Workdir: " + .launch.working_dir,
+            "Automatic project mount: " + (($no_project | not) | tostring),
+            (if $no_project then "Project: (automatic mount disabled)" else "Project: " + (.paths.project // "") end),
+            (if $no_project then empty else "Project writable now: " + $project_writable end),
+            "Workdir: " + (.launch.working_dir // ""),
             "Home: " + .paths.home,
             (if .paths.output != null and .paths.output != "" then "Output: " + .paths.output else empty end),
             (if .fork != null then "Fork: " + .fork.name else empty end),
@@ -153,6 +155,7 @@ fi
 
 printf 'Inside yolobox: %s\n' "$inside"
 printf 'Source: inferred (manifest unavailable)\n'
+printf 'Automatic project mount: unknown\n'
 printf 'Project: %s\n' "$project"
 printf 'Project writable now: %s\n' "$project_writable"
 printf 'Workdir: %s\n' "$workdir"

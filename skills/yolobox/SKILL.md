@@ -15,10 +15,10 @@ Use this skill only for questions about the current yolobox environment from ins
 4. Call out the important operating assumptions for the current session:
    - you are inside a containerized sandbox, not on the host
    - `127.0.0.1` refers to this container, not the user's host
-   - the project is mounted in, but host files outside the exposed mounts are out of reach by default
+   - the project is mounted in unless `Automatic project mount` is false; host files outside the exposed mounts are out of reach by default
    - write access, output path, network access, Docker access, and forwarded env keys depend on the current manifest
    - if fork mode is active, this project is a copied folder mounted at the original source path and `COMPOSE_PROJECT_NAME` is namespaced for the fork
-5. Prefer concrete facts from `YOLOBOX_CONTEXT_FILE` over generic assumptions. Mention the current project path, workdir, runtime, readonly/output behavior, network mode, Docker socket access, SSH agent access, GitHub token availability for HTTPS Git auth, fork/Compose namespace if present, and any relevant env keys or customization settings. In the script output, `Readonly project mode` is the yolobox launch mode and `Project writable now` is the current filesystem write check.
+5. Prefer concrete facts from `YOLOBOX_CONTEXT_FILE` over generic assumptions. Mention whether the automatic project mount is active, the current project path when present, workdir, runtime, readonly/output behavior, network mode, Docker socket access, SSH agent access, GitHub token availability for HTTPS Git auth, fork/Compose namespace if present, and any relevant env keys or customization settings. In the script output, `Readonly project mode` is the yolobox launch mode and `Project writable now` is the current filesystem write check; when the automatic project mount is disabled, do not assume the original checkout path exists inside the container.
 6. If the script had to fall back to inference instead of the manifest, say so explicitly.
 7. If the user needs a specific field or the raw manifest, run `${CODEX_HOME:-$HOME/.codex}/skills/yolobox/scripts/describe-yolobox-context.sh --json` or query `$YOLOBOX_CONTEXT_FILE` directly with `jq`.
 8. Do not claim you are inside yolobox unless `YOLOBOX=1` or the manifest confirms it.

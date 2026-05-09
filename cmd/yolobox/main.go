@@ -848,6 +848,9 @@ func runSetup() (Config, error) {
 	if cfg.Clipboard {
 		selectedOptions = append(selectedOptions, "clipboard")
 	}
+	if cfg.NoProject {
+		selectedOptions = append(selectedOptions, "no_project")
+	}
 
 	// Print header with box
 	headerStyle := lipgloss.NewStyle().
@@ -875,6 +878,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("SSH agent (for git over SSH)", "ssh_agent"),
 					huh.NewOption("Docker socket (run containers from sandbox)", "docker"),
 					huh.NewOption("Host clipboard (text copy/paste bridge; requires network)", "clipboard"),
+					huh.NewOption("No automatic project mount (advanced; provide mounts/workdir)", "no_project"),
 					huh.NewOption("No network (disables network, pod, Docker, and clipboard)", "no_network"),
 					huh.NewOption("No YOLO (disable auto-confirm in AI CLIs)", "no_yolo"),
 				).
@@ -954,6 +958,7 @@ func runSetup() (Config, error) {
 	cfg.SSHAgent = contains(selectedOptions, "ssh_agent")
 	cfg.Docker = contains(selectedOptions, "docker")
 	cfg.Clipboard = contains(selectedOptions, "clipboard")
+	cfg.NoProject = contains(selectedOptions, "no_project")
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
 	cfg.NoYolo = contains(selectedOptions, "no_yolo")
 	cfg.Pod = strings.TrimSpace(podName)
@@ -1116,16 +1121,17 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if !cfg.NoProject {
 		args = append(args, "-w", containerWorkingDir)
 		args = append(args, "-e", "YOLOBOX_PROJECT_PATH="+containerWorkingDir)
+	}
 
-		// Pass host UID/GID so the entrypoint can match the yolo user to the
-		// project directory owner (fixes virtiofs permission issues on Colima 0.10+).
-		// Skip for rootless Podman where --userns=keep-id handles UID mapping.
-		if !rootlessPodman {
-			if info, err := os.Stat(absProject); err == nil {
-				if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-					args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_UID=%d", stat.Uid))
-					args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_GID=%d", stat.Gid))
-				}
+	// Pass host UID/GID so the entrypoint can match the yolo user and repair
+	// persistent named-volume ownership. This is still needed with --no-project,
+	// because /home/yolo may have been remapped by an earlier run.
+	// Skip for rootless Podman where --userns=keep-id handles UID mapping.
+	if !rootlessPodman {
+		if info, err := os.Stat(absProject); err == nil {
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+				args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_UID=%d", stat.Uid))
+				args = append(args, "-e", fmt.Sprintf("YOLOBOX_HOST_GID=%d", stat.Gid))
 			}
 		}
 	}

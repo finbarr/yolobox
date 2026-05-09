@@ -433,30 +433,31 @@ func TestBuildRunArgs(t *testing.T) {
 
 func TestBuildRunArgsNoProject(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
 
 	cfg := Config{
 		Image:     "test-image",
 		NoProject: true,
 	}
 
-	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, true)
+	args, _, err := buildRunArgs(cfg, projectDir, []string{"bash"}, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	argsStr := strings.Join(args, " ")
 
-	if strings.Contains(argsStr, "-w /test/project") {
+	if strings.Contains(argsStr, "-w "+projectDir) {
 		t.Error("--no-project should skip workdir")
 	}
 	if strings.Contains(argsStr, "YOLOBOX_PROJECT_PATH") {
 		t.Error("--no-project should skip YOLOBOX_PROJECT_PATH")
 	}
-	if strings.Contains(argsStr, "YOLOBOX_HOST_UID") {
-		t.Error("--no-project should skip host UID")
+	if !strings.Contains(argsStr, "YOLOBOX_HOST_UID") {
+		t.Error("--no-project should still pass host UID for persistent home volume ownership")
 	}
 	for i, arg := range args {
-		if arg == "-v" && i+1 < len(args) && strings.Contains(args[i+1], "/test/project") {
+		if arg == "-v" && i+1 < len(args) && strings.Contains(args[i+1], projectDir) {
 			t.Errorf("--no-project should skip project mount, found: %s", args[i+1])
 		}
 	}
@@ -464,6 +465,46 @@ func TestBuildRunArgsNoProject(t *testing.T) {
 	// Named volumes should still be present
 	if !strings.Contains(argsStr, "yolobox-home:/home/yolo") {
 		t.Error("expected yolobox-home volume even with --no-project")
+	}
+}
+
+func TestBuildRunArgsNoProjectContextManifest(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	projectDir := t.TempDir()
+
+	cfg := Config{
+		Image:       "test-image",
+		NoProject:   true,
+		RuntimeArgs: []string{"--workdir=/workspace"},
+	}
+
+	args, _, err := buildRunArgs(cfg, projectDir, []string{"bash"}, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	payload, ok := argEnvValue(args, yoloboxContextPayloadEnv)
+	if !ok {
+		t.Fatalf("expected %s env var, got %s", yoloboxContextPayloadEnv, strings.Join(args, " "))
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("failed to decode context manifest payload: %v", err)
+	}
+
+	var manifest contextManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("failed to decode context manifest: %v", err)
+	}
+
+	if !manifest.Config.NoProject {
+		t.Fatal("expected no_project in manifest config")
+	}
+	if manifest.Paths.Project != "" {
+		t.Fatalf("expected no project path when automatic project mount is disabled, got %q", manifest.Paths.Project)
+	}
+	if manifest.Launch.WorkingDir != "/workspace" {
+		t.Fatalf("expected workdir from runtime args, got %q", manifest.Launch.WorkingDir)
 	}
 }
 
@@ -641,6 +682,9 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	if !manifest.Config.ReadonlyProject {
 		t.Fatal("expected readonly_project in manifest config")
 	}
+	if manifest.Config.NoProject {
+		t.Fatal("did not expect no_project in manifest config")
+	}
 	if !manifest.Config.NoYolo {
 		t.Fatal("expected no_yolo in manifest config")
 	}
@@ -701,12 +745,64 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 	output := string(out)
 	for _, want := range []string{
 		"Source: manifest",
+		"Automatic project mount: true",
 		"Readonly project mode: false",
 		"Project writable now: true",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output:\n%s", want, output)
 		}
+	}
+}
+
+func TestDescribeYoloboxContextReportsNoProjectManifest(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	if _, err := exec.LookPath("jq"); err != nil {
+		t.Skip("jq not available")
+	}
+
+	projectDir := t.TempDir()
+	contextDir := t.TempDir()
+	manifest := buildContextManifest(
+		Config{Image: "test-image", NoProject: true, RuntimeArgs: []string{"--workdir=/workspace"}},
+		projectDir,
+		[]string{"bash"},
+		false,
+		nil,
+		false,
+	)
+	data, err := json.Marshal(manifest)
+	if err != nil {
+		t.Fatalf("failed to encode manifest: %v", err)
+	}
+	contextPath := filepath.Join(contextDir, "context.json")
+	if err := os.WriteFile(contextPath, data, 0644); err != nil {
+		t.Fatalf("failed to write manifest: %v", err)
+	}
+
+	cmd := exec.Command("bash", yoloboxSkillContextScriptPath(t))
+	cmd.Dir = projectDir
+	cmd.Env = append(os.Environ(), "YOLOBOX_CONTEXT_FILE="+contextPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("context script failed: %v\n%s", err, out)
+	}
+
+	output := string(out)
+	for _, want := range []string{
+		"Source: manifest",
+		"Automatic project mount: false",
+		"Project: (automatic mount disabled)",
+		"Workdir: /workspace",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("expected %q in output:\n%s", want, output)
+		}
+	}
+	if strings.Contains(output, "Project writable now:") {
+		t.Fatalf("did not expect project writability check when automatic mount is disabled:\n%s", output)
 	}
 }
 
@@ -734,6 +830,7 @@ func TestDescribeYoloboxContextFallbackUsesProjectAccessBeforeOutputPath(t *test
 	output := string(out)
 	for _, want := range []string{
 		"Source: inferred (manifest unavailable)",
+		"Automatic project mount: unknown",
 		"Readonly project mode: false",
 		"Project writable now: true",
 	} {

@@ -66,7 +66,20 @@ copy_as = [".env.sandbox:.env"]
 - `copy_as` destinations must stay inside the project and already exist as files
 - `copy_as` takes precedence if it targets the same path as `exclude`
 - both options currently require `readonly_project = true` or `--readonly-project`
+- both options are incompatible with `no_project = true` or `--no-project`
 - Apple's `container` runtime does not support this feature yet
+
+## Skipping the automatic project mount
+
+Set `no_project = true` only in advanced environments where yolobox's current working directory is not visible to the Docker or Podman daemon. In that mode, provide the mount and workdir explicitly:
+
+```toml
+no_project = true
+mounts = ["/host/path/to/project:/workspace"]
+runtime_args = ["--workdir=/workspace"]
+```
+
+`no_project = true` cannot be combined with `readonly_project`, `exclude`, or `copy_as`.
 
 ## Customization config
 

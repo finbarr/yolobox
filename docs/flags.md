@@ -19,12 +19,13 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | Flag | Description | Incompatible with |
 |------|-------------|-------------------|
 | `--mount <src:dst>` | Extra mount, repeatable | |
-| `--exclude <glob>` | Hide matching project paths from the container, repeatable | Apple `container`, without `--readonly-project` |
-| `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | Apple `container`, without `--readonly-project` |
+| `--exclude <glob>` | Hide matching project paths from the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
+| `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Extra environment variable, repeatable | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
-| `--readonly-project` | Mount the project read-only and write outputs to `/output` | |
+| `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
+| `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into the container | |
 | `--codex-config` | Copy host `~/.codex` config into the container | |
 | `--gemini-config` | Copy host `~/.gemini` config into the container | |
@@ -116,10 +117,24 @@ yolobox claude --readonly-project --exclude ".env*" --copy-as ".env.sandbox:.env
 - `copy-as` destinations must stay inside the project and already exist as files
 - if both flags target the same path, `copy-as` wins
 - both flags currently require `--readonly-project`
+- both flags are incompatible with `--no-project`
 
 ::: warning
 `--exclude` and `--copy-as` are currently supported on Docker and Podman only. Apple's `container` runtime does not support them yet.
 :::
+
+## Skipping the automatic project mount
+
+Use `--no-project` when yolobox is running somewhere its current working directory is not visible to the Docker or Podman daemon, such as some Docker-in-Docker and remote-daemon setups.
+
+```bash
+yolobox run --no-project \
+  --mount /host/path/to/project:/workspace \
+  --runtime-arg=--workdir=/workspace \
+  bash
+```
+
+This disables the default project mount, default workdir, and `$YOLOBOX_PROJECT_PATH`. The caller is responsible for providing any mounts and workdir the command needs.
 
 ## Derived image customization
 
