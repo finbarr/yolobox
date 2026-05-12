@@ -101,6 +101,7 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             "Readonly project mode: " + (.config.readonly_project | tostring),
             "Scratch: " + (.config.scratch | tostring),
             "No network: " + (.config.no_network | tostring),
+            "No env passthrough: " + ((.config.no_env_passthrough // false) | tostring),
             (if .config.network != "" then "Network: " + .config.network else empty end),
             (if .config.pod != "" then "Pod: " + .config.pod else empty end),
             "Docker socket: " + (.config.docker | tostring),

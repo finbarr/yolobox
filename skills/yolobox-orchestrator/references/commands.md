@@ -40,6 +40,12 @@ Mount the project read-only and write outputs to `/output`:
 yolobox run --readonly-project sh -lc 'pwd && ls /output'
 ```
 
+Disable automatic host environment passthrough for untrusted work:
+
+```bash
+yolobox run --no-env-passthrough env
+```
+
 ## Docker and network access
 
 Allow Docker commands inside the box:

@@ -41,13 +41,14 @@ func TestMergeConfig(t *testing.T) {
 		Image:   "old-image",
 	}
 	src := Config{
-		Image:          "new-image",
-		SSHAgent:       true,
-		NoNetwork:      true,
-		Scratch:        true,
-		CodexConfig:    true,
-		OpencodeConfig: true,
-		Clipboard:      true,
+		Image:            "new-image",
+		SSHAgent:         true,
+		NoNetwork:        true,
+		NoEnvPassthrough: true,
+		Scratch:          true,
+		CodexConfig:      true,
+		OpencodeConfig:   true,
+		Clipboard:        true,
 	}
 
 	mergeConfig(&dst, src)
@@ -63,6 +64,9 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if !dst.NoNetwork {
 		t.Error("expected NoNetwork to be true")
+	}
+	if !dst.NoEnvPassthrough {
+		t.Error("expected NoEnvPassthrough to be true")
 	}
 	if !dst.Scratch {
 		t.Error("expected Scratch to be true")
@@ -255,6 +259,41 @@ func TestLoadConfigClipboard(t *testing.T) {
 	}
 	if !cfg.Clipboard {
 		t.Fatal("expected clipboard to load from config file")
+	}
+}
+
+func TestLoadConfigNoEnvPassthrough(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("no_env_passthrough = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.NoEnvPassthrough {
+		t.Fatal("expected no_env_passthrough to load from config file")
+	}
+
+	if err := saveGlobalConfig(cfg); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+	data, err := os.ReadFile(globalConfigPath)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+	if !strings.Contains(string(data), "no_env_passthrough = true") {
+		t.Fatalf("expected saved config to contain no_env_passthrough, got:\n%s", string(data))
 	}
 }
 
@@ -711,6 +750,59 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	}
 	if manifest.Config.Customize.Dockerfile != ".yolobox.Dockerfile" {
 		t.Fatalf("unexpected customize dockerfile: %s", manifest.Config.Customize.Dockerfile)
+	}
+}
+
+func TestBuildRunArgsNoEnvPassthrough(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("GH_TOKEN", "github-token")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("TZ", "Europe/London")
+
+	cfg := Config{
+		Image:            "test-image",
+		NoEnvPassthrough: true,
+		Env:              []string{"EXPLICIT=1"},
+	}
+
+	args, _, err := buildRunArgs(cfg, projectDir, []string{"echo", "hello"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	for _, key := range []string{"OPENAI_API_KEY", "GH_TOKEN", "TERM", "LANG", "TZ"} {
+		if _, ok := argEnvValue(args, key); ok {
+			t.Fatalf("did not expect automatic %s passthrough in args: %s", key, argsStr)
+		}
+	}
+	if value, ok := argEnvValue(args, "EXPLICIT"); !ok || value != "1" {
+		t.Fatalf("expected explicit env to remain, got value=%q ok=%t args=%s", value, ok, argsStr)
+	}
+
+	payload, ok := argEnvValue(args, yoloboxContextPayloadEnv)
+	if !ok {
+		t.Fatalf("expected %s env var, got %s", yoloboxContextPayloadEnv, argsStr)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("failed to decode context manifest payload: %v", err)
+	}
+	var manifest contextManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("failed to decode context manifest: %v", err)
+	}
+	if !manifest.Config.NoEnvPassthrough {
+		t.Fatal("expected no_env_passthrough in manifest config")
+	}
+	if len(manifest.Launch.AutoPassthroughEnvKeys) != 0 {
+		t.Fatalf("did not expect auto passthrough keys, got %v", manifest.Launch.AutoPassthroughEnvKeys)
+	}
+	if !reflect.DeepEqual(manifest.Config.EnvKeys, []string{"EXPLICIT"}) {
+		t.Fatalf("unexpected explicit env keys: %v", manifest.Config.EnvKeys)
 	}
 }
 
@@ -2181,6 +2273,17 @@ func TestParseFlagsClipboard(t *testing.T) {
 	}
 	if !cfg.Clipboard {
 		t.Fatal("expected Clipboard to be true after parsing --clipboard")
+	}
+	expectSliceEqual(t, rest, []string{"codex", "--version"})
+}
+
+func TestParseFlagsNoEnvPassthrough(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--no-env-passthrough", "codex", "--version"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.NoEnvPassthrough {
+		t.Fatal("expected NoEnvPassthrough to be true after parsing --no-env-passthrough")
 	}
 	expectSliceEqual(t, rest, []string{"codex", "--version"})
 }

@@ -31,6 +31,7 @@ type Config struct {
 	SSHAgent              bool     `toml:"ssh_agent"`
 	ReadonlyProject       bool     `toml:"readonly_project"`
 	NoNetwork             bool     `toml:"no_network"`
+	NoEnvPassthrough      bool     `toml:"no_env_passthrough"`
 	Network               string   `toml:"network"`
 	Pod                   string   `toml:"pod"`
 	NoYolo                bool     `toml:"no_yolo"`
@@ -159,6 +160,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.NoNetwork {
 		dst.NoNetwork = true
 	}
+	if src.NoEnvPassthrough {
+		dst.NoEnvPassthrough = true
+	}
 	if src.Network != "" {
 		dst.Network = src.Network
 	}
@@ -245,6 +249,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
 	fmt.Printf("%sno_network:%s %t\n", colorBold, colorReset, cfg.NoNetwork)
+	fmt.Printf("%sno_env_passthrough:%s %t\n", colorBold, colorReset, cfg.NoEnvPassthrough)
 	fmt.Printf("%snetwork:%s %s\n", colorBold, colorReset, cfg.Network)
 	fmt.Printf("%spod:%s %s\n", colorBold, colorReset, cfg.Pod)
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
@@ -351,6 +356,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.NoNetwork {
 		lines = append(lines, "no_network = true")
+	}
+	if cfg.NoEnvPassthrough {
+		lines = append(lines, "no_env_passthrough = true")
 	}
 	if cfg.Network != "" {
 		lines = append(lines, fmt.Sprintf("network = %q", cfg.Network))

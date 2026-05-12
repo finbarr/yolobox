@@ -22,6 +22,7 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--exclude <glob>` | Hide matching project paths from the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Extra environment variable, repeatable | |
+| `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
 | `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
@@ -72,6 +73,12 @@ By default, yolobox uses the runtime's normal bridged network.
 
 - use `--network <name>` when you need container-name DNS on a compose network
 - use `--no-network` when you want complete network isolation
+
+## Environment passthrough
+
+yolobox automatically passes a short list of common API/token environment variables when they exist on the host, plus `TERM`, `LANG`, and detected `TZ` for terminal usability.
+
+Use `--no-env-passthrough` to disable those automatic host-derived environment variables. Explicit `--env KEY=value` entries still pass through, and `--gh-token` still forwards a GitHub token when requested.
 
 ## Docker access {#docker-access}
 

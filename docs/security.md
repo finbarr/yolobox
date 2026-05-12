@@ -53,6 +53,7 @@ Some flags deliberately widen the trust boundary:
 - `--clipboard` lets clipboard commands in the container read and write the host text clipboard through a short-lived proxy
 - `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, and `--git-config` copy selected host config into the container
 - `--gh-token` forwards a GitHub token for `gh` and HTTPS Git authentication
+- automatic environment passthrough forwards common API/token variables when they are set; use `--no-env-passthrough` to suppress it
 - `--mount`, `--device`, and `--runtime-arg` expose extra host paths, devices, and low-level runtime capabilities
 
 These are useful, but they are explicit trust decisions.
@@ -70,7 +71,7 @@ Good for protection from accidental damage.
 ### Level 2: reduced attack surface
 
 ```bash
-yolobox claude --no-network --readonly-project --exclude ".env*" --exclude "secrets/**"
+yolobox claude --no-network --no-env-passthrough --readonly-project --exclude ".env*" --exclude "secrets/**"
 ```
 
 Good when you want a tighter box for inspection or untrusted code.
@@ -99,6 +100,6 @@ That makes rootless Podman a strong default if security matters more than conven
 ## Quick recommendations
 
 - Use Docker or Podman defaults when your goal is protection from accidents.
-- Add `--no-network` and `--readonly-project` when you want a tighter box.
+- Add `--no-network`, `--no-env-passthrough`, and `--readonly-project` when you want a tighter box.
 - Use rootless Podman when you want stronger host hardening.
 - Use a VM when you care about hostile workloads, not just accidental damage.

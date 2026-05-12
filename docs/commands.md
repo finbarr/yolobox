@@ -56,7 +56,7 @@ yolobox claude --docker --git-config --gh-token
 ### Run one command in isolation
 
 ```bash
-yolobox run --no-network --readonly-project python3 untrusted_script.py
+yolobox run --no-network --no-env-passthrough --readonly-project python3 untrusted_script.py
 ```
 
 ### Run parallel agents on one project

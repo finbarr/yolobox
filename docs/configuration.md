@@ -21,6 +21,7 @@ docker = true
 clipboard = true
 network = "my_compose_network"
 # no_network = true # incompatible with network, pod, docker, and clipboard
+no_env_passthrough = true
 no_yolo = true
 cpus = "4"
 memory = "8g"
@@ -42,6 +43,7 @@ readonly_project = true
 exclude = [".env*", "secrets/**"]
 copy_as = [".env.sandbox:.env"]
 no_network = true
+no_env_passthrough = true
 shm_size = "2g"
 
 [customize]
@@ -134,6 +136,8 @@ These are automatically passed into the container if they are set on the host:
 - `COPILOT_GITHUB_TOKEN` / `GH_TOKEN` / `GITHUB_TOKEN`
 - `OPENROUTER_API_KEY`
 - `GEMINI_API_KEY`
+
+Set `no_env_passthrough = true` or pass `--no-env-passthrough` to disable all automatic host environment passthrough. This suppresses the API/token list above plus `TERM`, `LANG`, and detected `TZ`; explicit `env = [...]` config and `--env KEY=value` still pass through, and `gh_token = true` or `--gh-token` still forwards a GitHub token when requested.
 
 ::: tip macOS and GitHub tokens
 On macOS, `gh` stores tokens in Keychain, not environment variables. Use `--gh-token` or `gh_token = true` if you want yolobox to extract and forward the GitHub token. When a token is present, yolobox also configures HTTPS Git auth for `github.com` remotes.

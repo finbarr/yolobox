@@ -264,6 +264,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
+	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
@@ -298,6 +299,7 @@ func printUsage() {
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
 		fmt.Fprintf(os.Stderr, "  %s\n", line)
 	}
+	fmt.Fprintln(os.Stderr, "  Use --no-env-passthrough to disable automatic host env passthrough.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sEXAMPLES:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  yolobox                     # Drop into a shell")
@@ -305,6 +307,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
+	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "  %sLet your AI go full send. Your home directory stays home.%s\n\n", colorPurple, colorReset)
 }
@@ -330,6 +333,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		sshAgent              bool
 		readonlyProject       bool
 		noNetwork             bool
+		noEnvPassthrough      bool
 		noYolo                bool
 		scratch               bool
 		claudeConfig          bool
@@ -369,6 +373,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
+	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
@@ -425,6 +430,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if noNetwork {
 		cfg.NoNetwork = true
+	}
+	if noEnvPassthrough {
+		cfg.NoEnvPassthrough = true
 	}
 	if networkFlag != "" {
 		cfg.Network = networkFlag
@@ -839,6 +847,9 @@ func runSetup() (Config, error) {
 	if cfg.NoNetwork {
 		selectedOptions = append(selectedOptions, "no_network")
 	}
+	if cfg.NoEnvPassthrough {
+		selectedOptions = append(selectedOptions, "no_env_passthrough")
+	}
 	if cfg.NoYolo {
 		selectedOptions = append(selectedOptions, "no_yolo")
 	}
@@ -880,6 +891,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Host clipboard (text copy/paste bridge; requires network)", "clipboard"),
 					huh.NewOption("No automatic project mount (advanced; provide mounts/workdir)", "no_project"),
 					huh.NewOption("No network (disables network, pod, Docker, and clipboard)", "no_network"),
+					huh.NewOption("No env passthrough (disable automatic host env vars)", "no_env_passthrough"),
 					huh.NewOption("No YOLO (disable auto-confirm in AI CLIs)", "no_yolo"),
 				).
 				Value(&selectedOptions),
@@ -960,6 +972,7 @@ func runSetup() (Config, error) {
 	cfg.Clipboard = contains(selectedOptions, "clipboard")
 	cfg.NoProject = contains(selectedOptions, "no_project")
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
+	cfg.NoEnvPassthrough = contains(selectedOptions, "no_env_passthrough")
 	cfg.NoYolo = contains(selectedOptions, "no_yolo")
 	cfg.Pod = strings.TrimSpace(podName)
 	cfg.CPUs = strings.TrimSpace(cpuLimit)
@@ -1011,7 +1024,7 @@ func isToolShortcut(cmd string) bool {
 func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
 		"runtime": true, "image": true, "network": true, "pod": true,
-		"ssh-agent": true, "readonly-project": true, "no-network": true,
+		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
 		"codex-config": true, "gemini-config": true, "opencode-config": true, "git-config": true, "gh-token": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
@@ -1147,22 +1160,26 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		)
 		args = append(args, clipboardRuntimeArgs(cfg.Runtime)...)
 	}
-	if termEnv := os.Getenv("TERM"); termEnv != "" {
-		args = append(args, "-e", "TERM="+termEnv)
-	}
-	if lang := os.Getenv("LANG"); lang != "" {
-		args = append(args, "-e", "LANG="+lang)
-	}
-	if tz := detectTimezone(); tz != "" {
-		args = append(args, "-e", "TZ="+tz)
+	if !cfg.NoEnvPassthrough {
+		if termEnv := os.Getenv("TERM"); termEnv != "" {
+			args = append(args, "-e", "TERM="+termEnv)
+		}
+		if lang := os.Getenv("LANG"); lang != "" {
+			args = append(args, "-e", "LANG="+lang)
+		}
+		if tz := detectTimezone(); tz != "" {
+			args = append(args, "-e", "TZ="+tz)
+		}
 	}
 
-	// Auto-passthrough common API keys
+	// Auto-passthrough common API keys unless disabled for untrusted work.
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
-	for _, key := range autoPassthroughEnvVars {
-		if val := os.Getenv(key); val != "" {
-			autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
-			args = append(args, "-e", key+"="+val)
+	if !cfg.NoEnvPassthrough {
+		for _, key := range autoPassthroughEnvVars {
+			if val := os.Getenv(key); val != "" {
+				autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
+				args = append(args, "-e", key+"="+val)
+			}
 		}
 	}
 

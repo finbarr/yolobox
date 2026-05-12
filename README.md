@@ -205,6 +205,7 @@ docker = true
 clipboard = true
 network = "my_compose_network"
 # no_network = true # incompatible with network, pod, docker, and clipboard
+no_env_passthrough = true
 no_yolo = true
 cpus = "4"
 memory = "8g"
@@ -222,6 +223,7 @@ readonly_project = true
 exclude = [".env*", "secrets/**"]
 copy_as = [".env.sandbox:.env"]
 no_network = true
+no_env_passthrough = true
 shm_size = "2g"
 ```
 
@@ -297,6 +299,8 @@ These are automatically passed into the container if set:
 - `OPENROUTER_API_KEY`
 - `GEMINI_API_KEY`
 
+Use `--no-env-passthrough` or `no_env_passthrough = true` to disable all automatic host environment passthrough, including this API/token list plus `TERM`, `LANG`, and detected `TZ`. Explicit `--env KEY=value` entries still pass through, and `--gh-token` still forwards a GitHub token when you ask for it.
+
 ### Runtime Context Manifest
 
 Every yolobox session also provides a machine-readable context manifest at `/run/yolobox/context.json` and exports its path as `YOLOBOX_CONTEXT_FILE`.
@@ -334,6 +338,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--exclude <glob>` | Hide matching project paths from the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--copy-as <src:dst>` | Mount a file at another project path inside the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Set environment variable (repeatable) | |
+| `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
 | `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard` |
@@ -424,6 +429,7 @@ If you're worried about an AI actively trying to escape containment, you need VM
 **What yolobox does NOT protect:**
 - Your project directory (it's mounted read-write by default)
 - Network access (use `--no-network` to disable, or `--network <name>` for specific networks)
+- Explicitly forwarded secrets or mounts (use `--no-env-passthrough` to suppress automatic env passthrough)
 - The container itself (the AI has root via sudo)
 - Against kernel exploits or container escape vulnerabilities
 
@@ -438,7 +444,7 @@ yolobox  # Standard container isolation
 
 **Level 2: Reduced attack surface**
 ```bash
-yolobox claude --no-network --readonly-project --exclude ".env*" --exclude "secrets/**"
+yolobox claude --no-network --no-env-passthrough --readonly-project --exclude ".env*" --exclude "secrets/**"
 ```
 
 **Level 3: Rootless Podman** (recommended for security-conscious users)

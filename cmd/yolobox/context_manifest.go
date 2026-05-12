@@ -64,6 +64,7 @@ type contextConfigManifest struct {
 	ReadonlyProject       bool                           `json:"readonly_project"`
 	NoProject             bool                           `json:"no_project"`
 	NoNetwork             bool                           `json:"no_network"`
+	NoEnvPassthrough      bool                           `json:"no_env_passthrough"`
 	Network               string                         `json:"network"`
 	Pod                   string                         `json:"pod"`
 	NoYolo                bool                           `json:"no_yolo"`
@@ -164,6 +165,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ReadonlyProject:       cfg.ReadonlyProject,
 			NoProject:             cfg.NoProject,
 			NoNetwork:             cfg.NoNetwork,
+			NoEnvPassthrough:      cfg.NoEnvPassthrough,
 			Network:               cfg.Network,
 			Pod:                   cfg.Pod,
 			NoYolo:                cfg.NoYolo,
