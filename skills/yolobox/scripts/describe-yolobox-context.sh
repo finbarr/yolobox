@@ -102,6 +102,7 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             "Readonly project mode: " + (.config.readonly_project | tostring),
             "Scratch: " + (.config.scratch | tostring),
             "No network: " + (.config.no_network | tostring),
+            (if env.NPM_CONFIG_MIN_RELEASE_AGE != null and env.NPM_CONFIG_MIN_RELEASE_AGE != "" then "npm min release age: " + env.NPM_CONFIG_MIN_RELEASE_AGE + " days" else empty end),
             "No env passthrough: " + ((.config.no_env_passthrough // false) | tostring),
             (if .config.network != "" then "Network: " + .config.network else empty end),
             (if .config.pod != "" then "Pod: " + .config.pod else empty end),
@@ -137,6 +138,7 @@ ssh_agent="false"
 github_token="false"
 clipboard="false"
 open_bridge="false"
+npm_min_release_age="${NPM_CONFIG_MIN_RELEASE_AGE:-}"
 
 if [[ "$project_writable" == "true" ]]; then
     readonly_project="false"
@@ -171,6 +173,9 @@ if [[ -n "$output_path" ]]; then
     printf 'Output: %s\n' "$output_path"
 fi
 printf 'Readonly project mode: %s\n' "$readonly_project"
+if [[ -n "$npm_min_release_age" ]]; then
+    printf 'npm min release age: %s days\n' "$npm_min_release_age"
+fi
 printf 'Docker socket: %s\n' "$docker_socket"
 printf 'SSH agent: %s\n' "$ssh_agent"
 printf 'GitHub token available: %s\n' "$github_token"

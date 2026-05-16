@@ -104,3 +104,7 @@ That makes rootless Podman a strong default if security matters more than conven
 - Add `--no-network`, `--no-env-passthrough`, and `--readonly-project` when you want a tighter box.
 - Use rootless Podman when you want stronger host hardening.
 - Use a VM when you care about hostile workloads, not just accidental damage.
+
+## npm package freshness
+
+The base image configures npm with `NPM_CONFIG_MIN_RELEASE_AGE=7`. npm and npx installs during the image build, in derived images, and inside yolobox avoid package versions published in the last week. The Dockerfile upgrades npm first using npm's date-based `--before` filter so release builds can keep npm current without trusting a just-published npm package.

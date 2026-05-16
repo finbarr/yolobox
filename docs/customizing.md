@@ -18,6 +18,8 @@ yolobox run mvn --version
 
 The first run builds a derived image. Later runs reuse it until the base image or customization inputs change.
 
+Derived images inherit the base image's npm release-age gate: `NPM_CONFIG_MIN_RELEASE_AGE=7`. npm/npx commands in Dockerfile fragments skip package versions published in the last week unless the fragment explicitly overrides npm config.
+
 ## Add apt packages
 
 Use `packages = [...]` when you only need system packages:

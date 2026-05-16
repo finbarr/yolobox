@@ -22,6 +22,8 @@ Claude and Codex sessions also get a built-in `yolobox` skill that helps the age
 - Go
 - Bun
 
+npm is upgraded during the image build using npm's date-based `--before` filter, then configured with `NPM_CONFIG_MIN_RELEASE_AGE=7`. Later npm/npx installs during the image build and inside yolobox skip package versions published in the last week.
+
 ### Build tools
 
 - make

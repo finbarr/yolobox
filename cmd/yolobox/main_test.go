@@ -1052,7 +1052,7 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 
 	cmd := exec.Command("bash", yoloboxSkillContextScriptPath(t))
 	cmd.Dir = projectDir
-	cmd.Env = append(os.Environ(), "YOLOBOX_CONTEXT_FILE="+contextPath)
+	cmd.Env = append(os.Environ(), "YOLOBOX_CONTEXT_FILE="+contextPath, "NPM_CONFIG_MIN_RELEASE_AGE=7")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("context script failed: %v\n%s", err, out)
@@ -1064,6 +1064,7 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 		"Automatic project mount: true",
 		"Readonly project mode: false",
 		"Project writable now: true",
+		"npm min release age: 7 days",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output:\n%s", want, output)
@@ -1137,6 +1138,7 @@ func TestDescribeYoloboxContextFallbackUsesProjectAccessBeforeOutputPath(t *test
 		"YOLOBOX_CONTEXT_FILE="+filepath.Join(t.TempDir(), "missing.json"),
 		"YOLOBOX_PROJECT_PATH="+projectDir,
 		"YOLOBOX_OUTPUT_PATH="+outputDir,
+		"NPM_CONFIG_MIN_RELEASE_AGE=7",
 	)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -1149,6 +1151,7 @@ func TestDescribeYoloboxContextFallbackUsesProjectAccessBeforeOutputPath(t *test
 		"Automatic project mount: unknown",
 		"Readonly project mode: false",
 		"Project writable now: true",
+		"npm min release age: 7 days",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output:\n%s", want, output)
@@ -1506,6 +1509,39 @@ func TestDockerfileConfiguresGitHubTokenCredentialHelper(t *testing.T) {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("expected Dockerfile to contain %q", want)
 		}
+	}
+}
+
+func TestDockerfileConfiguresNpmReleaseAgeGate(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("failed to read Dockerfile: %v", err)
+	}
+	dockerfile := string(data)
+
+	for _, want := range []string{
+		"ARG NPM_MIN_RELEASE_AGE_DAYS=7",
+		"npm pack \"npm@latest\"",
+		"--before=\"$(date -u -d \"${NPM_MIN_RELEASE_AGE_DAYS} days ago\" +%Y-%m-%dT%H:%M:%SZ)\"",
+		"rm -rf /usr/lib/node_modules/npm",
+		"mv \"$tmp/package\" /usr/lib/node_modules/npm",
+		"npm config set --global min-release-age \"${NPM_MIN_RELEASE_AGE_DAYS}\"",
+		"ENV NPM_CONFIG_MIN_RELEASE_AGE=${NPM_MIN_RELEASE_AGE_DAYS}",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("expected Dockerfile to contain %q", want)
+		}
+	}
+
+	upgrade := strings.Index(dockerfile, "npm pack \"npm@latest\"")
+	devTools := strings.Index(dockerfile, "RUN npm install -g --no-audit --no-fund \\\n    typescript")
+	aiTools := strings.Index(dockerfile, "RUN NPM_CONFIG_PREFIX=\"\" npm install -g --no-audit --no-fund")
+	envGate := strings.Index(dockerfile, "ENV NPM_CONFIG_MIN_RELEASE_AGE=${NPM_MIN_RELEASE_AGE_DAYS}")
+	if upgrade < 0 || devTools < 0 || aiTools < 0 || envGate < 0 {
+		t.Fatalf("failed to locate npm install ordering in Dockerfile")
+	}
+	if !(upgrade < envGate && envGate < devTools && envGate < aiTools) {
+		t.Fatalf("expected npm age gate before later npm installs")
 	}
 }
 

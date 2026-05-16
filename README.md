@@ -63,6 +63,8 @@ The base image comes batteries-included:
 - **Git** + **GitHub CLI**
 - **Common utilities**: ripgrep, fd, fzf, jq, vim
 
+npm is configured with a 7-day release-age gate. During the base image build, yolobox first upgrades npm using npm's date-based `--before` filter, then sets `NPM_CONFIG_MIN_RELEASE_AGE=7` so later npm/npx installs skip package versions published in the last week.
+
 Need something else? The AI has sudo.
 
 ### AI CLIs Run in YOLO Mode
@@ -128,6 +130,8 @@ yolobox run --packages default-jdk --rebuild-image java --version
 ```
 
 The first run builds a derived image. Later runs reuse it until the base image or customization inputs change. When you use a Dockerfile fragment, yolobox asks Docker/Podman to build again so context changes are noticed, but cached layers are reused when nothing changed.
+
+Derived images inherit `NPM_CONFIG_MIN_RELEASE_AGE=7` from the base image, so npm/npx commands in Dockerfile fragments and inside yolobox avoid package versions published in the last week unless you explicitly override the npm config.
 
 This also keeps `yolobox upgrade` relatively painless:
 

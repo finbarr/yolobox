@@ -16,6 +16,7 @@ FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
+ARG NPM_MIN_RELEASE_AGE_DAYS=7
 
 # =============================================================================
 # STABLE LAYERS — large, rarely change (ordered first to minimize re-downloads)
@@ -67,6 +68,26 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
     && apt-get install -y nodejs \
     && rm -rf /var/lib/apt/lists/*
+
+# Keep npm current enough to support min-release-age, but do not bootstrap from
+# an npm package published inside the same age gate we enforce below.
+RUN set -eux; \
+    tmp="$(mktemp -d)"; \
+    npm pack "npm@latest" \
+        --silent \
+        --before="$(date -u -d "${NPM_MIN_RELEASE_AGE_DAYS} days ago" +%Y-%m-%dT%H:%M:%SZ)" \
+        --pack-destination "$tmp"; \
+    tar -xzf "$tmp"/npm-*.tgz -C "$tmp"; \
+    rm -rf /usr/lib/node_modules/npm; \
+    mv "$tmp/package" /usr/lib/node_modules/npm; \
+    ln -sf ../lib/node_modules/npm/bin/npm-cli.js /usr/bin/npm; \
+    ln -sf ../lib/node_modules/npm/bin/npx-cli.js /usr/bin/npx; \
+    npm config set --global min-release-age "${NPM_MIN_RELEASE_AGE_DAYS}"; \
+    npm cache clean --force; \
+    rm -rf "$tmp"
+
+# Applies to all later npm/npx installs during image builds and inside yolobox.
+ENV NPM_CONFIG_MIN_RELEASE_AGE=${NPM_MIN_RELEASE_AGE_DAYS}
 
 # Install GitHub CLI
 RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg \
@@ -279,7 +300,9 @@ RUN printf '%s\n' \
 COPY skills /opt/yolobox/skills
 COPY agent-instructions /opt/yolobox/agent-instructions
 
-# Configure npm to use a user-writable prefix so yolo can `npm install -g` without sudo
+# Configure npm to use a user-writable prefix so yolo can `npm install -g` without sudo.
+# NPM_CONFIG_MIN_RELEASE_AGE remains set above so runtime npm installs avoid
+# package versions published in the last NPM_MIN_RELEASE_AGE_DAYS days.
 ENV NPM_CONFIG_PREFIX=/home/yolo/.npm-global
 
 # Add wrapper dir, npm-global bin, and ~/.local/bin to PATH (wrappers take priority)
