@@ -25,6 +25,56 @@ func argEnvValue(args []string, key string) (string, bool) {
 	return "", false
 }
 
+func installFakeDockerRuntime(t *testing.T) string {
+	t.Helper()
+
+	runtimeDir := t.TempDir()
+	argsFile := filepath.Join(t.TempDir(), "docker-args")
+	dockerPath := filepath.Join(runtimeDir, "docker")
+	script := `#!/bin/sh
+if [ "$1" = "info" ]; then
+	echo 8589934592
+	exit 0
+fi
+: > "$YOLOBOX_FAKE_RUNTIME_ARGS"
+for arg in "$@"; do
+	printf '%s\n' "$arg" >> "$YOLOBOX_FAKE_RUNTIME_ARGS"
+done
+exit 0
+`
+	if err := os.WriteFile(dockerPath, []byte(script), 0755); err != nil {
+		t.Fatalf("failed to write fake docker runtime: %v", err)
+	}
+	t.Setenv("PATH", runtimeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("YOLOBOX_FAKE_RUNTIME_ARGS", argsFile)
+	return argsFile
+}
+
+func readFakeRuntimeArgs(t *testing.T, path string) []string {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read fake runtime args: %v", err)
+	}
+	return strings.Split(strings.TrimSpace(string(data)), "\n")
+}
+
+func silenceStderr(t *testing.T) func() {
+	t.Helper()
+
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatalf("failed to open %s: %v", os.DevNull, err)
+	}
+	oldStderr := os.Stderr
+	os.Stderr = devNull
+	return func() {
+		os.Stderr = oldStderr
+		_ = devNull.Close()
+	}
+}
+
 func TestDefaultConfig(t *testing.T) {
 	cfg := defaultConfig()
 	if cfg.Image != "ghcr.io/finbarr/yolobox:latest" {
@@ -32,6 +82,9 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if cfg.Runtime != "" {
 		t.Errorf("expected empty default runtime, got %s", cfg.Runtime)
+	}
+	if cfg.DefaultHarness != "" {
+		t.Errorf("expected empty default harness, got %s", cfg.DefaultHarness)
 	}
 }
 
@@ -41,14 +94,17 @@ func TestMergeConfig(t *testing.T) {
 		Image:   "old-image",
 	}
 	src := Config{
-		Image:          "new-image",
-		SSHAgent:       true,
-		NoNetwork:      true,
-		Scratch:        true,
-		CodexConfig:    true,
-		OpencodeConfig: true,
-		PiConfig:       true,
-		Clipboard:      true,
+		DefaultHarness:   "codex",
+		Image:            "new-image",
+		SSHAgent:         true,
+		NoNetwork:        true,
+		NoEnvPassthrough: true,
+		Scratch:          true,
+		CodexConfig:      true,
+		OpencodeConfig:   true,
+		PiConfig:         true,
+		Clipboard:        true,
+		OpenBridge:       true,
 	}
 
 	mergeConfig(&dst, src)
@@ -59,11 +115,17 @@ func TestMergeConfig(t *testing.T) {
 	if dst.Image != "new-image" {
 		t.Errorf("expected image to be new-image, got %s", dst.Image)
 	}
+	if dst.DefaultHarness != "codex" {
+		t.Errorf("expected default harness to be codex, got %s", dst.DefaultHarness)
+	}
 	if !dst.SSHAgent {
 		t.Error("expected SSHAgent to be true")
 	}
 	if !dst.NoNetwork {
 		t.Error("expected NoNetwork to be true")
+	}
+	if !dst.NoEnvPassthrough {
+		t.Error("expected NoEnvPassthrough to be true")
 	}
 	if !dst.Scratch {
 		t.Error("expected Scratch to be true")
@@ -79,6 +141,9 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if !dst.Clipboard {
 		t.Error("expected Clipboard to be true")
+	}
+	if !dst.OpenBridge {
+		t.Error("expected OpenBridge to be true")
 	}
 }
 
@@ -229,6 +294,59 @@ func TestLoadConfigPiConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigDefaultHarness(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("default_harness = \"codex\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg.DefaultHarness != "codex" {
+		t.Fatalf("expected default harness to load from config file, got %q", cfg.DefaultHarness)
+	}
+}
+
+func TestLoadConfigDefaultHarnessNoneOverridesGlobal(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte("default_harness = \"codex\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, ".yolobox.toml"), []byte("default_harness = \"none\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write project config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if cfg.DefaultHarness != "none" {
+		t.Fatalf("expected project default_harness=none to override global, got %q", cfg.DefaultHarness)
+	}
+	if normalizeDefaultHarness(cfg.DefaultHarness) != "" {
+		t.Fatalf("expected default_harness=none to resolve to no harness")
+	}
+}
+
 func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 	configHome := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", configHome)
@@ -264,6 +382,36 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 	}
 }
 
+func TestSaveGlobalConfigDefaultHarness(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	if err := saveGlobalConfig(Config{DefaultHarness: "Codex"}); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+
+	path := filepath.Join(configHome, "yolobox", "config.toml")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	if !strings.Contains(string(data), "default_harness = \"codex\"") {
+		t.Fatalf("expected saved config to contain default_harness, got:\n%s", string(data))
+	}
+
+	if err := saveGlobalConfig(Config{DefaultHarness: "none"}); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	if strings.Contains(string(data), "default_harness") {
+		t.Fatalf("expected default_harness=none to be omitted from saved config, got:\n%s", string(data))
+	}
+}
+
 func TestLoadConfigClipboard(t *testing.T) {
 	projectDir := t.TempDir()
 	configHome := t.TempDir()
@@ -285,6 +433,65 @@ func TestLoadConfigClipboard(t *testing.T) {
 	}
 	if !cfg.Clipboard {
 		t.Fatal("expected clipboard to load from config file")
+	}
+}
+
+func TestLoadConfigOpenBridge(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("open_bridge = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.OpenBridge {
+		t.Fatal("expected open_bridge to load from config file")
+	}
+}
+
+func TestLoadConfigNoEnvPassthrough(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("no_env_passthrough = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.NoEnvPassthrough {
+		t.Fatal("expected no_env_passthrough to load from config file")
+	}
+
+	if err := saveGlobalConfig(cfg); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+	data, err := os.ReadFile(globalConfigPath)
+	if err != nil {
+		t.Fatalf("failed to read saved config: %v", err)
+	}
+	if !strings.Contains(string(data), "no_env_passthrough = true") {
+		t.Fatalf("expected saved config to contain no_env_passthrough, got:\n%s", string(data))
 	}
 }
 
@@ -643,19 +850,22 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "test-key")
 
 	cfg := Config{
-		Image:             "test-image",
-		Env:               []string{"FOO=bar", "SUPER_SECRET=do-not-leak", "DEBUG"},
-		ReadonlyProject:   true,
-		NoYolo:            true,
-		ClaudeConfig:      true,
-		CodexConfig:       true,
-		GeminiConfig:      true,
-		OpencodeConfig:    true,
-		PiConfig:          true,
-		Clipboard:         true,
-		ClipboardEndpoint: "http://host.docker.internal:12345",
-		ClipboardToken:    "test-token",
-		Network:           "devnet",
+		Image:              "test-image",
+		Env:                []string{"FOO=bar", "SUPER_SECRET=do-not-leak", "DEBUG"},
+		ReadonlyProject:    true,
+		NoYolo:             true,
+		ClaudeConfig:       true,
+		CodexConfig:        true,
+		GeminiConfig:       true,
+		OpencodeConfig:     true,
+		PiConfig:           true,
+		Clipboard:          true,
+		ClipboardEndpoint:  "http://host.docker.internal:12345",
+		ClipboardToken:     "test-token",
+		OpenBridge:         true,
+		OpenBridgeEndpoint: "http://host.docker.internal:23456",
+		OpenBridgeToken:    "open-token",
+		Network:            "devnet",
 		Customize: CustomizeConfig{
 			Packages:   []string{"jq"},
 			Dockerfile: ".yolobox.Dockerfile",
@@ -756,11 +966,67 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	if !manifest.Config.Clipboard {
 		t.Fatal("expected clipboard in manifest config")
 	}
+	if !manifest.Config.OpenBridge {
+		t.Fatal("expected open_bridge in manifest config")
+	}
 	if !reflect.DeepEqual(manifest.Config.Customize.Packages, []string{"jq"}) {
 		t.Fatalf("unexpected customize packages: %v", manifest.Config.Customize.Packages)
 	}
 	if manifest.Config.Customize.Dockerfile != ".yolobox.Dockerfile" {
 		t.Fatalf("unexpected customize dockerfile: %s", manifest.Config.Customize.Dockerfile)
+	}
+}
+
+func TestBuildRunArgsNoEnvPassthrough(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAI_API_KEY", "test-key")
+	t.Setenv("GH_TOKEN", "github-token")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("LANG", "en_US.UTF-8")
+	t.Setenv("TZ", "Europe/London")
+
+	cfg := Config{
+		Image:            "test-image",
+		NoEnvPassthrough: true,
+		Env:              []string{"EXPLICIT=1"},
+	}
+
+	args, _, err := buildRunArgs(cfg, projectDir, []string{"echo", "hello"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	for _, key := range []string{"OPENAI_API_KEY", "GH_TOKEN", "TERM", "LANG", "TZ"} {
+		if _, ok := argEnvValue(args, key); ok {
+			t.Fatalf("did not expect automatic %s passthrough in args: %s", key, argsStr)
+		}
+	}
+	if value, ok := argEnvValue(args, "EXPLICIT"); !ok || value != "1" {
+		t.Fatalf("expected explicit env to remain, got value=%q ok=%t args=%s", value, ok, argsStr)
+	}
+
+	payload, ok := argEnvValue(args, yoloboxContextPayloadEnv)
+	if !ok {
+		t.Fatalf("expected %s env var, got %s", yoloboxContextPayloadEnv, argsStr)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("failed to decode context manifest payload: %v", err)
+	}
+	var manifest contextManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("failed to decode context manifest: %v", err)
+	}
+	if !manifest.Config.NoEnvPassthrough {
+		t.Fatal("expected no_env_passthrough in manifest config")
+	}
+	if len(manifest.Launch.AutoPassthroughEnvKeys) != 0 {
+		t.Fatalf("did not expect auto passthrough keys, got %v", manifest.Launch.AutoPassthroughEnvKeys)
+	}
+	if !reflect.DeepEqual(manifest.Config.EnvKeys, []string{"EXPLICIT"}) {
+		t.Fatalf("unexpected explicit env keys: %v", manifest.Config.EnvKeys)
 	}
 }
 
@@ -1184,9 +1450,19 @@ func TestDockerfileCodexConfigImportPreservesAuth(t *testing.T) {
 		"sudo mv -f /home/yolo/.codex/auth.json",
 		"sudo cp -a /host-codex/.codex/. /home/yolo/.codex/",
 		"sudo mv -f \"$CODEX_AUTH_BACKUP\" /home/yolo/.codex/auth.json",
+		"restore_codex_session_mtimes /home/yolo/.codex/sessions",
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("expected Codex config import block to contain %q", want)
+		}
+	}
+	for _, want := range []string{
+		"restore_codex_session_mtimes()",
+		"touch -d \"$ts\" \"$file\"",
+		"touch -t \"$mtime\" \"$file\"",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("expected Dockerfile to contain %q", want)
 		}
 	}
 }
@@ -1847,11 +2123,132 @@ func TestToolShortcuts(t *testing.T) {
 	}
 
 	// Check that non-tools are not shortcuts
-	nonTools := []string{"run", "help", "version", "setup", "foo"}
+	nonTools := []string{"run", "shell", "help", "version", "setup", "foo"}
 	for _, cmd := range nonTools {
 		if isToolShortcut(cmd) {
 			t.Errorf("expected %s NOT to be a tool shortcut", cmd)
 		}
+	}
+}
+
+func TestRunCmdArgsUsesDefaultHarness(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+	argsFile := installFakeDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte("default_harness = \"codex\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	if err := runCmdArgs(nil, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs failed: %v", err)
+	}
+
+	args := readFakeRuntimeArgs(t, argsFile)
+	if got := args[len(args)-1]; got != "codex" {
+		t.Fatalf("expected bare yolobox to run codex, got final runtime arg %q in %v", got, args)
+	}
+}
+
+func TestRunCmdArgsDefaultHarnessPassesToolFlags(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+	argsFile := installFakeDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte("default_harness = \"codex\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	if err := runCmdArgs([]string{"-p", "hello"}, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs failed: %v", err)
+	}
+
+	args := readFakeRuntimeArgs(t, argsFile)
+	if len(args) < 3 {
+		t.Fatalf("expected codex command with args, got %v", args)
+	}
+	got := args[len(args)-3:]
+	want := []string{"codex", "-p", "hello"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("expected final runtime args %v, got %v from %v", want, got, args)
+	}
+}
+
+func TestRunCmdArgsShellBypassesDefaultHarness(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+	argsFile := installFakeDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte("default_harness = \"codex\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	if err := runCmdArgs([]string{"shell"}, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs failed: %v", err)
+	}
+
+	args := readFakeRuntimeArgs(t, argsFile)
+	if got := args[len(args)-1]; got != "bash" {
+		t.Fatalf("expected yolobox shell to run bash, got final runtime arg %q in %v", got, args)
+	}
+}
+
+func TestRunCmdArgsDefaultHarnessNoneUsesShell(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+	argsFile := installFakeDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte("default_harness = \"none\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	if err := runCmdArgs(nil, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs failed: %v", err)
+	}
+
+	args := readFakeRuntimeArgs(t, argsFile)
+	if got := args[len(args)-1]; got != "bash" {
+		t.Fatalf("expected default_harness=none to run bash, got final runtime arg %q in %v", got, args)
+	}
+}
+
+func TestValidateDefaultHarness(t *testing.T) {
+	if err := validateDefaultHarness("codex"); err != nil {
+		t.Fatalf("expected codex default harness to validate: %v", err)
+	}
+	if err := validateDefaultHarness("none"); err != nil {
+		t.Fatalf("expected none default harness to validate: %v", err)
+	}
+	if err := validateDefaultHarness("vim"); err == nil {
+		t.Fatal("expected invalid default harness to fail validation")
 	}
 }
 
@@ -2310,6 +2707,28 @@ func TestParseFlagsClipboard(t *testing.T) {
 	expectSliceEqual(t, rest, []string{"codex", "--version"})
 }
 
+func TestParseFlagsOpenBridge(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--open-bridge", "codex", "--version"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.OpenBridge {
+		t.Fatal("expected OpenBridge to be true after parsing --open-bridge")
+	}
+	expectSliceEqual(t, rest, []string{"codex", "--version"})
+}
+
+func TestParseFlagsNoEnvPassthrough(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--no-env-passthrough", "codex", "--version"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.NoEnvPassthrough {
+		t.Fatal("expected NoEnvPassthrough to be true after parsing --no-env-passthrough")
+	}
+	expectSliceEqual(t, rest, []string{"codex", "--version"})
+}
+
 func TestValidateClipboardNoNetworkConflict(t *testing.T) {
 	err := validateConfigConflicts(Config{Clipboard: true, NoNetwork: true})
 	if err == nil {
@@ -2317,6 +2736,16 @@ func TestValidateClipboardNoNetworkConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--clipboard") {
 		t.Fatalf("expected clipboard error, got %v", err)
+	}
+}
+
+func TestValidateOpenBridgeNoNetworkConflict(t *testing.T) {
+	err := validateConfigConflicts(Config{OpenBridge: true, NoNetwork: true})
+	if err == nil {
+		t.Fatal("expected open-bridge/no-network conflict")
+	}
+	if !strings.Contains(err.Error(), "--open-bridge") {
+		t.Fatalf("expected open-bridge error, got %v", err)
 	}
 }
 
@@ -2338,6 +2767,31 @@ func TestBuildRunArgsClipboard(t *testing.T) {
 		"YOLOBOX_CLIPBOARD=1",
 		"YOLOBOX_CLIPBOARD_ENDPOINT=http://host.docker.internal:12345",
 		"YOLOBOX_CLIPBOARD_TOKEN=test-token",
+	} {
+		if !strings.Contains(argsStr, want) {
+			t.Fatalf("expected %s in args: %s", want, argsStr)
+		}
+	}
+}
+
+func TestBuildRunArgsOpenBridge(t *testing.T) {
+	cfg := Config{
+		Image:              "test-image",
+		OpenBridge:         true,
+		OpenBridgeEndpoint: "http://host.docker.internal:23456",
+		OpenBridgeToken:    "open-token",
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	for _, want := range []string{
+		"YOLOBOX_OPEN_BRIDGE=1",
+		"YOLOBOX_OPEN_BRIDGE_ENDPOINT=http://host.docker.internal:23456",
+		"YOLOBOX_OPEN_BRIDGE_TOKEN=open-token",
 	} {
 		if !strings.Contains(argsStr, want) {
 			t.Fatalf("expected %s in args: %s", want, argsStr)

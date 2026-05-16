@@ -195,6 +195,27 @@ RUN printf '%s\n' \
     && ln -s yolobox-clipboard /opt/yolobox/bin/xclip \
     && ln -s yolobox-clipboard /opt/yolobox/bin/xsel
 
+# URL open shims used by --open-bridge. These intentionally accept only a
+# single URL argument; the host bridge validates that it is http or https.
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'set -euo pipefail' \
+    'endpoint="${YOLOBOX_OPEN_BRIDGE_ENDPOINT:-}"' \
+    'token="${YOLOBOX_OPEN_BRIDGE_TOKEN:-}"' \
+    'if [ -z "$endpoint" ] || [ -z "$token" ]; then' \
+    '    echo "yolobox open bridge is not enabled; start with --open-bridge" >&2' \
+    '    exit 1' \
+    'fi' \
+    'if [ "$#" -ne 1 ]; then' \
+    '    echo "usage: $(basename "$0") <http-or-https-url>" >&2' \
+    '    exit 2' \
+    'fi' \
+    'printf "%s" "$1" | curl -fsS -X POST -H "X-Yolobox-Open-Token: $token" --data-binary @- "$endpoint/open" >/dev/null' \
+    > /opt/yolobox/bin/yolobox-open \
+    && chmod +x /opt/yolobox/bin/yolobox-open \
+    && ln -s yolobox-open /opt/yolobox/bin/open \
+    && ln -s yolobox-open /opt/yolobox/bin/xdg-open
+
 # Claude wrapper
 RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/claude \
     && echo 'exec "$REAL_BIN" --dangerously-skip-permissions "$@"' >> /opt/yolobox/bin/claude \
@@ -348,6 +369,26 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '    /usr/local/bin/yolobox-upsert-block "$target" "$source_file" "$start_marker" "$end_marker"' \
     '    sudo chown yolo:yolo "$target"' \
     '}' \
+    'restore_codex_session_mtimes() {' \
+    '    local sessions_dir="${1:-/home/yolo/.codex/sessions}"' \
+    '    [ -d "$sessions_dir" ] || return 0' \
+    '    local file ts base stamp mtime' \
+    '    while IFS= read -r -d "" file; do' \
+    '        ts=""' \
+    '        if command -v jq >/dev/null 2>&1; then' \
+    '            ts="$(tail -n 20 "$file" 2>/dev/null | jq -r '\''select(.timestamp? != null) | .timestamp'\'' 2>/dev/null | tail -n 1 || true)"' \
+    '        fi' \
+    '        if [ -n "$ts" ] && [ "$ts" != "null" ]; then' \
+    '            touch -d "$ts" "$file" 2>/dev/null && continue' \
+    '        fi' \
+    '        base="${file##*/}"' \
+    '        stamp="${base#rollout-}"' \
+    '        if [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}- ]]; then' \
+    '            mtime="${stamp:0:4}${stamp:5:2}${stamp:8:2}${stamp:11:2}${stamp:14:2}.${stamp:17:2}"' \
+    '            touch -t "$mtime" "$file" 2>/dev/null || true' \
+    '        fi' \
+    '    done < <(find "$sessions_dir" -type f -name '\''rollout-*.jsonl'\'' -print0)' \
+    '}' \
     'warn_low_space() {' \
     '    local path="$1"' \
     '    local label="$2"' \
@@ -441,6 +482,7 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '        sudo mv -f "$CODEX_AUTH_BACKUP" /home/yolo/.codex/auth.json' \
     '    fi' \
     '    sudo chown -R yolo:yolo /home/yolo/.codex' \
+    '    restore_codex_session_mtimes /home/yolo/.codex/sessions' \
     'fi' \
     'if [ -f /home/yolo/.codex/auth.json ] && [ ! -s /home/yolo/.codex/auth.json ]; then' \
     '    echo -e "\033[33m→ Removing empty Codex auth file\033[0m" >&2' \

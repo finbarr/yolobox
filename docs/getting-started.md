@@ -51,10 +51,12 @@ yolobox gemini
 yolobox copilot
 yolobox pi
 yolobox run make test
-yolobox
+yolobox shell
 ```
 
-Use `yolobox` by itself when you want a shell. Use `yolobox run ...` when you want one command. Use the AI shortcuts when you want the intended workflow.
+Use `yolobox shell` when you want a shell. Use `yolobox run ...` when you want one command. Use the AI shortcuts when you want the intended workflow.
+
+You can also set a default harness in config, such as `default_harness = "codex"`, so bare `yolobox` launches that AI shortcut. Set it to `none` or leave it unset to keep bare `yolobox` as the shell shortcut.
 
 ## Runtime support
 

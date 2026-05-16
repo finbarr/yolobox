@@ -13,6 +13,7 @@ Path: `~/.config/yolobox/config.toml`
 Applies to all projects:
 
 ```toml
+default_harness = "codex"
 git_config = true
 opencode_config = true
 pi_config = true
@@ -20,8 +21,10 @@ gh_token = true
 ssh_agent = true
 docker = true
 clipboard = true
+open_bridge = true
 network = "my_compose_network"
-# no_network = true # incompatible with network, pod, docker, and clipboard
+# no_network = true # incompatible with network, pod, docker, clipboard, and open_bridge
+no_env_passthrough = true
 no_yolo = true
 cpus = "4"
 memory = "8g"
@@ -37,12 +40,14 @@ Path: `.yolobox.toml`
 Place in your project root for project-specific settings:
 
 ```toml
+default_harness = "none"
 mounts = ["../shared-libs:/libs:ro"]
 env = ["DEBUG=1"]
 readonly_project = true
 exclude = [".env*", "secrets/**"]
 copy_as = [".env.sandbox:.env"]
 no_network = true
+no_env_passthrough = true
 shm_size = "2g"
 
 [customize]
@@ -52,6 +57,16 @@ packages = ["default-jdk", "maven"]
 ### Precedence
 
 CLI flags > project config > global config > defaults
+
+## Default harness
+
+Set `default_harness` to one AI shortcut name to make bare `yolobox` launch that tool:
+
+```toml
+default_harness = "codex"
+```
+
+Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`. Use `none` in project config to override a global default harness and keep bare `yolobox` as an interactive shell. `yolobox shell` always opens a shell regardless of this setting.
 
 ## Project file filtering
 
@@ -108,6 +123,12 @@ Set `clipboard = true` or pass `--clipboard` to bridge text clipboard copy/paste
 
 `clipboard = true` cannot be combined with `no_network = true`.
 
+## Host URL open bridge
+
+Set `open_bridge = true` or pass `--open-bridge` to bridge URL opening from the container to the host. yolobox starts a short-lived host proxy for the session and exposes `open` and `xdg-open` shims inside the container.
+
+The bridge only accepts `http://` and `https://` URLs and asks the host OS to open them in the default browser. `open_bridge = true` cannot be combined with `no_network = true`.
+
 ## Global agent instructions {#global-agent-instructions}
 
 The `--copy-agent-instructions` flag copies your global or user-level instruction files and skills into the container.
@@ -149,6 +170,8 @@ These are automatically passed into the container if they are set on the host:
 - `ZAI_API_KEY`
 - `AI_GATEWAY_API_KEY`
 
+Set `no_env_passthrough = true` or pass `--no-env-passthrough` to disable all automatic host environment passthrough. This suppresses the API/token list above plus `TERM`, `LANG`, and detected `TZ`; explicit `env = [...]` config and `--env KEY=value` still pass through, and `gh_token = true` or `--gh-token` still forwards a GitHub token when requested.
+
 ::: tip macOS and GitHub tokens
 On macOS, `gh` stores tokens in Keychain, not environment variables. Use `--gh-token` or `gh_token = true` if you want yolobox to extract and forward the GitHub token. When a token is present, yolobox also configures HTTPS Git auth for `github.com` remotes.
 :::
@@ -169,7 +192,7 @@ yolobox also injects a managed guidance block into `~/.claude/CLAUDE.md` and `~/
 ## Config sync warning
 
 ::: warning
-Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config copies your host config on every container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex` and preserves a valid in-container `auth.json` when the host copy has no usable auth file. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config copies your host config on every container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex`, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and restores imported session file mtimes from their session timestamps so old host sessions do not appear freshly created in resume lists. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
 :::
 
 yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.

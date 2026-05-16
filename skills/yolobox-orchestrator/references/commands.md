@@ -29,6 +29,12 @@ yolobox copilot
 yolobox pi
 ```
 
+If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launches that tool. Use an explicit shell when you need manual access:
+
+```bash
+yolobox shell
+```
+
 ## Isolation controls
 
 Use a fresh home/cache state:
@@ -41,6 +47,12 @@ Mount the project read-only and write outputs to `/output`:
 
 ```bash
 yolobox run --readonly-project sh -lc 'pwd && ls /output'
+```
+
+Disable automatic host environment passthrough for untrusted work:
+
+```bash
+yolobox run --no-env-passthrough env
 ```
 
 ## Docker and network access
@@ -61,6 +73,12 @@ Bridge text clipboard copy/paste to the host:
 
 ```bash
 yolobox codex --clipboard
+```
+
+Bridge URL opening to the host browser:
+
+```bash
+yolobox codex --open-bridge
 ```
 
 ## Context handoff to the inside agent

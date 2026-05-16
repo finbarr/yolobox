@@ -56,6 +56,7 @@ type contextFork struct {
 type contextConfigManifest struct {
 	Runtime               string                         `json:"runtime"`
 	Image                 string                         `json:"image"`
+	DefaultHarness        string                         `json:"default_harness"`
 	Mounts                []string                       `json:"mounts"`
 	EnvKeys               []string                       `json:"env_keys"`
 	Exclude               []string                       `json:"exclude"`
@@ -64,6 +65,7 @@ type contextConfigManifest struct {
 	ReadonlyProject       bool                           `json:"readonly_project"`
 	NoProject             bool                           `json:"no_project"`
 	NoNetwork             bool                           `json:"no_network"`
+	NoEnvPassthrough      bool                           `json:"no_env_passthrough"`
 	Network               string                         `json:"network"`
 	Pod                   string                         `json:"pod"`
 	NoYolo                bool                           `json:"no_yolo"`
@@ -78,6 +80,7 @@ type contextConfigManifest struct {
 	CopyAgentInstructions bool                           `json:"copy_agent_instructions"`
 	Docker                bool                           `json:"docker"`
 	Clipboard             bool                           `json:"clipboard"`
+	OpenBridge            bool                           `json:"open_bridge"`
 	CPUs                  string                         `json:"cpus"`
 	Memory                string                         `json:"memory"`
 	ShmSize               string                         `json:"shm_size"`
@@ -157,6 +160,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		Config: contextConfigManifest{
 			Runtime:               resolvedRuntimeName(cfg.Runtime),
 			Image:                 cfg.Image,
+			DefaultHarness:        displayDefaultHarness(cfg.DefaultHarness),
 			Mounts:                append([]string{}, cfg.Mounts...),
 			EnvKeys:               envKeys(cfg.Env),
 			Exclude:               append([]string{}, cfg.Exclude...),
@@ -165,6 +169,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ReadonlyProject:       cfg.ReadonlyProject,
 			NoProject:             cfg.NoProject,
 			NoNetwork:             cfg.NoNetwork,
+			NoEnvPassthrough:      cfg.NoEnvPassthrough,
 			Network:               cfg.Network,
 			Pod:                   cfg.Pod,
 			NoYolo:                cfg.NoYolo,
@@ -179,6 +184,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			CopyAgentInstructions: cfg.CopyAgentInstructions,
 			Docker:                cfg.Docker,
 			Clipboard:             cfg.Clipboard,
+			OpenBridge:            cfg.OpenBridge,
 			CPUs:                  cfg.CPUs,
 			Memory:                cfg.Memory,
 			ShmSize:               cfg.ShmSize,

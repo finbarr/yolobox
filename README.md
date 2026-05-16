@@ -46,6 +46,7 @@ yolobox claude    # Let it rip
 ```
 
 Or use any other AI tool: `yolobox codex`, `yolobox gemini`, `yolobox opencode`, `yolobox copilot`, `yolobox pi`.
+Set `default_harness = "codex"` to make bare `yolobox` launch Codex; use `yolobox shell` when you want a manual shell.
 
 Non-interactive invocations keep stdout and stderr separate, so shell redirection works as expected:
 
@@ -164,7 +165,8 @@ yolobox copilot             # Run GitHub Copilot
 yolobox pi                  # Run Pi
 
 # General commands
-yolobox                     # Drop into interactive shell (for manual use)
+yolobox                     # Run configured default harness, or shell if none
+yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox setup               # Configure yolobox settings
@@ -201,6 +203,7 @@ Run `yolobox setup` to configure your preferences with an interactive wizard.
 Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
+default_harness = "codex" # or claude, gemini, opencode, copilot, none
 git_config = true
 opencode_config = true
 pi_config = true
@@ -208,8 +211,10 @@ gh_token = true
 ssh_agent = true
 docker = true
 clipboard = true
+open_bridge = true
 network = "my_compose_network"
-# no_network = true # incompatible with network, pod, docker, and clipboard
+# no_network = true # incompatible with network, pod, docker, clipboard, and open_bridge
+no_env_passthrough = true
 no_yolo = true
 cpus = "4"
 memory = "8g"
@@ -227,6 +232,7 @@ readonly_project = true
 exclude = [".env*", "secrets/**"]
 copy_as = [".env.sandbox:.env"]
 no_network = true
+no_env_passthrough = true
 shm_size = "2g"
 ```
 
@@ -234,7 +240,7 @@ Priority: CLI flags > project config > global config > defaults.
 
 Each `runtime_args` entry is a single CLI argument. For flags that take a value, add them as separate entries so `--security-opt seccomp=unconfined` becomes `["--security-opt", "seccomp=unconfined"]`.
 
-> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will copy your host config on **every** container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex` and preserves a valid in-container `auth.json` when the host copy has no usable auth file. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will copy your host config on **every** container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex`, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and restores imported session file mtimes from their session timestamps so old host sessions do not appear freshly created in resume lists. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
 
 yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.
 
@@ -315,6 +321,8 @@ These are automatically passed into the container if set:
 - `ZAI_API_KEY`
 - `AI_GATEWAY_API_KEY`
 
+Use `--no-env-passthrough` or `no_env_passthrough = true` to disable all automatic host environment passthrough, including this API/token list plus `TERM`, `LANG`, and detected `TZ`. Explicit `--env KEY=value` entries still pass through, and `--gh-token` still forwards a GitHub token when you ask for it.
+
 ### Runtime Context Manifest
 
 Every yolobox session also provides a machine-readable context manifest at `/run/yolobox/context.json` and exports its path as `YOLOBOX_CONTEXT_FILE`.
@@ -352,9 +360,10 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--exclude <glob>` | Hide matching project paths from the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--copy-as <src:dst>` | Mount a file at another project path inside the container (repeatable) | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Set environment variable (repeatable) | |
+| `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
-| `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard` |
+| `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard`, `--open-bridge` |
 | `--network <name>` | Join specific network (e.g., docker compose) | `--no-network`, `--pod` |
 | `--pod <name>` | Join existing Podman pod (shares its network) | `--no-network`, `--network`, `--docker` |
 | `--no-yolo` | Disable auto-confirmations (mindful mode) | |
@@ -371,6 +380,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--copy-agent-instructions` | Copy global agent instruction files and skills (see configuration below) | |
 | `--docker` | Mount Docker socket and join shared network (see notes below) | `--no-network`, `--pod` |
 | `--clipboard` | Bridge text clipboard copy/paste between the container and host | `--no-network` |
+| `--open-bridge` | Bridge `open`/`xdg-open` HTTP(S) URLs to the host browser | `--no-network` |
 | `--cpus <num>` | Limit CPUs available to the container (accepts fractions like `3.5`) | |
 | `--memory <limit>` | Hard memory limit (e.g., `8g`, `1024m`) | |
 | `--shm-size <size>` | Size of `/dev/shm` tmpfs (useful for browsers/playwright) | |
@@ -392,6 +402,8 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 > **Docker access:** The `--docker` flag mounts the host Docker socket into the container and joins a shared `yolobox-net` network. This lets the AI agent run Docker commands (build images, start containers, use docker compose) that create sibling containers on the same network. The agent and any services it creates can communicate by container name. The network name is available inside the container as `$YOLOBOX_NETWORK`.
 
 > **Clipboard bridge:** `--clipboard` starts a short-lived host proxy and exposes text clipboard command shims (`pbcopy`, `pbpaste`, `xclip`, `xsel`, `wl-copy`, `wl-paste`) inside the container.
+
+> **Open bridge:** `--open-bridge` starts a short-lived host proxy and exposes `open` and `xdg-open` shims inside the container. The bridge only accepts `http://` and `https://` URLs and asks the host OS to open them in the default browser.
 
 > **Project filtering:** `--exclude` globs are evaluated relative to the project root. `--copy-as` destinations must already exist as files in the project. Both flags currently require `--readonly-project` and are incompatible with `--no-project`. Apple's `container` runtime does not support them yet.
 
@@ -443,6 +455,8 @@ If you're worried about an AI actively trying to escape containment, you need VM
 **What yolobox does NOT protect:**
 - Your project directory (it's mounted read-write by default)
 - Network access (use `--no-network` to disable, or `--network <name>` for specific networks)
+- Explicitly forwarded secrets or mounts (use `--no-env-passthrough` to suppress automatic env passthrough)
+- Host clipboard or browser actions when `--clipboard` or `--open-bridge` is enabled
 - The container itself (the AI has root via sudo)
 - Against kernel exploits or container escape vulnerabilities
 
@@ -452,12 +466,12 @@ If you want a narrower view of the project, use `--exclude` and `--copy-as` to h
 
 **Level 1: Basic (default)**
 ```bash
-yolobox  # Standard container isolation
+yolobox claude  # Standard container isolation
 ```
 
 **Level 2: Reduced attack surface**
 ```bash
-yolobox claude --no-network --readonly-project --exclude ".env*" --exclude "secrets/**"
+yolobox claude --no-network --no-env-passthrough --readonly-project --exclude ".env*" --exclude "secrets/**"
 ```
 
 **Level 3: Rootless Podman** (recommended for security-conscious users)

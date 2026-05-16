@@ -97,16 +97,19 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             (if .fork != null then "Fork copied folder: " + .fork.copy else empty end),
             (if .fork != null then "Compose project: " + .fork.compose_project else empty end),
             "Runtime: configured=" + .runtime.configured + " selected=" + .runtime.selected,
+            "Default harness: " + ((.config.default_harness // "none") | tostring),
             "Interactive: " + (.launch.interactive | tostring),
             "Readonly project mode: " + (.config.readonly_project | tostring),
             "Scratch: " + (.config.scratch | tostring),
             "No network: " + (.config.no_network | tostring),
+            "No env passthrough: " + ((.config.no_env_passthrough // false) | tostring),
             (if .config.network != "" then "Network: " + .config.network else empty end),
             (if .config.pod != "" then "Pod: " + .config.pod else empty end),
             "Docker socket: " + (.config.docker | tostring),
             "SSH agent: " + (.config.ssh_agent | tostring),
             "GitHub token available: " + ((.launch.gh_token_forwarded or (((.launch.auto_passthrough_env_keys // []) | index("GH_TOKEN")) != null) or (((.launch.auto_passthrough_env_keys // []) | index("GITHUB_TOKEN")) != null)) | tostring),
             "Host clipboard: " + (.config.clipboard | tostring),
+            "Host open bridge: " + ((.config.open_bridge // false) | tostring),
             "YOLO wrappers disabled: " + (.config.no_yolo | tostring),
             (if (.config.customize.packages | length) > 0 then "Customize packages: " + (.config.customize.packages | join(", ")) else empty end),
             (if .config.customize.dockerfile != "" then "Customize dockerfile: " + .config.customize.dockerfile else empty end),
@@ -133,6 +136,7 @@ docker_socket="false"
 ssh_agent="false"
 github_token="false"
 clipboard="false"
+open_bridge="false"
 
 if [[ "$project_writable" == "true" ]]; then
     readonly_project="false"
@@ -152,6 +156,9 @@ fi
 if [[ "${YOLOBOX_CLIPBOARD:-}" == "1" && -n "${YOLOBOX_CLIPBOARD_ENDPOINT:-}" ]]; then
     clipboard="true"
 fi
+if [[ "${YOLOBOX_OPEN_BRIDGE:-}" == "1" && -n "${YOLOBOX_OPEN_BRIDGE_ENDPOINT:-}" ]]; then
+    open_bridge="true"
+fi
 
 printf 'Inside yolobox: %s\n' "$inside"
 printf 'Source: inferred (manifest unavailable)\n'
@@ -168,3 +175,4 @@ printf 'Docker socket: %s\n' "$docker_socket"
 printf 'SSH agent: %s\n' "$ssh_agent"
 printf 'GitHub token available: %s\n' "$github_token"
 printf 'Host clipboard: %s\n' "$clipboard"
+printf 'Host open bridge: %s\n' "$open_bridge"

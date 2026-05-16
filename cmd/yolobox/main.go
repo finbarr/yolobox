@@ -78,6 +78,8 @@ var toolShortcuts = []string{
 	"pi",
 }
 
+const noDefaultHarness = "none"
+
 var sizePattern = regexp.MustCompile(`^\d+(?:\.\d+)?(?:[kKmMgGtTpP](?:i?[bB]?)?|[bB])?$`)
 var packageNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.+\-:]*$`)
 var versionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+`)
@@ -133,6 +135,24 @@ func runCmd() error {
 
 func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 	if len(args) == 0 || strings.HasPrefix(args[0], "-") {
+		fileCfg, err := loadConfig(projectDir)
+		if err != nil {
+			return err
+		}
+		if err := validateDefaultHarness(fileCfg.DefaultHarness); err != nil {
+			return err
+		}
+		if defaultHarness := normalizeDefaultHarness(fileCfg.DefaultHarness); defaultHarness != "" {
+			yoloboxArgs, toolArgs := splitToolArgs(args)
+			cfg, rest, err := parseBaseFlags(defaultHarness, yoloboxArgs, projectDir)
+			if err != nil {
+				return err
+			}
+			applyForkConfig(&cfg, fork)
+			allToolArgs := append(rest, toolArgs...)
+			return runToolShortcut(cfg, defaultHarness, allToolArgs)
+		}
+
 		cfg, rest, err := parseBaseFlags("yolobox", args, projectDir)
 		if err != nil {
 			return err
@@ -155,6 +175,16 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 			return fmt.Errorf("run requires a command")
 		}
 		return runCommand(cfg, rest, false)
+	case "shell":
+		cfg, rest, err := parseBaseFlags("shell", args[1:], projectDir)
+		if err != nil {
+			return err
+		}
+		applyForkConfig(&cfg, fork)
+		if len(rest) != 0 {
+			return fmt.Errorf("unexpected args: %v\n  Hint: use 'yolobox run <cmd...>' to run a command", rest)
+		}
+		return runShell(cfg)
 	case "fork":
 		return runFork(args[1:], projectDir)
 	case "setup":
@@ -201,14 +231,16 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 			// Combine any remaining args from flag parsing with tool args
 			allToolArgs := append(rest, toolArgs...)
 
-			// Print logo before running tool
-			fmt.Fprint(os.Stderr, colorCyan+logo+colorReset)
-			// Build command: tool name + any tool args
-			command := append([]string{toolName}, allToolArgs...)
-			return runCommand(cfg, command, false)
+			return runToolShortcut(cfg, toolName, allToolArgs)
 		}
 		return fmt.Errorf("unknown command: %s (try 'yolobox help')\n  Hint: if using flags, put them after the subcommand: yolobox run --flag cmd", args[0])
 	}
+}
+
+func runToolShortcut(cfg Config, toolName string, toolArgs []string) error {
+	fmt.Fprint(os.Stderr, colorCyan+logo+colorReset)
+	command := append([]string{toolName}, toolArgs...)
+	return runCommand(cfg, command, false)
 }
 
 func applyForkConfig(cfg *Config, fork *ForkConfig) {
@@ -249,7 +281,8 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "  %sFull-power AI agents, host-safe by default.%s\n\n", colorYellow, colorReset)
 	fmt.Fprintf(os.Stderr, "  %sVersion:%s %s\n\n", colorBold, colorReset, Version)
 	fmt.Fprintf(os.Stderr, "%sUSAGE:%s\n", colorBold, colorReset)
-	fmt.Fprintln(os.Stderr, "  yolobox                     Start interactive shell in sandbox")
+	fmt.Fprintln(os.Stderr, "  yolobox                     Start default harness, or shell if none")
+	fmt.Fprintln(os.Stderr, "  yolobox shell               Start interactive shell in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
@@ -276,6 +309,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
+	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
@@ -291,6 +325,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --no-project          Skip automatic project mount (caller provides mounts)")
 	fmt.Fprintln(os.Stderr, "  --docker              Mount Docker socket and join shared network")
 	fmt.Fprintln(os.Stderr, "  --clipboard           Bridge text clipboard copy/paste to the host")
+	fmt.Fprintln(os.Stderr, "  --open-bridge         Bridge open/xdg-open URLs to the host")
 	fmt.Fprintln(os.Stderr, "  --cpus <count>        Limit number of CPUs (supports fractions)")
 	fmt.Fprintln(os.Stderr, "  --memory <size>       Cap memory usage (e.g., 4g, 512m)")
 	fmt.Fprintln(os.Stderr, "  --shm-size <size>     Size of /dev/shm (e.g., 1g for Playwright)")
@@ -306,18 +341,22 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
+	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
 		fmt.Fprintf(os.Stderr, "  %s\n", line)
 	}
+	fmt.Fprintln(os.Stderr, "  Use --no-env-passthrough to disable automatic host env passthrough.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sEXAMPLES:%s\n", colorBold, colorReset)
-	fmt.Fprintln(os.Stderr, "  yolobox                     # Drop into a shell")
+	fmt.Fprintln(os.Stderr, "  yolobox                     # Start default harness, or shell if none")
+	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
+	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "  %sLet your AI go full send. Your home directory stays home.%s\n\n", colorPurple, colorReset)
 }
@@ -343,6 +382,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		sshAgent              bool
 		readonlyProject       bool
 		noNetwork             bool
+		noEnvPassthrough      bool
 		noYolo                bool
 		scratch               bool
 		claudeConfig          bool
@@ -356,6 +396,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 		noProject             bool
 		docker                bool
 		clipboard             bool
+		openBridge            bool
 		setup                 bool
 		mounts                stringSliceFlag
 		excludes              stringSliceFlag
@@ -383,6 +424,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
+	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
@@ -396,6 +438,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&noProject, "no-project", false, "skip automatic project mount (caller provides mounts and workdir)")
 	fs.BoolVar(&docker, "docker", false, "mount Docker socket and join shared network")
 	fs.BoolVar(&clipboard, "clipboard", false, "bridge text clipboard copy/paste to the host")
+	fs.BoolVar(&openBridge, "open-bridge", false, "bridge open/xdg-open URLs to the host")
 	fs.BoolVar(&setup, "setup", false, "run interactive setup before starting")
 	fs.Var(&mounts, "mount", "extra mount src:dst")
 	fs.Var(&excludes, "exclude", "hide matching project paths from the container")
@@ -441,6 +484,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	if noNetwork {
 		cfg.NoNetwork = true
 	}
+	if noEnvPassthrough {
+		cfg.NoEnvPassthrough = true
+	}
 	if networkFlag != "" {
 		cfg.Network = networkFlag
 	}
@@ -482,6 +528,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if clipboard {
 		cfg.Clipboard = true
+	}
+	if openBridge {
+		cfg.OpenBridge = true
 	}
 	if setup {
 		cfg.Setup = true
@@ -552,6 +601,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 }
 
 func validateConfigConflicts(cfg Config) error {
+	if err := validateDefaultHarness(cfg.DefaultHarness); err != nil {
+		return err
+	}
 	if cfg.Network != "" && cfg.NoNetwork {
 		return fmt.Errorf("cannot use --network with --no-network")
 	}
@@ -560,6 +612,9 @@ func validateConfigConflicts(cfg Config) error {
 	}
 	if cfg.Clipboard && cfg.NoNetwork {
 		return fmt.Errorf("cannot use --clipboard with --no-network")
+	}
+	if cfg.OpenBridge && cfg.NoNetwork {
+		return fmt.Errorf("cannot use --open-bridge with --no-network")
 	}
 	if cfg.NoProject {
 		if cfg.ReadonlyProject {
@@ -730,6 +785,17 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		cfg.ClipboardToken = clipboard.Token
 		info("Host clipboard bridge enabled")
 	}
+	var open *openBridge
+	if cfg.OpenBridge {
+		open, err = startOpenBridge(cfg.Runtime)
+		if err != nil {
+			return err
+		}
+		defer open.Close()
+		cfg.OpenBridgeEndpoint = open.Endpoint
+		cfg.OpenBridgeToken = open.Token
+		info("Host open bridge enabled")
+	}
 
 	// Ensure Docker network exists before starting container
 	if cfg.Docker {
@@ -822,6 +888,7 @@ func runSetup() (Config, error) {
 
 	// Form fields
 	var selectedOptions []string
+	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	podName := cfg.Pod
 	cpuLimit := cfg.CPUs
 	memoryLimit := cfg.Memory
@@ -860,6 +927,9 @@ func runSetup() (Config, error) {
 	if cfg.NoNetwork {
 		selectedOptions = append(selectedOptions, "no_network")
 	}
+	if cfg.NoEnvPassthrough {
+		selectedOptions = append(selectedOptions, "no_env_passthrough")
+	}
 	if cfg.NoYolo {
 		selectedOptions = append(selectedOptions, "no_yolo")
 	}
@@ -868,6 +938,9 @@ func runSetup() (Config, error) {
 	}
 	if cfg.Clipboard {
 		selectedOptions = append(selectedOptions, "clipboard")
+	}
+	if cfg.OpenBridge {
+		selectedOptions = append(selectedOptions, "open_bridge")
 	}
 	if cfg.NoProject {
 		selectedOptions = append(selectedOptions, "no_project")
@@ -887,6 +960,20 @@ func runSetup() (Config, error) {
 
 	form := huh.NewForm(
 		huh.NewGroup(
+			huh.NewSelect[string]().
+				Title("Default command for bare yolobox").
+				Description("Choose none to keep bare yolobox as an interactive shell").
+				Options(
+					huh.NewOption("None (interactive shell)", noDefaultHarness),
+					huh.NewOption("Claude", "claude"),
+					huh.NewOption("Codex", "codex"),
+					huh.NewOption("Gemini", "gemini"),
+					huh.NewOption("OpenCode", "opencode"),
+					huh.NewOption("Copilot", "copilot"),
+				).
+				Value(&defaultHarness),
+		),
+		huh.NewGroup(
 			huh.NewMultiSelect[string]().
 				Title("What do you want inside the box?").
 				Options(
@@ -900,8 +987,10 @@ func runSetup() (Config, error) {
 					huh.NewOption("SSH agent (for git over SSH)", "ssh_agent"),
 					huh.NewOption("Docker socket (run containers from sandbox)", "docker"),
 					huh.NewOption("Host clipboard (text copy/paste bridge; requires network)", "clipboard"),
+					huh.NewOption("Host open bridge (open URLs in host browser; requires network)", "open_bridge"),
 					huh.NewOption("No automatic project mount (advanced; provide mounts/workdir)", "no_project"),
-					huh.NewOption("No network (disables network, pod, Docker, and clipboard)", "no_network"),
+					huh.NewOption("No network (disables network, pod, Docker, clipboard, and open bridge)", "no_network"),
+					huh.NewOption("No env passthrough (disable automatic host env vars)", "no_env_passthrough"),
 					huh.NewOption("No YOLO (disable auto-confirm in AI CLIs)", "no_yolo"),
 				).
 				Value(&selectedOptions),
@@ -971,6 +1060,7 @@ func runSetup() (Config, error) {
 	}
 
 	// Build config from form values
+	cfg.DefaultHarness = defaultHarness
 	cfg.GitConfig = contains(selectedOptions, "git_config")
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")
@@ -981,8 +1071,10 @@ func runSetup() (Config, error) {
 	cfg.SSHAgent = contains(selectedOptions, "ssh_agent")
 	cfg.Docker = contains(selectedOptions, "docker")
 	cfg.Clipboard = contains(selectedOptions, "clipboard")
+	cfg.OpenBridge = contains(selectedOptions, "open_bridge")
 	cfg.NoProject = contains(selectedOptions, "no_project")
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
+	cfg.NoEnvPassthrough = contains(selectedOptions, "no_env_passthrough")
 	cfg.NoYolo = contains(selectedOptions, "no_yolo")
 	cfg.Pod = strings.TrimSpace(podName)
 	cfg.CPUs = strings.TrimSpace(cpuLimit)
@@ -1023,6 +1115,32 @@ func contains(slice []string, val string) bool {
 	return false
 }
 
+func normalizeDefaultHarness(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" || value == noDefaultHarness {
+		return ""
+	}
+	return value
+}
+
+func displayDefaultHarness(value string) string {
+	if harness := normalizeDefaultHarness(value); harness != "" {
+		return harness
+	}
+	return noDefaultHarness
+}
+
+func validateDefaultHarness(value string) error {
+	harness := normalizeDefaultHarness(value)
+	if harness == "" {
+		return nil
+	}
+	if !isToolShortcut(harness) {
+		return fmt.Errorf("invalid default_harness %q; expected one of: %s, %s", value, noDefaultHarness, strings.Join(toolShortcuts, ", "))
+	}
+	return nil
+}
+
 // isToolShortcut checks if a command is a tool shortcut
 func isToolShortcut(cmd string) bool {
 	return contains(toolShortcuts, cmd)
@@ -1034,12 +1152,12 @@ func isToolShortcut(cmd string) bool {
 func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
 		"runtime": true, "image": true, "network": true, "pod": true,
-		"ssh-agent": true, "readonly-project": true, "no-network": true,
+		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
 		"codex-config": true, "gemini-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
-		"clipboard": true,
-		"exclude":   true, "copy-as": true,
+		"clipboard": true, "open-bridge": true,
+		"exclude": true, "copy-as": true,
 		"env": true, "h": true, "help": true,
 		"cpus": true, "memory": true, "shm-size": true, "gpus": true,
 		"device": true, "cap-add": true, "cap-drop": true, "runtime-arg": true,
@@ -1162,30 +1280,46 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if cfg.NoYolo {
 		args = append(args, "-e", "NO_YOLO=1")
 	}
+	hostBridgeRuntimeArgsAdded := false
 	if cfg.Clipboard {
 		args = append(args,
 			"-e", "YOLOBOX_CLIPBOARD=1",
 			"-e", "YOLOBOX_CLIPBOARD_ENDPOINT="+cfg.ClipboardEndpoint,
 			"-e", "YOLOBOX_CLIPBOARD_TOKEN="+cfg.ClipboardToken,
 		)
-		args = append(args, clipboardRuntimeArgs(cfg.Runtime)...)
+		args = append(args, hostBridgeRuntimeArgs(cfg.Runtime)...)
+		hostBridgeRuntimeArgsAdded = true
 	}
-	if termEnv := os.Getenv("TERM"); termEnv != "" {
-		args = append(args, "-e", "TERM="+termEnv)
+	if cfg.OpenBridge {
+		args = append(args,
+			"-e", "YOLOBOX_OPEN_BRIDGE=1",
+			"-e", "YOLOBOX_OPEN_BRIDGE_ENDPOINT="+cfg.OpenBridgeEndpoint,
+			"-e", "YOLOBOX_OPEN_BRIDGE_TOKEN="+cfg.OpenBridgeToken,
+		)
+		if !hostBridgeRuntimeArgsAdded {
+			args = append(args, hostBridgeRuntimeArgs(cfg.Runtime)...)
+		}
 	}
-	if lang := os.Getenv("LANG"); lang != "" {
-		args = append(args, "-e", "LANG="+lang)
-	}
-	if tz := detectTimezone(); tz != "" {
-		args = append(args, "-e", "TZ="+tz)
+	if !cfg.NoEnvPassthrough {
+		if termEnv := os.Getenv("TERM"); termEnv != "" {
+			args = append(args, "-e", "TERM="+termEnv)
+		}
+		if lang := os.Getenv("LANG"); lang != "" {
+			args = append(args, "-e", "LANG="+lang)
+		}
+		if tz := detectTimezone(); tz != "" {
+			args = append(args, "-e", "TZ="+tz)
+		}
 	}
 
-	// Auto-passthrough common API keys
+	// Auto-passthrough common API keys unless disabled for untrusted work.
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
-	for _, key := range autoPassthroughEnvVars {
-		if val := os.Getenv(key); val != "" {
-			autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
-			args = append(args, "-e", key+"="+val)
+	if !cfg.NoEnvPassthrough {
+		for _, key := range autoPassthroughEnvVars {
+			if val := os.Getenv(key); val != "" {
+				autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
+				args = append(args, "-e", key+"="+val)
+			}
 		}
 	}
 

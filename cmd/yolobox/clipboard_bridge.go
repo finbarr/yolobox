@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	goruntime "runtime"
 	"time"
@@ -43,7 +44,7 @@ func startClipboardBridge(runtimeName string) (*clipboardBridge, error) {
 	}
 
 	bridge := &clipboardBridge{
-		Endpoint: fmt.Sprintf("http://%s:%d", clipboardHostName(runtimeName), listener.Addr().(*net.TCPAddr).Port),
+		Endpoint: fmt.Sprintf("http://%s:%d", hostBridgeHostName(runtimeName), listener.Addr().(*net.TCPAddr).Port),
 		Token:    token,
 	}
 
@@ -135,6 +136,20 @@ func randomToken() (string, error) {
 }
 
 func clipboardHostName(runtimeName string) string {
+	return hostBridgeHostName(runtimeName)
+}
+
+func clipboardRuntimeArgs(runtimeName string) []string {
+	return hostBridgeRuntimeArgs(runtimeName)
+}
+
+func hostBridgeHostName(runtimeName string) string {
+	if os.Getenv("YOLOBOX") == "1" {
+		if ip := firstNonLoopbackIPv4(); ip != "" {
+			return ip
+		}
+	}
+
 	runtimeBase := resolvedRuntimeName(runtimeName)
 	if path, err := resolveRuntime(runtimeName); err == nil {
 		runtimeBase = filepath.Base(path)
@@ -147,7 +162,32 @@ func clipboardHostName(runtimeName string) string {
 	}
 }
 
-func clipboardRuntimeArgs(runtimeName string) []string {
+func firstNonLoopbackIPv4() string {
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return ""
+	}
+	for _, addr := range addrs {
+		var ip net.IP
+		switch v := addr.(type) {
+		case *net.IPNet:
+			ip = v.IP
+		case *net.IPAddr:
+			ip = v.IP
+		}
+		if ip == nil || ip.IsLoopback() {
+			continue
+		}
+		ip4 := ip.To4()
+		if ip4 == nil {
+			continue
+		}
+		return ip4.String()
+	}
+	return ""
+}
+
+func hostBridgeRuntimeArgs(runtimeName string) []string {
 	if goruntime.GOOS != "linux" {
 		return nil
 	}

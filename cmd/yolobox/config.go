@@ -24,6 +24,7 @@ type ForkConfig struct {
 type Config struct {
 	Runtime               string   `toml:"runtime"`
 	Image                 string   `toml:"image"`
+	DefaultHarness        string   `toml:"default_harness"`
 	Mounts                []string `toml:"mounts"`
 	Env                   []string `toml:"env"`
 	Exclude               []string `toml:"exclude"`
@@ -31,6 +32,7 @@ type Config struct {
 	SSHAgent              bool     `toml:"ssh_agent"`
 	ReadonlyProject       bool     `toml:"readonly_project"`
 	NoNetwork             bool     `toml:"no_network"`
+	NoEnvPassthrough      bool     `toml:"no_env_passthrough"`
 	Network               string   `toml:"network"`
 	Pod                   string   `toml:"pod"`
 	NoYolo                bool     `toml:"no_yolo"`
@@ -46,6 +48,7 @@ type Config struct {
 	NoProject             bool     `toml:"no_project"`
 	Docker                bool     `toml:"docker"`
 	Clipboard             bool     `toml:"clipboard"`
+	OpenBridge            bool     `toml:"open_bridge"`
 
 	CPUs        string          `toml:"cpus"`
 	Memory      string          `toml:"memory"`
@@ -61,8 +64,10 @@ type Config struct {
 	RebuildImage bool       `toml:"-"`
 	Fork         ForkConfig `toml:"-"`
 
-	ClipboardEndpoint string `toml:"-"`
-	ClipboardToken    string `toml:"-"`
+	ClipboardEndpoint  string `toml:"-"`
+	ClipboardToken     string `toml:"-"`
+	OpenBridgeEndpoint string `toml:"-"`
+	OpenBridgeToken    string `toml:"-"`
 }
 
 func defaultConfig() Config {
@@ -139,6 +144,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Image != "" {
 		dst.Image = src.Image
 	}
+	if src.DefaultHarness != "" {
+		dst.DefaultHarness = strings.ToLower(strings.TrimSpace(src.DefaultHarness))
+	}
 	if len(src.Mounts) > 0 {
 		dst.Mounts = append([]string{}, src.Mounts...)
 	}
@@ -159,6 +167,9 @@ func mergeConfig(dst *Config, src Config) {
 	}
 	if src.NoNetwork {
 		dst.NoNetwork = true
+	}
+	if src.NoEnvPassthrough {
+		dst.NoEnvPassthrough = true
 	}
 	if src.Network != "" {
 		dst.Network = src.Network
@@ -205,6 +216,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Clipboard {
 		dst.Clipboard = true
 	}
+	if src.OpenBridge {
+		dst.OpenBridge = true
+	}
 
 	if src.CPUs != "" {
 		dst.CPUs = src.CPUs
@@ -245,10 +259,12 @@ func printConfig(cfg Config) error {
 	}
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
+	fmt.Printf("%sdefault_harness:%s %s\n", colorBold, colorReset, displayDefaultHarness(cfg.DefaultHarness))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
 	fmt.Printf("%sno_network:%s %t\n", colorBold, colorReset, cfg.NoNetwork)
+	fmt.Printf("%sno_env_passthrough:%s %t\n", colorBold, colorReset, cfg.NoEnvPassthrough)
 	fmt.Printf("%snetwork:%s %s\n", colorBold, colorReset, cfg.Network)
 	fmt.Printf("%spod:%s %s\n", colorBold, colorReset, cfg.Pod)
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
@@ -264,6 +280,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sno_project:%s %t\n", colorBold, colorReset, cfg.NoProject)
 	fmt.Printf("%sdocker:%s %t\n", colorBold, colorReset, cfg.Docker)
 	fmt.Printf("%sclipboard:%s %t\n", colorBold, colorReset, cfg.Clipboard)
+	fmt.Printf("%sopen_bridge:%s %t\n", colorBold, colorReset, cfg.OpenBridge)
 
 	printStringConfigField("cpus", cfg.CPUs)
 	printStringConfigField("memory", cfg.Memory)
@@ -327,6 +344,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 
 	var lines []string
+	if harness := normalizeDefaultHarness(cfg.DefaultHarness); harness != "" {
+		lines = append(lines, fmt.Sprintf("default_harness = %q", harness))
+	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")
 	}
@@ -360,6 +380,9 @@ func saveGlobalConfig(cfg Config) error {
 	if cfg.NoNetwork {
 		lines = append(lines, "no_network = true")
 	}
+	if cfg.NoEnvPassthrough {
+		lines = append(lines, "no_env_passthrough = true")
+	}
 	if cfg.Network != "" {
 		lines = append(lines, fmt.Sprintf("network = %q", cfg.Network))
 	}
@@ -374,6 +397,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.Clipboard {
 		lines = append(lines, "clipboard = true")
+	}
+	if cfg.OpenBridge {
+		lines = append(lines, "open_bridge = true")
 	}
 	if cfg.Pod != "" {
 		lines = append(lines, fmt.Sprintf("pod = %q", cfg.Pod))
