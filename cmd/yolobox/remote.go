@@ -31,6 +31,7 @@ type remoteMachine struct {
 	Size              string    `json:"size,omitempty"`
 	Image             string    `json:"image,omitempty"`
 	SSHUser           string    `json:"ssh_user,omitempty"`
+	SourcePath        string    `json:"source_path,omitempty"`
 	ProjectPath       string    `json:"project_path,omitempty"`
 	RepoURL           string    `json:"repo_url,omitempty"`
 	Branch            string    `json:"branch,omitempty"`
@@ -90,7 +91,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]       Create or reuse a named remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote resume <env> [cmd...]       Reattach to a remote tmux session")
-	fmt.Fprintln(os.Stderr, "  yolobox remote sync <env>                  Pull the current Git branch on the remote host")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync <env>                  Copy the current folder to the remote host")
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                        List locally registered remote machines")
 	fmt.Fprintln(os.Stderr, "  yolobox remote status <env>                Show local and provider state")
 	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force       Delete the Droplet and local registry entry")
@@ -311,6 +312,7 @@ func runRemoteStatus(args []string) error {
 	fmt.Printf("%sprovider_status:%s %s\n", colorBold, colorReset, providerStatus)
 	fmt.Printf("%spublic_ipv4:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PublicIPv4))
 	fmt.Printf("%sssh_user:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SSHUser))
+	fmt.Printf("%ssource_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SourcePath))
 	fmt.Printf("%srepo:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.RepoURL))
 	fmt.Printf("%sbranch:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Branch))
 	fmt.Printf("%sproject_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProjectPath))
@@ -409,13 +411,17 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if err := validateRemoteProvisionOptions(opts); err != nil {
 		return remoteMachine{}, err
 	}
+	if err := requireRemoteClientTools("doctl", "ssh", "rsync"); err != nil {
+		return remoteMachine{}, err
+	}
 
-	repo, err := currentGitRepo(projectDir)
+	dropletName := "yolobox-" + opts.Name
+	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
 		return remoteMachine{}, err
 	}
-	dropletName := "yolobox-" + opts.Name
-	projectPath := "/root/yolobox-projects/" + slugify(filepath.Base(projectDir), "project")
+	repo := currentGitRepo(sourcePath)
+	projectPath := "/root/yolobox-projects/" + slugify(filepath.Base(sourcePath), "project")
 	now := time.Now().UTC()
 
 	info("Creating DigitalOcean Droplet %s...", dropletName)
@@ -434,6 +440,7 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		Size:           opts.Size,
 		Image:          opts.Image,
 		SSHUser:        opts.SSHUser,
+		SourcePath:     sourcePath,
 		ProjectPath:    projectPath,
 		RepoURL:        repo.URL,
 		Branch:         repo.Branch,
@@ -537,10 +544,10 @@ type gitRepoInfo struct {
 	Branch string
 }
 
-func currentGitRepo(projectDir string) (gitRepoInfo, error) {
+func currentGitRepo(projectDir string) gitRepoInfo {
 	url, err := gitOutput(projectDir, "config", "--get", "remote.origin.url")
 	if err != nil || strings.TrimSpace(url) == "" {
-		return gitRepoInfo{}, fmt.Errorf("remote mode requires a Git checkout with remote.origin.url")
+		return gitRepoInfo{}
 	}
 	branch, err := gitOutput(projectDir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
@@ -550,7 +557,7 @@ func currentGitRepo(projectDir string) (gitRepoInfo, error) {
 	if branch == "HEAD" {
 		branch = ""
 	}
-	return gitRepoInfo{URL: strings.TrimSpace(url), Branch: branch}, nil
+	return gitRepoInfo{URL: strings.TrimSpace(url), Branch: branch}
 }
 
 func gitOutput(dir string, args ...string) (string, error) {
@@ -617,7 +624,7 @@ func writeRemoteUserData() (string, error) {
 set -eux
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y ca-certificates curl git tmux
+apt-get install -y ca-certificates curl git rsync tmux
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
@@ -715,7 +722,7 @@ if command -v cloud-init >/dev/null 2>&1; then
   cloud-init status --wait >/dev/null 2>&1 || true
 fi
 apt-get update
-apt-get install -y ca-certificates curl git tmux
+apt-get install -y ca-certificates curl git rsync tmux
 if ! command -v docker >/dev/null 2>&1; then
   curl -fsSL https://get.docker.com | sh
 fi
@@ -729,43 +736,86 @@ mkdir -p /root/yolobox-projects
 }
 
 func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) error {
-	repo, err := currentGitRepo(projectDir)
+	if err := requireRemoteClientTools("ssh", "rsync"); err != nil {
+		return err
+	}
+	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
 		return err
 	}
+	repo := currentGitRepo(sourcePath)
 	machine.RepoURL = repo.URL
 	machine.Branch = repo.Branch
+	machine.SourcePath = sourcePath
 	if machine.ProjectPath == "" {
-		machine.ProjectPath = "/root/yolobox-projects/" + slugify(filepath.Base(projectDir), "project")
+		machine.ProjectPath = "/root/yolobox-projects/" + slugify(filepath.Base(sourcePath), "project")
 	}
 	if machine.ComposeProject == "" {
 		machine.ComposeProject = composeProjectName(machine.ProjectPath, machine.Name)
 	}
 
-	info("Syncing %s to %s...", repo.URL, machine.Name)
-	script := buildRemoteSyncScript(*machine, cfg.Remote.Setup)
-	if err := runRemoteScript(*machine, script, shouldForwardSSHAgent(repo.URL)); err != nil {
+	info("Copying %s to %s:%s...", sourcePath, machine.Name, machine.ProjectPath)
+	if err := ensureRemoteProjectPath(*machine); err != nil {
 		return err
+	}
+	if err := rsyncProjectToRemote(*machine, sourcePath); err != nil {
+		return err
+	}
+	if len(cfg.Remote.Setup) > 0 {
+		if err := runRemoteScript(*machine, buildRemoteSetupScript(*machine, cfg.Remote.Setup), false); err != nil {
+			return err
+		}
 	}
 	machine.LastSyncedAt = time.Now().UTC()
 	machine.UpdatedAt = machine.LastSyncedAt
 	return nil
 }
 
-func buildRemoteSyncScript(machine remoteMachine, setup []string) string {
+func normalizedProjectPath(projectDir string) (string, error) {
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved, nil
+	}
+	return abs, nil
+}
+
+func ensureRemoteProjectPath(machine remoteMachine) error {
 	parent := path.Dir(machine.ProjectPath)
+	script := "set -euo pipefail\n" +
+		"if ! command -v rsync >/dev/null 2>&1; then\n" +
+		"  apt-get update\n" +
+		"  apt-get install -y rsync\n" +
+		"fi\n" +
+		"mkdir -p " + shellQuote(parent) + " " + shellQuote(machine.ProjectPath) + "\n"
+	return runRemoteScript(machine, script, false)
+}
+
+func rsyncProjectToRemote(machine remoteMachine, sourcePath string) error {
+	source := sourcePath + string(os.PathSeparator)
+	target := machine.sshTarget() + ":" + machine.ProjectPath + "/"
+	args := []string{
+		"-az",
+		"--delete",
+		"--human-readable",
+		"--info=stats1",
+		"-e", remoteSSHCommand(false),
+		source,
+		target,
+	}
+	cmd := exec.Command("rsync", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
 	var b strings.Builder
 	b.WriteString("set -euo pipefail\n")
-	b.WriteString("mkdir -p " + shellQuote(parent) + "\n")
-	b.WriteString("if [ ! -d " + shellQuote(path.Join(machine.ProjectPath, ".git")) + " ]; then\n")
-	b.WriteString("  git clone " + shellQuote(machine.RepoURL) + " " + shellQuote(machine.ProjectPath) + "\n")
-	b.WriteString("fi\n")
 	b.WriteString("cd " + shellQuote(machine.ProjectPath) + "\n")
-	b.WriteString("git fetch --all --prune\n")
-	if machine.Branch != "" {
-		b.WriteString("git checkout " + shellQuote(machine.Branch) + " || git checkout -b " + shellQuote(machine.Branch) + " " + shellQuote("origin/"+machine.Branch) + "\n")
-		b.WriteString("git pull --ff-only\n")
-	}
 	for _, command := range setup {
 		command = strings.TrimSpace(command)
 		if command == "" {
@@ -820,6 +870,9 @@ func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) er
 }
 
 func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwardAgent bool, stdin ...*strings.Reader) error {
+	if err := requireRemoteClientTools("ssh"); err != nil {
+		return err
+	}
 	args := remoteSSHOptions(forwardAgent)
 	if tty {
 		args = append(args, "-t")
@@ -845,6 +898,11 @@ func remoteSSHOptions(forwardAgent bool) []string {
 		args = append(args, "-A")
 	}
 	return args
+}
+
+func remoteSSHCommand(forwardAgent bool) string {
+	args := append([]string{"ssh"}, remoteSSHOptions(forwardAgent)...)
+	return strings.Join(args, " ")
 }
 
 func (m remoteMachine) sshTarget() string {
@@ -878,6 +936,25 @@ func shellQuote(value string) string {
 func commandExists(name string) bool {
 	_, err := exec.LookPath(name)
 	return err == nil
+}
+
+func requireRemoteClientTools(names ...string) error {
+	for _, name := range names {
+		if commandExists(name) {
+			continue
+		}
+		switch name {
+		case "doctl":
+			return fmt.Errorf("doctl is required for remote mode; install and authenticate the DigitalOcean CLI first")
+		case "rsync":
+			return fmt.Errorf("rsync is required for remote mode full-directory sync")
+		case "ssh":
+			return fmt.Errorf("ssh is required for remote mode")
+		default:
+			return fmt.Errorf("%s is required for remote mode", name)
+		}
+	}
+	return nil
 }
 
 func remoteRegistryPath() (string, error) {

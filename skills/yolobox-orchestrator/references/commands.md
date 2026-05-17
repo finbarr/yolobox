@@ -55,7 +55,7 @@ Reattach later:
 yolobox remote resume foo codex
 ```
 
-Sync the current Git branch to the remote host:
+Sync the current folder to the remote host:
 
 ```bash
 yolobox remote sync foo
@@ -69,7 +69,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-The MVP depends on local `doctl` auth, a configured DigitalOcean SSH key, SSH access to the Droplet, and Git repository access from the remote host.
+The MVP depends on local `doctl` auth, `ssh`, `rsync`, a configured DigitalOcean SSH key, and SSH access to the Droplet. Sync mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches.
 
 ## Isolation controls
 

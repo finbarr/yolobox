@@ -62,9 +62,9 @@ These are useful, but they are explicit trust decisions.
 
 ## Remote mode
 
-`yolobox remote` provisions and controls a VM through your local DigitalOcean CLI credentials. That VM is outside the local container trust boundary. Anyone with SSH access to the remote host can inspect the cloned repository, running containers, tmux sessions, and any files or secrets you intentionally place there.
+`yolobox remote` provisions and controls a VM through your local DigitalOcean CLI credentials. That VM is outside the local container trust boundary. Anyone with SSH access to the remote host can inspect the synced project folder, running containers, tmux sessions, and any files or secrets you place there.
 
-The MVP syncs Git state only. It does not upload ignored files or `.env` files automatically. If your Git remote uses SSH, yolobox forwards your local SSH agent during provisioning and sync so the remote host can clone or pull; treat that as a temporary credential delegation to the remote machine.
+The MVP mirrors the entire current folder with `rsync`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop.
 
 ## Hardening options
 

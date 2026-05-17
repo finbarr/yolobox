@@ -103,9 +103,9 @@ setup = ["docker compose pull"]
 
 With that config, bare `yolobox` behaves like `yolobox remote resume foo codex`.
 
-Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine metadata in `~/.local/state/yolobox/remotes.json`, clones the current Git repository, checks out the current branch, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
+Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to the VM with `rsync`, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
 
-Remote sync is Git-based. Uncommitted local files, ignored files, `.env` files, dependency folders, and build output are not uploaded automatically.
+Remote sync copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 
 ## Project file filtering
 

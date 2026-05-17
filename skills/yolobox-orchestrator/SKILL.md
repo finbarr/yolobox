@@ -21,7 +21,7 @@ Do not use it for questions about the current environment from inside a running 
    - `--no-env-passthrough` when host API/token environment variables should not enter the box automatically.
    - `--open-bridge` only when the agent needs to open HTTP(S) URLs in the host browser.
    - `--docker` only when the agent needs Docker access or sibling containers.
-4. Use `yolobox remote --name <env> <cmd...>` when the user wants a named remote machine that keeps running after the local machine disconnects. The MVP requires local `doctl` authentication and a DigitalOcean SSH key in config or `--ssh-key`.
+4. Use `yolobox remote --name <env> <cmd...>` when the user wants a named remote machine that keeps running after the local machine disconnects. The MVP requires local `doctl` authentication, `ssh`, `rsync`, and a DigitalOcean SSH key in config or `--ssh-key`; sync mirrors the whole current folder to the VM.
 5. When you need exact command patterns or edge-case reminders, read [references/commands.md](references/commands.md).
 6. If you launch a box for another agent, point it at `yolobox` and `YOLOBOX_CONTEXT_FILE` for inside-the-box introspection.
 7. When discussing concurrency, distinguish isolated per-run manifests from shared persistent state: manifests are per-run, but `/home/yolo` and `/var/cache` are shared unless `--scratch` is used.

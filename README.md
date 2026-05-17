@@ -213,7 +213,7 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 
 ## Remote Mode
 
-Remote mode is the first step toward named yolobox machines that keep running after your laptop disconnects. The MVP uses your local `doctl` authentication to create DigitalOcean Droplets directly, stores machine metadata in `~/.local/state/yolobox/remotes.json`, syncs the current Git repository to the VM, and attaches to a persistent `tmux` session over SSH.
+Remote mode is the first step toward named yolobox machines that keep running after your laptop disconnects. The MVP uses your local `doctl` authentication to create DigitalOcean Droplets directly, stores machine metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to the VM with `rsync`, and attaches to a persistent `tmux` session over SSH.
 
 ```bash
 yolobox remote --name foo codex
@@ -224,7 +224,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-Remote mode currently uses Git as the sync point. It clones `remote.origin.url`, checks out the current branch, and runs any `[remote].setup` commands after sync. Uncommitted local files, ignored files, `.env` files, dependency folders, and build output are not uploaded automatically.
+Remote sync copies the entire current folder into `/root/yolobox-projects/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after the copy finishes.
 
 See [Remote Mode](docs/remote.md) for the MVP spec and roadmap.
 

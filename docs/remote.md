@@ -20,9 +20,9 @@ yolobox remote destroy foo --force
 The MVP should:
 
 - create or reuse a named DigitalOcean Droplet
-- install Docker, tmux, git, and yolobox on the remote host
-- clone the current Git repository into the remote host
-- pull updates on `remote sync`
+- install Docker, tmux, git, rsync, and yolobox on the remote host
+- mirror the current folder into the remote host with `rsync`
+- refresh that full folder mirror on `remote sync`
 - run the requested harness inside a persistent tmux session
 - let the user reattach after closing their laptop
 - keep enough local registry state to list, resume, sync, and destroy machines later
@@ -38,6 +38,8 @@ doctl auth init
 ```
 
 Remote provisioning also requires a DigitalOcean SSH key ID or fingerprint. Configure it with `remote.ssh_key` or pass `--ssh-key`.
+
+The local machine also needs `ssh` and `rsync`. yolobox checks for those before creating a Droplet so a missing sync tool does not leave a half-provisioned VM behind.
 
 ## Configuration
 
@@ -63,7 +65,7 @@ With that config, bare `yolobox` should resolve to:
 yolobox remote resume foo codex
 ```
 
-Project config can add setup commands that run after the repo is cloned or updated:
+Project config can add setup commands that run after the folder is copied or updated:
 
 ```toml
 [remote]
@@ -75,9 +77,9 @@ setup = [
 
 ## Sync Model
 
-The MVP uses Git as the synchronization point. The remote host clones the current repository remote and checks out the current branch. Private repositories should use a Git remote that the remote host can access, or use SSH agent forwarding during provisioning and sync.
+The MVP mirrors the whole current folder with `rsync -az --delete`. The remote project path is `/root/yolobox-projects/<folder>`, and the registry records the last local source path, Git remote, and branch when those are available.
 
-Local uncommitted files, ignored files, `.env` files, dependency folders, and build output are not copied by default. Later versions can add an explicit overlay sync, but remote mode should never silently upload secrets or large ignored directories.
+This is intentionally closer to fork mode than a Git checkout: `.git`, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches are all copied if they live under the current folder. That makes the remote feel like the local workspace, but it also means secrets in the project folder leave your laptop. Remove or relocate anything you do not want on the VM before syncing.
 
 ## Local Registry
 

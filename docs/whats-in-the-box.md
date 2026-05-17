@@ -36,6 +36,7 @@ npm is upgraded during the image build using npm's date-based `--before` filter.
 
 - git
 - GitHub CLI
+- rsync
 - ripgrep
 - fd
 - fzf

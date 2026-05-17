@@ -111,24 +111,106 @@ echo "123456 yolobox-foo 203.0.113.10 active"
 	}
 }
 
-func TestBuildRemoteSyncScript(t *testing.T) {
+func TestBuildRemoteSetupScript(t *testing.T) {
 	machine := remoteMachine{
 		Name:        "foo",
-		RepoURL:     "git@github.com:finbarr/yolobox.git",
-		Branch:      "feature/remote",
 		ProjectPath: "/root/yolobox-projects/yolobox",
 	}
-	script := buildRemoteSyncScript(machine, []string{"docker compose pull"})
+	script := buildRemoteSetupScript(machine, []string{"docker compose pull"})
 
 	for _, want := range []string{
-		"git clone 'git@github.com:finbarr/yolobox.git' '/root/yolobox-projects/yolobox'",
-		"git checkout 'feature/remote' || git checkout -b 'feature/remote' 'origin/feature/remote'",
-		"git pull --ff-only",
+		"cd '/root/yolobox-projects/yolobox'",
 		"docker compose pull",
 	} {
 		if !strings.Contains(script, want) {
-			t.Fatalf("expected sync script to contain %q, got:\n%s", want, script)
+			t.Fatalf("expected setup script to contain %q, got:\n%s", want, script)
 		}
+	}
+}
+
+func TestRsyncProjectToRemoteUsesFullDirectory(t *testing.T) {
+	binDir := t.TempDir()
+	argsPath := filepath.Join(t.TempDir(), "rsync-args")
+	rsyncPath := filepath.Join(binDir, "rsync")
+	script := `#!/bin/sh
+: > "$YOLOBOX_FAKE_RSYNC_ARGS"
+for arg in "$@"; do
+  printf '%s\n' "$arg" >> "$YOLOBOX_FAKE_RSYNC_ARGS"
+done
+exit 0
+`
+	if err := os.WriteFile(rsyncPath, []byte(script), 0755); err != nil {
+		t.Fatalf("failed to write fake rsync: %v", err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("YOLOBOX_FAKE_RSYNC_ARGS", argsPath)
+
+	source := t.TempDir()
+	machine := remoteMachine{
+		PublicIPv4:  "203.0.113.10",
+		SSHUser:     "root",
+		ProjectPath: "/root/yolobox-projects/yolobox",
+	}
+	if err := rsyncProjectToRemote(machine, source); err != nil {
+		t.Fatalf("rsyncProjectToRemote failed: %v", err)
+	}
+
+	data, err := os.ReadFile(argsPath)
+	if err != nil {
+		t.Fatalf("failed to read fake rsync args: %v", err)
+	}
+	args := string(data)
+	for _, want := range []string{
+		"-az\n",
+		"--delete\n",
+		"-e\n",
+		source + string(os.PathSeparator) + "\n",
+		"root@203.0.113.10:/root/yolobox-projects/yolobox/\n",
+	} {
+		if !strings.Contains(args, want) {
+			t.Fatalf("expected rsync args to contain %q, got:\n%s", want, args)
+		}
+	}
+}
+
+func TestEnsureRemoteMachineRequiresRsyncBeforeCreate(t *testing.T) {
+	projectDir := t.TempDir()
+	stateHome := t.TempDir()
+	t.Setenv("XDG_STATE_HOME", stateHome)
+	t.Setenv("HOME", t.TempDir())
+
+	binDir := t.TempDir()
+	doctlPath := filepath.Join(binDir, "doctl")
+	doctlMarker := filepath.Join(t.TempDir(), "doctl-called")
+	doctlScript := `#!/bin/sh
+touch "$YOLOBOX_FAKE_DOCTL_CALLED"
+echo "unexpected doctl call" >&2
+exit 1
+`
+	if err := os.WriteFile(doctlPath, []byte(doctlScript), 0755); err != nil {
+		t.Fatalf("failed to write fake doctl: %v", err)
+	}
+	sshPath := filepath.Join(binDir, "ssh")
+	if err := os.WriteFile(sshPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake ssh: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+	t.Setenv("YOLOBOX_FAKE_DOCTL_CALLED", doctlMarker)
+
+	cfg := defaultConfig()
+	_, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{
+		Name:    "foo",
+		Region:  "nyc3",
+		Size:    "s-2vcpu-4gb",
+		Image:   "ubuntu-24-04-x64",
+		SSHKey:  "key123",
+		SSHUser: "root",
+	})
+	if err == nil || !strings.Contains(err.Error(), "rsync is required") {
+		t.Fatalf("expected missing rsync error, got %v", err)
+	}
+	if _, err := os.Stat(doctlMarker); !os.IsNotExist(err) {
+		t.Fatalf("expected doctl not to be called, marker stat error: %v", err)
 	}
 }
 

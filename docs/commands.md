@@ -45,7 +45,7 @@ yolobox fork resume <env> [cmd...] # Reopen an existing copied folder
 yolobox fork discard <env> --force # Delete a copied folder
 yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
 yolobox remote resume <env> [cmd...] # Reattach to a remote tmux session
-yolobox remote sync <env>       # Pull the current Git branch on the remote host
+yolobox remote sync <env>       # Copy the current folder to the remote host
 yolobox remote list             # List locally registered remote machines
 yolobox remote status <env>     # Show local and provider state
 yolobox remote destroy <env> --force # Delete the Droplet and local registry entry
@@ -118,9 +118,9 @@ yolobox remote --name foo codex
 yolobox remote resume foo codex
 ```
 
-Remote mode uses your local DigitalOcean CLI authentication, creates a Droplet when needed, clones the current Git repository, and starts the requested command in a persistent tmux session. Use `yolobox remote sync foo` after pushing branch changes you want the remote host to pull.
+Remote mode uses your local DigitalOcean CLI authentication, creates a Droplet when needed, mirrors the current folder to the VM with `rsync`, and starts the requested command in a persistent tmux session. Use `yolobox remote sync foo` when you want the remote host to get the latest local folder contents.
 
-The MVP syncs Git state only. It does not upload uncommitted files, ignored files, `.env` files, dependency folders, or build output.
+The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 
 ### Hide secrets from the sandboxed view
 

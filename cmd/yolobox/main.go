@@ -1086,7 +1086,7 @@ func runSetup() (Config, error) {
 				Value(&remoteSSHUser),
 			huh.NewText().
 				Title("Remote setup commands").
-				Description("One per line; run after Git sync on the remote host").
+				Description("One per line; run after folder sync on the remote host").
 				Lines(4).
 				Placeholder("docker compose pull").
 				Value(&remoteSetup),
