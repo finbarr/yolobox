@@ -182,6 +182,7 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
+yolobox remote --name <env> <cmd...> # Run on a named DigitalOcean remote machine
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -210,6 +211,23 @@ Compose namespacing covers default Compose-created containers, networks, and nam
 
 See the [recipes](docs/recipes.md) for common fork workflows, including parallel agents on one project and webapp routing.
 
+## Remote Mode
+
+Remote mode is the first step toward named yolobox machines that keep running after your laptop disconnects. The MVP uses your local `doctl` authentication to create DigitalOcean Droplets directly, stores machine metadata in `~/.local/state/yolobox/remotes.json`, syncs the current Git repository to the VM, and attaches to a persistent `tmux` session over SSH.
+
+```bash
+yolobox remote --name foo codex
+yolobox remote resume foo codex
+yolobox remote sync foo
+yolobox remote list
+yolobox remote status foo
+yolobox remote destroy foo --force
+```
+
+Remote mode currently uses Git as the sync point. It clones `remote.origin.url`, checks out the current branch, and runs any `[remote].setup` commands after sync. Uncommitted local files, ignored files, `.env` files, dependency folders, and build output are not uploaded automatically.
+
+See [Remote Mode](docs/remote.md) for the MVP spec and roadmap.
+
 ## Configuration
 
 Run `yolobox setup` to configure your preferences with an interactive wizard.
@@ -217,6 +235,8 @@ Run `yolobox setup` to configure your preferences with an interactive wizard.
 Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
+# mode = "remote"
+# remote_name = "foo"
 default_harness = "codex" # or claude, gemini, opencode, copilot, none
 git_config = true
 opencode_config = true
@@ -236,6 +256,14 @@ memory = "8g"
 cap_add = ["SYS_PTRACE"]
 devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
+
+[remote]
+provider = "digitalocean"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
+ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+ssh_user = "root"
 ```
 
 You can also create `.yolobox.toml` in your project for project-specific settings:

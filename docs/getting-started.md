@@ -58,6 +58,8 @@ Use `yolobox shell` when you want a shell. Use `yolobox run ...` when you want o
 
 You can also set a default harness in config, such as `default_harness = "codex"`, so bare `yolobox` launches that AI shortcut. Set it to `none` or leave it unset to keep bare `yolobox` as the shell shortcut.
 
+For remote work, `yolobox remote --name foo codex` creates or reuses a named DigitalOcean machine, syncs the current Git repository, and attaches to a persistent tmux session. See [Remote Mode](/remote) for the MVP workflow.
+
 ## Runtime support
 
 yolobox auto-detects the first supported runtime it can use.
@@ -79,6 +81,7 @@ yolobox claude --runtime container
 
 - [Commands](/commands): shortcut commands, shell usage, and maintenance commands
 - [Recipes](/recipes): named agent environments, Git remote synchronization, and webapp routing
+- [Remote Mode](/remote): named DigitalOcean machines, local registry state, and persistent remote sessions
 - [What's in the Box](/whats-in-the-box): preinstalled tools and YOLO-mode wrappers
 - [Project-Level Customization](/customizing): add packages or a Dockerfile fragment per project
 - [Configuration](/configuration): global defaults, project config, copied instructions, and auto-forwarded env vars

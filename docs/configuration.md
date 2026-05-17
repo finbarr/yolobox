@@ -13,6 +13,8 @@ Path: `~/.config/yolobox/config.toml`
 Applies to all projects:
 
 ```toml
+# mode = "remote"
+# remote_name = "foo"
 default_harness = "codex"
 git_config = true
 opencode_config = true
@@ -32,6 +34,14 @@ memory = "8g"
 cap_add = ["SYS_PTRACE"]
 devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
+
+[remote]
+provider = "digitalocean"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
+ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+ssh_user = "root"
 ```
 
 ### Project config
@@ -71,6 +81,31 @@ default_harness = "codex"
 ```
 
 Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`. Use `none` in project config to override a global default harness and keep bare `yolobox` as an interactive shell. `yolobox shell` always opens a shell regardless of this setting.
+
+## Remote defaults
+
+Set `mode = "remote"` and `remote_name` when bare `yolobox` should attach to a named remote machine instead of starting a local container:
+
+```toml
+mode = "remote"
+remote_name = "foo"
+default_harness = "codex"
+
+[remote]
+provider = "digitalocean"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
+ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+ssh_user = "root"
+setup = ["docker compose pull"]
+```
+
+With that config, bare `yolobox` behaves like `yolobox remote resume foo codex`.
+
+Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine metadata in `~/.local/state/yolobox/remotes.json`, clones the current Git repository, checks out the current branch, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
+
+Remote sync is Git-based. Uncommitted local files, ignored files, `.env` files, dependency folders, and build output are not uploaded automatically.
 
 ## Project file filtering
 

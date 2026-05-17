@@ -17,6 +17,8 @@ That is the intended path. You point the agent at a project and let it work insi
 
 If you use one tool most of the time, set `default_harness = "codex"` or another shortcut name in config. Then bare `yolobox` launches that tool. Set `default_harness = "none"` or leave it unset to keep bare `yolobox` as an interactive shell.
 
+If you set `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"`, bare `yolobox` attaches to `yolobox remote resume foo codex`.
+
 ## Command reference
 
 ### AI shortcuts
@@ -41,6 +43,12 @@ yolobox run <cmd...>        # Run a single command in the sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox fork resume <env> [cmd...] # Reopen an existing copied folder
 yolobox fork discard <env> --force # Delete a copied folder
+yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
+yolobox remote resume <env> [cmd...] # Reattach to a remote tmux session
+yolobox remote sync <env>       # Pull the current Git branch on the remote host
+yolobox remote list             # List locally registered remote machines
+yolobox remote status <env>     # Show local and provider state
+yolobox remote destroy <env> --force # Delete the Droplet and local registry entry
 yolobox setup               # Write global defaults to ~/.config/yolobox/config.toml
 yolobox config              # Print the resolved config for the current project
 yolobox upgrade             # Update the binary and pull the latest base image
@@ -103,6 +111,17 @@ yolobox fork discard bruno --force
 
 See [Recipes](/recipes) for common fork workflows, including webapp routing.
 
+### Work on a remote machine
+
+```bash
+yolobox remote --name foo codex
+yolobox remote resume foo codex
+```
+
+Remote mode uses your local DigitalOcean CLI authentication, creates a Droplet when needed, clones the current Git repository, and starts the requested command in a persistent tmux session. Use `yolobox remote sync foo` after pushing branch changes you want the remote host to pull.
+
+The MVP syncs Git state only. It does not upload uncommitted files, ignored files, `.env` files, dependency folders, or build output.
+
 ### Hide secrets from the sandboxed view
 
 ```bash
@@ -148,5 +167,7 @@ Use shortcut commands when you want an AI agent session.
 Use `run` when you want one exact command in the same sandbox model.
 
 Use `fork` when you want concurrent sessions on the same project folder without sharing files or the default Compose project namespace.
+
+Use `remote` when you want a named machine that can keep running after your laptop disconnects.
 
 Use `yolobox shell` when you are debugging or exploring manually, not as the main path.

@@ -60,6 +60,12 @@ Some flags deliberately widen the trust boundary:
 
 These are useful, but they are explicit trust decisions.
 
+## Remote mode
+
+`yolobox remote` provisions and controls a VM through your local DigitalOcean CLI credentials. That VM is outside the local container trust boundary. Anyone with SSH access to the remote host can inspect the cloned repository, running containers, tmux sessions, and any files or secrets you intentionally place there.
+
+The MVP syncs Git state only. It does not upload ignored files or `.env` files automatically. If your Git remote uses SSH, yolobox forwards your local SSH agent during provisioning and sync so the remote host can clone or pull; treat that as a temporary credential delegation to the remote machine.
+
 ## Hardening options
 
 ### Level 1: default

@@ -15,6 +15,16 @@ type CustomizeConfig struct {
 	Dockerfile string   `toml:"dockerfile"`
 }
 
+type RemoteConfig struct {
+	Provider string   `toml:"provider"`
+	Region   string   `toml:"region"`
+	Size     string   `toml:"size"`
+	Image    string   `toml:"image"`
+	SSHKey   string   `toml:"ssh_key"`
+	SSHUser  string   `toml:"ssh_user"`
+	Setup    []string `toml:"setup"`
+}
+
 type ForkConfig struct {
 	Name           string `toml:"-"`
 	Source         string `toml:"-"`
@@ -23,10 +33,12 @@ type ForkConfig struct {
 }
 
 type Config struct {
+	Mode                  string   `toml:"mode"`
 	Runtime               string   `toml:"runtime"`
 	Image                 string   `toml:"image"`
 	ContainerName         string   `toml:"container_name"`
 	DefaultHarness        string   `toml:"default_harness"`
+	RemoteName            string   `toml:"remote_name"`
 	Mounts                []string `toml:"mounts"`
 	Env                   []string `toml:"env"`
 	Exclude               []string `toml:"exclude"`
@@ -62,6 +74,7 @@ type Config struct {
 	CapDrop     []string        `toml:"cap_drop"`
 	RuntimeArgs []string        `toml:"runtime_args"`
 	Customize   CustomizeConfig `toml:"customize"`
+	Remote      RemoteConfig    `toml:"remote"`
 
 	Setup        bool       `toml:"-"`
 	RebuildImage bool       `toml:"-"`
@@ -76,6 +89,13 @@ type Config struct {
 func defaultConfig() Config {
 	return Config{
 		Image: "ghcr.io/finbarr/yolobox:latest",
+		Remote: RemoteConfig{
+			Provider: "digitalocean",
+			Region:   "nyc3",
+			Size:     "s-2vcpu-4gb",
+			Image:    "ubuntu-24-04-x64",
+			SSHUser:  "root",
+		},
 	}
 }
 
@@ -146,6 +166,9 @@ func mergeConfigFile(path string, cfg *Config) error {
 }
 
 func mergeConfig(dst *Config, src Config) {
+	if src.Mode != "" {
+		dst.Mode = strings.ToLower(strings.TrimSpace(src.Mode))
+	}
 	if src.Runtime != "" {
 		dst.Runtime = src.Runtime
 	}
@@ -157,6 +180,9 @@ func mergeConfig(dst *Config, src Config) {
 	}
 	if src.DefaultHarness != "" {
 		dst.DefaultHarness = strings.ToLower(strings.TrimSpace(src.DefaultHarness))
+	}
+	if src.RemoteName != "" {
+		dst.RemoteName = strings.ToLower(strings.TrimSpace(src.RemoteName))
 	}
 	if len(src.Mounts) > 0 {
 		dst.Mounts = append([]string{}, src.Mounts...)
@@ -264,6 +290,31 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Customize.Dockerfile != "" {
 		dst.Customize.Dockerfile = src.Customize.Dockerfile
 	}
+	mergeRemoteConfig(&dst.Remote, src.Remote)
+}
+
+func mergeRemoteConfig(dst *RemoteConfig, src RemoteConfig) {
+	if src.Provider != "" {
+		dst.Provider = strings.ToLower(strings.TrimSpace(src.Provider))
+	}
+	if src.Region != "" {
+		dst.Region = strings.TrimSpace(src.Region)
+	}
+	if src.Size != "" {
+		dst.Size = strings.TrimSpace(src.Size)
+	}
+	if src.Image != "" {
+		dst.Image = strings.TrimSpace(src.Image)
+	}
+	if src.SSHKey != "" {
+		dst.SSHKey = strings.TrimSpace(src.SSHKey)
+	}
+	if src.SSHUser != "" {
+		dst.SSHUser = strings.TrimSpace(src.SSHUser)
+	}
+	if len(src.Setup) > 0 {
+		dst.Setup = append([]string{}, src.Setup...)
+	}
 }
 
 func printConfig(cfg Config) error {
@@ -271,10 +322,12 @@ func printConfig(cfg Config) error {
 	if err != nil {
 		return err
 	}
+	fmt.Printf("%smode:%s %s\n", colorBold, colorReset, displayMode(cfg.Mode))
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
 	printStringConfigField("container_name", cfg.ContainerName)
 	fmt.Printf("%sdefault_harness:%s %s\n", colorBold, colorReset, displayDefaultHarness(cfg.DefaultHarness))
+	fmt.Printf("%sremote_name:%s %s\n", colorBold, colorReset, configValueOrNotSet(cfg.RemoteName))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
@@ -308,6 +361,13 @@ func printConfig(cfg Config) error {
 	printSliceConfigField("runtime_args", cfg.RuntimeArgs)
 	printSliceConfigField("customize.packages", cfg.Customize.Packages)
 	printStringConfigField("customize.dockerfile", cfg.Customize.Dockerfile)
+	printStringConfigField("remote.provider", cfg.Remote.Provider)
+	printStringConfigField("remote.region", cfg.Remote.Region)
+	printStringConfigField("remote.size", cfg.Remote.Size)
+	printStringConfigField("remote.image", cfg.Remote.Image)
+	printStringConfigField("remote.ssh_key", cfg.Remote.SSHKey)
+	printStringConfigField("remote.ssh_user", cfg.Remote.SSHUser)
+	printSliceConfigField("remote.setup", cfg.Remote.Setup)
 	printSliceConfigField("exclude", cfg.Exclude)
 	printSliceConfigField("copy_as", cfg.CopyAs)
 
@@ -360,11 +420,17 @@ func saveGlobalConfig(cfg Config) error {
 	}
 
 	var lines []string
+	if mode := normalizeMode(cfg.Mode); mode == "remote" {
+		lines = append(lines, `mode = "remote"`)
+	}
 	if harness := normalizeDefaultHarness(cfg.DefaultHarness); harness != "" {
 		lines = append(lines, fmt.Sprintf("default_harness = %q", harness))
 	}
 	if cfg.ContainerName != "" {
 		lines = append(lines, fmt.Sprintf("container_name = %q", cfg.ContainerName))
+	}
+	if name := strings.TrimSpace(cfg.RemoteName); name != "" {
+		lines = append(lines, fmt.Sprintf("remote_name = %q", strings.ToLower(name)))
 	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")
@@ -459,6 +525,30 @@ func saveGlobalConfig(cfg Config) error {
 			lines = append(lines, fmt.Sprintf("dockerfile = %q", cfg.Customize.Dockerfile))
 		}
 	}
+	if hasRemoteConfig(cfg.Remote) {
+		lines = append(lines, "", "[remote]")
+		if cfg.Remote.Provider != "" {
+			lines = append(lines, fmt.Sprintf("provider = %q", cfg.Remote.Provider))
+		}
+		if cfg.Remote.Region != "" {
+			lines = append(lines, fmt.Sprintf("region = %q", cfg.Remote.Region))
+		}
+		if cfg.Remote.Size != "" {
+			lines = append(lines, fmt.Sprintf("size = %q", cfg.Remote.Size))
+		}
+		if cfg.Remote.Image != "" {
+			lines = append(lines, fmt.Sprintf("image = %q", cfg.Remote.Image))
+		}
+		if cfg.Remote.SSHKey != "" {
+			lines = append(lines, fmt.Sprintf("ssh_key = %q", cfg.Remote.SSHKey))
+		}
+		if cfg.Remote.SSHUser != "" {
+			lines = append(lines, fmt.Sprintf("ssh_user = %q", cfg.Remote.SSHUser))
+		}
+		if len(cfg.Remote.Setup) > 0 {
+			lines = append(lines, fmt.Sprintf("setup = %s", formatTomlStringSlice(cfg.Remote.Setup)))
+		}
+	}
 
 	content := strings.Join(lines, "\n")
 	if content != "" {
@@ -470,6 +560,17 @@ func saveGlobalConfig(cfg Config) error {
 	}
 
 	return nil
+}
+
+func hasRemoteConfig(remote RemoteConfig) bool {
+	def := defaultConfig().Remote
+	return (remote.Provider != "" && remote.Provider != def.Provider) ||
+		(remote.Region != "" && remote.Region != def.Region) ||
+		(remote.Size != "" && remote.Size != def.Size) ||
+		(remote.Image != "" && remote.Image != def.Image) ||
+		remote.SSHKey != "" ||
+		(remote.SSHUser != "" && remote.SSHUser != def.SSHUser) ||
+		len(remote.Setup) > 0
 }
 
 func loadConfigFromEnv() (Config, error) {

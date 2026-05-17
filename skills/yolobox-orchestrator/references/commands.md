@@ -35,6 +35,42 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
+If `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"` are set, bare `yolobox` attaches to:
+
+```bash
+yolobox remote resume foo codex
+```
+
+## Remote machines
+
+Create or reuse a named DigitalOcean remote machine:
+
+```bash
+yolobox remote --name foo codex
+```
+
+Reattach later:
+
+```bash
+yolobox remote resume foo codex
+```
+
+Sync the current Git branch to the remote host:
+
+```bash
+yolobox remote sync foo
+```
+
+Inspect and clean up local registry state plus the DigitalOcean Droplet:
+
+```bash
+yolobox remote list
+yolobox remote status foo
+yolobox remote destroy foo --force
+```
+
+The MVP depends on local `doctl` auth, a configured DigitalOcean SSH key, SSH access to the Droplet, and Git repository access from the remote host.
+
 ## Isolation controls
 
 Use a fresh home/cache state:
