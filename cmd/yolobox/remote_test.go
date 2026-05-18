@@ -17,8 +17,8 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 		Machines: map[string]remoteMachine{
 			"foo": {
 				Name:        "foo",
-				Provider:    remoteProviderDigitalOcean,
-				DropletID:   "123",
+				Provider:    remoteProviderBackend,
+				ProviderID:  "host-a",
 				PublicIPv4:  "203.0.113.10",
 				SSHUser:     "root",
 				ProjectPath: "/root/yolobox-projects/app",
@@ -27,8 +27,8 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 			},
 			"legacy": {
 				Name:        "legacy",
-				Provider:    remoteProviderDigitalOcean,
-				DropletID:   "456",
+				Provider:    remoteProviderBackend,
+				ProviderID:  "host-b",
 				PublicIPv4:  "203.0.113.11",
 				SSHUser:     "root",
 				ProjectPath: "/root/yolobox-projects/legacy",
@@ -59,7 +59,7 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 	if !ok {
 		t.Fatal("expected foo in remote registry")
 	}
-	if machine.DropletID != "123" || machine.PublicIPv4 != "203.0.113.10" {
+	if machine.ProviderID != "host-a" || machine.PublicIPv4 != "203.0.113.10" {
 		t.Fatalf("unexpected registry machine: %+v", machine)
 	}
 	if _, ok := loaded.Workspaces[remoteWorkspaceID("foo", remoteDefaultWorkspace)]; ok {
@@ -78,73 +78,6 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 	}
 	if appWorkspace.ProjectPath != "/opt/yolobox-workspaces/foo-app/app" {
 		t.Fatalf("expected legacy workspace root migration, got %+v", appWorkspace)
-	}
-}
-
-func TestParseDropletInfo(t *testing.T) {
-	info, err := parseDropletInfo("123456 yolobox-foo 203.0.113.10 active\n")
-	if err != nil {
-		t.Fatalf("parseDropletInfo failed: %v", err)
-	}
-	if info.ID != "123456" || info.Name != "yolobox-foo" || info.PublicIPv4 != "203.0.113.10" || info.Status != "active" {
-		t.Fatalf("unexpected droplet info: %+v", info)
-	}
-}
-
-func TestCreateDigitalOceanDropletUsesDoctlFlags(t *testing.T) {
-	binDir := t.TempDir()
-	argsPath := filepath.Join(t.TempDir(), "doctl-args")
-	doctlPath := filepath.Join(binDir, "doctl")
-	script := `#!/bin/sh
-: > "$YOLOBOX_FAKE_DOCTL_ARGS"
-for arg in "$@"; do
-  printf '%s\n' "$arg" >> "$YOLOBOX_FAKE_DOCTL_ARGS"
-done
-echo "123456 yolobox-foo 203.0.113.10 active"
-`
-	if err := os.WriteFile(doctlPath, []byte(script), 0755); err != nil {
-		t.Fatalf("failed to write fake doctl: %v", err)
-	}
-	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv("YOLOBOX_FAKE_DOCTL_ARGS", argsPath)
-
-	info, err := createDigitalOceanDroplet(remoteProvisionOptions{
-		Name:    "foo",
-		Region:  "nyc3",
-		Size:    "s-2vcpu-4gb",
-		Image:   "ubuntu-24-04-x64",
-		SSHKey:  "key123",
-		SSHUser: "root",
-	}, "yolobox-foo")
-	if err != nil {
-		t.Fatalf("createDigitalOceanDroplet failed: %v", err)
-	}
-	if info.ID != "123456" || info.PublicIPv4 != "203.0.113.10" {
-		t.Fatalf("unexpected droplet info: %+v", info)
-	}
-	data, err := os.ReadFile(argsPath)
-	if err != nil {
-		t.Fatalf("failed to read doctl args: %v", err)
-	}
-	args := string(data)
-	for _, want := range []string{
-		"compute\n",
-		"droplet\n",
-		"create\n",
-		"yolobox-foo\n",
-		"--size\ns-2vcpu-4gb\n",
-		"--image\nubuntu-24-04-x64\n",
-		"--region\nnyc3\n",
-		"--ssh-keys\nkey123\n",
-		"--tag-names\nyolobox,yolobox-remote\n",
-		"--user-data-file\n",
-		"--wait\n",
-		"--format\nID,Name,PublicIPv4,Status\n",
-		"--no-header\n",
-	} {
-		if !strings.Contains(args, want) {
-			t.Fatalf("expected doctl args to contain %q, got:\n%s", want, args)
-		}
 	}
 }
 
@@ -210,44 +143,25 @@ exit 0
 	}
 }
 
-func TestEnsureRemoteMachineRequiresRsyncBeforeCreate(t *testing.T) {
+func TestEnsureRemoteMachineRequiresRsyncBeforeBackendRequest(t *testing.T) {
 	projectDir := t.TempDir()
 	stateHome := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
 	t.Setenv("HOME", t.TempDir())
 
 	binDir := t.TempDir()
-	doctlPath := filepath.Join(binDir, "doctl")
-	doctlMarker := filepath.Join(t.TempDir(), "doctl-called")
-	doctlScript := `#!/bin/sh
-touch "$YOLOBOX_FAKE_DOCTL_CALLED"
-echo "unexpected doctl call" >&2
-exit 1
-`
-	if err := os.WriteFile(doctlPath, []byte(doctlScript), 0755); err != nil {
-		t.Fatalf("failed to write fake doctl: %v", err)
-	}
 	sshPath := filepath.Join(binDir, "ssh")
 	if err := os.WriteFile(sshPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("failed to write fake ssh: %v", err)
 	}
 	t.Setenv("PATH", binDir)
-	t.Setenv("YOLOBOX_FAKE_DOCTL_CALLED", doctlMarker)
 
 	cfg := defaultConfig()
-	_, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{
-		Name:    "foo",
-		Region:  "nyc3",
-		Size:    "s-2vcpu-4gb",
-		Image:   "ubuntu-24-04-x64",
-		SSHKey:  "key123",
-		SSHUser: "root",
-	})
+	cfg.Remote.BackendURL = "http://127.0.0.1:9"
+	cfg.Remote.BackendToken = "test-token"
+	_, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{Name: "foo"})
 	if err == nil || !strings.Contains(err.Error(), "rsync is required") {
 		t.Fatalf("expected missing rsync error, got %v", err)
-	}
-	if _, err := os.Stat(doctlMarker); !os.IsNotExist(err) {
-		t.Fatalf("expected doctl not to be called, marker stat error: %v", err)
 	}
 }
 
@@ -319,18 +233,20 @@ func TestRemoteCommandNeedsTTY(t *testing.T) {
 	}
 }
 
-func TestValidateRemoteProvisionOptions(t *testing.T) {
-	err := validateRemoteProvisionOptions(remoteProvisionOptions{
-		Name:     "foo",
-		Provider: "aws",
-		Region:   "nyc3",
-		Size:     "s-2vcpu-4gb",
-		Image:    "ubuntu-24-04-x64",
-		SSHKey:   "abc123",
-		SSHUser:  "root",
-	})
-	if err == nil || !strings.Contains(err.Error(), "digitalocean") {
-		t.Fatalf("expected unsupported provider error, got %v", err)
+func TestValidateRemoteDefaultsRequiresBackend(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Mode = "remote"
+	cfg.RemoteName = "foo"
+
+	err := validateRemoteDefaults(cfg)
+	if err == nil || !strings.Contains(err.Error(), "remote.backend_url") {
+		t.Fatalf("expected missing backend URL error, got %v", err)
+	}
+
+	cfg.Remote.BackendURL = "https://remote.example.com"
+	err = validateRemoteDefaults(cfg)
+	if err == nil || !strings.Contains(err.Error(), "remote backend token") {
+		t.Fatalf("expected missing backend token error, got %v", err)
 	}
 }
 
@@ -348,9 +264,9 @@ func TestLoadConfigRemoteDefaults(t *testing.T) {
 remote_name = "foo"
 
 [remote]
-region = "sfo3"
-size = "s-4vcpu-8gb"
-ssh_key = "abc123"
+backend_url = "https://remote.example.com/"
+backend_token = "secret-token"
+ssh_user = "ubuntu"
 setup = ["docker compose pull"]
 `
 	if err := os.WriteFile(filepath.Join(globalConfigDir, "config.toml"), []byte(config), 0644); err != nil {
@@ -364,10 +280,7 @@ setup = ["docker compose pull"]
 	if cfg.Mode != "remote" || cfg.RemoteName != "foo" {
 		t.Fatalf("expected remote mode/name, got mode=%q name=%q", cfg.Mode, cfg.RemoteName)
 	}
-	if cfg.Remote.Provider != remoteProviderDigitalOcean {
-		t.Fatalf("expected default provider, got %q", cfg.Remote.Provider)
-	}
-	if cfg.Remote.Region != "sfo3" || cfg.Remote.Size != "s-4vcpu-8gb" || cfg.Remote.SSHKey != "abc123" {
+	if cfg.Remote.BackendURL != "https://remote.example.com" || cfg.Remote.BackendToken != "secret-token" || cfg.Remote.SSHUser != "ubuntu" {
 		t.Fatalf("unexpected remote config: %+v", cfg.Remote)
 	}
 	if len(cfg.Remote.Setup) != 1 || cfg.Remote.Setup[0] != "docker compose pull" {
@@ -385,7 +298,9 @@ func TestSaveGlobalConfigRemote(t *testing.T) {
 	cfg.RemoteName = "Foo"
 	cfg.RemoteWorkspace = "App"
 	cfg.DefaultHarness = "codex"
-	cfg.Remote.SSHKey = "abc123"
+	cfg.Remote.BackendURL = "https://remote.example.com/"
+	cfg.Remote.BackendToken = "secret-token"
+	cfg.Remote.SSHUser = "ubuntu"
 	cfg.Remote.Setup = []string{"docker compose pull"}
 	if err := saveGlobalConfig(cfg); err != nil {
 		t.Fatalf("saveGlobalConfig failed: %v", err)
@@ -402,8 +317,9 @@ func TestSaveGlobalConfigRemote(t *testing.T) {
 		`remote_workspace = "app"`,
 		`default_harness = "codex"`,
 		`[remote]`,
-		`provider = "digitalocean"`,
-		`ssh_key = "abc123"`,
+		`backend_url = "https://remote.example.com/"`,
+		`backend_token = "secret-token"`,
+		`ssh_user = "ubuntu"`,
 		`setup = ["docker compose pull"]`,
 	} {
 		if !strings.Contains(content, want) {
@@ -434,7 +350,8 @@ func TestDefaultRemoteModeAttachesRegisteredMachine(t *testing.T) {
 	if err := saveRemoteRegistry(remoteRegistry{Machines: map[string]remoteMachine{
 		"foo": {
 			Name:        "foo",
-			Provider:    remoteProviderDigitalOcean,
+			Provider:    remoteProviderBackend,
+			BackendURL:  "https://remote.example.com",
 			PublicIPv4:  "203.0.113.10",
 			SSHUser:     "root",
 			ProjectPath: "/root/yolobox-projects/app",
@@ -562,7 +479,8 @@ func TestRemoteStatusUsesConfiguredTarget(t *testing.T) {
 		Machines: map[string]remoteMachine{
 			"foo": {
 				Name:       "foo",
-				Provider:   remoteProviderDigitalOcean,
+				Provider:   remoteProviderBackend,
+				BackendURL: "https://remote.example.com",
 				PublicIPv4: "203.0.113.10",
 				SSHUser:    "root",
 				CreatedAt:  now,
@@ -600,7 +518,8 @@ func TestRemoteSyncDownRequiresForce(t *testing.T) {
 		Machines: map[string]remoteMachine{
 			"foo": {
 				Name:       "foo",
-				Provider:   remoteProviderDigitalOcean,
+				Provider:   remoteProviderBackend,
+				BackendURL: "https://remote.example.com",
 				PublicIPv4: "203.0.113.10",
 				SSHUser:    "root",
 				CreatedAt:  now,

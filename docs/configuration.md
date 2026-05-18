@@ -37,11 +37,9 @@ devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
-provider = "digitalocean"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+backend_url = "https://remote.example.com"
+# Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
+backend_token = "your-backend-token"
 ssh_user = "root"
 ```
 
@@ -94,18 +92,16 @@ remote_workspace = "app"
 default_harness = "codex"
 
 [remote]
-provider = "digitalocean"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+backend_url = "https://remote.example.com"
+# Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
+backend_token = "your-backend-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
 ```
 
 With that config, bare `yolobox` behaves like `yolobox remote resume foo/app codex`.
 
-Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
+Remote mode requires `remote.backend_url` or `--backend-url`. Yolobox asks that hosted or self-hosted backend for an SSH host and does not care which infrastructure provider supplied it. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command through SSH.
 
 Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote workspace back to the local folder and requires `--force` because it can overwrite local files.
 

@@ -58,7 +58,7 @@ Use `yolobox shell` when you want a shell. Use `yolobox run ...` when you want o
 
 You can also set a default harness in config, such as `default_harness = "codex"`, so bare `yolobox` launches that AI shortcut. Set it to `none` or leave it unset to keep bare `yolobox` as the shell shortcut.
 
-For remote work, `yolobox remote --name foo --workspace app codex` creates or reuses a named DigitalOcean machine, mirrors the current folder to the `app` workspace, and attaches to a persistent tmux session. Use `yolobox remote forward foo/app 3000` for a local preview port. See [Remote Mode](/remote) for the MVP workflow.
+For remote work, `yolobox remote --name foo --workspace app codex` creates or reuses a named machine from a configured backend. It mirrors the current folder to the `app` workspace and attaches to a persistent session. Use `yolobox remote forward foo/app 3000` for a local preview port. See [Remote Mode](/remote) for the workflow.
 
 ## Runtime support
 
@@ -81,7 +81,7 @@ yolobox claude --runtime container
 
 - [Commands](/commands): shortcut commands, shell usage, and maintenance commands
 - [Recipes](/recipes): named agent environments, folder synchronization, and webapp routing
-- [Remote Mode](/remote): named DigitalOcean machines, workspaces, persistent sessions, and local preview forwarding
+- [Remote Mode](/remote): backend-backed machines, workspaces, persistent sessions, and local preview forwarding
 - [What's in the Box](/whats-in-the-box): preinstalled tools and YOLO-mode wrappers
 - [Project-Level Customization](/customizing): add packages or a Dockerfile fragment per project
 - [Configuration](/configuration): global defaults, project config, copied instructions, and auto-forwarded env vars

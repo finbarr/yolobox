@@ -366,6 +366,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  remote_name = \"foo\"        # default remote machine")
 	fmt.Fprintln(os.Stderr, "  remote_workspace = \"app\"   # default remote workspace")
 	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
+	fmt.Fprintln(os.Stderr, "  [remote]")
+	fmt.Fprintln(os.Stderr, "  backend_url = \"https://remote.example.com\" # required for remote mode")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -954,11 +956,8 @@ func runSetup() (Config, error) {
 	containerName := cfg.ContainerName
 	remoteName := cfg.RemoteName
 	remoteWorkspace := effectiveRemoteWorkspace(cfg.RemoteWorkspace)
-	remoteProvider := cfg.Remote.Provider
-	remoteRegion := cfg.Remote.Region
-	remoteSize := cfg.Remote.Size
-	remoteImage := cfg.Remote.Image
-	remoteSSHKey := cfg.Remote.SSHKey
+	remoteBackendURL := cfg.Remote.BackendURL
+	remoteBackendToken := cfg.Remote.BackendToken
 	remoteSSHUser := cfg.Remote.SSHUser
 	remoteSetup := strings.Join(cfg.Remote.Setup, "\n")
 	podName := cfg.Pod
@@ -1068,25 +1067,14 @@ func runSetup() (Config, error) {
 				Placeholder(remoteDefaultWorkspace).
 				Value(&remoteWorkspace),
 			huh.NewInput().
-				Title("Remote provider").
-				Description("MVP supports digitalocean").
-				Value(&remoteProvider),
+				Title("Remote backend URL").
+				Description("Required for remote mode; yolobox asks this backend for hosts").
+				Placeholder("https://remote.example.com").
+				Value(&remoteBackendURL),
 			huh.NewInput().
-				Title("DigitalOcean region").
-				Placeholder("nyc3").
-				Value(&remoteRegion),
-			huh.NewInput().
-				Title("DigitalOcean Droplet size").
-				Placeholder("s-2vcpu-4gb").
-				Value(&remoteSize),
-			huh.NewInput().
-				Title("DigitalOcean image").
-				Placeholder("ubuntu-24-04-x64").
-				Value(&remoteImage),
-			huh.NewInput().
-				Title("DigitalOcean SSH key ID or fingerprint").
-				Description("Required for remote provisioning").
-				Value(&remoteSSHKey),
+				Title("Remote backend token").
+				Description("Optional; leave blank to use YOLOBOX_REMOTE_TOKEN").
+				Value(&remoteBackendToken),
 			huh.NewInput().
 				Title("Remote SSH user").
 				Placeholder("root").
@@ -1195,11 +1183,8 @@ func runSetup() (Config, error) {
 	cfg.DefaultHarness = defaultHarness
 	cfg.RemoteName = strings.TrimSpace(remoteName)
 	cfg.RemoteWorkspace = strings.TrimSpace(remoteWorkspace)
-	cfg.Remote.Provider = strings.TrimSpace(remoteProvider)
-	cfg.Remote.Region = strings.TrimSpace(remoteRegion)
-	cfg.Remote.Size = strings.TrimSpace(remoteSize)
-	cfg.Remote.Image = strings.TrimSpace(remoteImage)
-	cfg.Remote.SSHKey = strings.TrimSpace(remoteSSHKey)
+	cfg.Remote.BackendURL = strings.TrimRight(strings.TrimSpace(remoteBackendURL), "/")
+	cfg.Remote.BackendToken = strings.TrimSpace(remoteBackendToken)
 	cfg.Remote.SSHUser = strings.TrimSpace(remoteSSHUser)
 	cfg.Remote.Setup = parseMultilineInput(remoteSetup)
 	cfg.GitConfig = contains(selectedOptions, "git_config")

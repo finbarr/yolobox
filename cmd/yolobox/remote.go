@@ -19,20 +19,19 @@ import (
 )
 
 const (
-	remoteProviderDigitalOcean = "digitalocean"
-	remoteRegistryVersion      = 3
-	remoteDefaultWorkspace     = "default"
-	remoteDefaultSession       = "yolobox"
-	remoteDefaultSessionName   = "main"
-	remoteWorkspaceRoot        = "/opt/yolobox-workspaces"
-	remoteLegacyWorkspaceRoot  = "/root/yolobox-workspaces"
+	remoteRegistryVersion     = 3
+	remoteDefaultWorkspace    = "default"
+	remoteDefaultSession      = "yolobox"
+	remoteDefaultSessionName  = "main"
+	remoteWorkspaceRoot       = "/opt/yolobox-workspaces"
+	remoteLegacyWorkspaceRoot = "/root/yolobox-workspaces"
 )
 
 type remoteMachine struct {
 	Name              string    `json:"name"`
 	Provider          string    `json:"provider"`
-	DropletID         string    `json:"droplet_id,omitempty"`
-	DropletName       string    `json:"droplet_name,omitempty"`
+	ProviderID        string    `json:"provider_id,omitempty"`
+	BackendURL        string    `json:"backend_url,omitempty"`
 	PublicIPv4        string    `json:"public_ipv4,omitempty"`
 	Region            string    `json:"region,omitempty"`
 	Size              string    `json:"size,omitempty"`
@@ -103,26 +102,15 @@ type remoteRegistry struct {
 }
 
 type remoteProvisionOptions struct {
-	Name      string
-	Workspace string
-	Provider  string
-	Region    string
-	Size      string
-	Image     string
-	SSHKey    string
-	SSHUser   string
+	Name       string
+	Workspace  string
+	SSHUser    string
+	BackendURL string
 }
 
 type remoteRef struct {
 	Machine   string
 	Workspace string
-}
-
-type dropletInfo struct {
-	ID         string
-	Name       string
-	PublicIPv4 string
-	Status     string
 }
 
 func runRemote(args []string, projectDir string) error {
@@ -149,7 +137,7 @@ func runRemote(args []string, projectDir string) error {
 	case "status":
 		return runRemoteStatus(args[1:], projectDir)
 	case "destroy":
-		return runRemoteDestroy(args[1:])
+		return runRemoteDestroy(args[1:], projectDir)
 	default:
 		return runRemoteCreate(args, projectDir)
 	}
@@ -165,19 +153,15 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox remote forward [<env>[/<workspace>]] <port>  Forward a remote preview port to localhost")
 	fmt.Fprintln(os.Stderr, "  yolobox remote stop [<env>[/<workspace>]]            Stop the remote tmux session")
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                              List locally registered remote machines")
-	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>[/<workspace>]]          Show local and provider state")
-	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force             Delete the Droplet and local registry entry")
+	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>[/<workspace>]]          Show local and backend state")
+	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force             Release/delete remote and local registry entry")
 	fmt.Fprintln(os.Stderr, "  Omit [<env>[/<workspace>]] only when remote_name is configured.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
 	fmt.Fprintln(os.Stderr, "  --name <env>       Remote machine name")
 	fmt.Fprintln(os.Stderr, "  --workspace <name> Remote workspace name")
-	fmt.Fprintln(os.Stderr, "  --provider <name>  Remote provider (MVP: digitalocean)")
-	fmt.Fprintln(os.Stderr, "  --region <slug>    DigitalOcean region")
-	fmt.Fprintln(os.Stderr, "  --size <slug>      DigitalOcean Droplet size")
-	fmt.Fprintln(os.Stderr, "  --image <slug>     DigitalOcean image")
-	fmt.Fprintln(os.Stderr, "  --ssh-key <id>     DigitalOcean SSH key ID or fingerprint")
 	fmt.Fprintln(os.Stderr, "  --ssh-user <user>  SSH user for the remote host")
+	fmt.Fprintln(os.Stderr, "  --backend-url <url> Remote backend API URL")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
@@ -248,23 +232,15 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 	fs.Usage = printRemoteUsage
 
 	opts := remoteProvisionOptions{
-		Name:      strings.TrimSpace(cfg.RemoteName),
-		Workspace: effectiveRemoteWorkspace(cfg.RemoteWorkspace),
-		Provider:  cfg.Remote.Provider,
-		Region:    cfg.Remote.Region,
-		Size:      cfg.Remote.Size,
-		Image:     cfg.Remote.Image,
-		SSHKey:    cfg.Remote.SSHKey,
-		SSHUser:   cfg.Remote.SSHUser,
+		Name:       strings.TrimSpace(cfg.RemoteName),
+		Workspace:  effectiveRemoteWorkspace(cfg.RemoteWorkspace),
+		SSHUser:    cfg.Remote.SSHUser,
+		BackendURL: cfg.Remote.BackendURL,
 	}
 	fs.StringVar(&opts.Name, "name", opts.Name, "remote machine name")
 	fs.StringVar(&opts.Workspace, "workspace", opts.Workspace, "remote workspace name")
-	fs.StringVar(&opts.Provider, "provider", opts.Provider, "remote provider")
-	fs.StringVar(&opts.Region, "region", opts.Region, "DigitalOcean region")
-	fs.StringVar(&opts.Size, "size", opts.Size, "DigitalOcean Droplet size")
-	fs.StringVar(&opts.Image, "image", opts.Image, "DigitalOcean image")
-	fs.StringVar(&opts.SSHKey, "ssh-key", opts.SSHKey, "DigitalOcean SSH key ID or fingerprint")
 	fs.StringVar(&opts.SSHUser, "ssh-user", opts.SSHUser, "remote SSH user")
+	fs.StringVar(&opts.BackendURL, "backend-url", opts.BackendURL, "remote backend API URL")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -276,12 +252,8 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
 	opts.Workspace = strings.ToLower(strings.TrimSpace(opts.Workspace))
-	opts.Provider = strings.ToLower(strings.TrimSpace(opts.Provider))
-	opts.Region = strings.TrimSpace(opts.Region)
-	opts.Size = strings.TrimSpace(opts.Size)
-	opts.Image = strings.TrimSpace(opts.Image)
-	opts.SSHKey = strings.TrimSpace(opts.SSHKey)
 	opts.SSHUser = strings.TrimSpace(opts.SSHUser)
+	opts.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
 	return opts, fs.Args(), nil
 }
 
@@ -425,12 +397,14 @@ func runRemoteStatus(args []string, projectDir string) error {
 		return err
 	}
 
-	providerStatus := "(not checked)"
-	if machine.Provider == remoteProviderDigitalOcean && commandExists("doctl") {
-		if droplet, err := getDigitalOceanDroplet(machine); err == nil {
-			providerStatus = droplet.Status
-			if droplet.PublicIPv4 != "" {
-				machine.PublicIPv4 = droplet.PublicIPv4
+	backendStatus := "(not checked)"
+	if machine.Provider == remoteProviderBackend && remoteBackendURL(cfg, machine) != "" {
+		if refreshed, status, err := getRemoteBackendMachine(cfg, machine); err == nil {
+			backendStatus = status
+			if refreshed.PublicIPv4 != "" {
+				machine.PublicIPv4 = refreshed.PublicIPv4
+				machine.SSHUser = refreshed.SSHUser
+				machine.ProviderID = refreshed.ProviderID
 				machine.UpdatedAt = time.Now().UTC()
 				if reg, err := loadRemoteRegistry(); err == nil {
 					reg.Machines[machine.Name] = machine
@@ -438,14 +412,15 @@ func runRemoteStatus(args []string, projectDir string) error {
 				}
 			}
 		} else {
-			providerStatus = "error: " + err.Error()
+			backendStatus = "error: " + err.Error()
 		}
 	}
 
 	fmt.Printf("%sname:%s %s\n", colorBold, colorReset, machine.Name)
 	fmt.Printf("%sprovider:%s %s\n", colorBold, colorReset, machine.Provider)
-	fmt.Printf("%sdroplet_id:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.DropletID))
-	fmt.Printf("%sprovider_status:%s %s\n", colorBold, colorReset, providerStatus)
+	fmt.Printf("%sprovider_id:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProviderID))
+	fmt.Printf("%sbackend_url:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.BackendURL))
+	fmt.Printf("%sbackend_status:%s %s\n", colorBold, colorReset, backendStatus)
 	fmt.Printf("%spublic_ipv4:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PublicIPv4))
 	fmt.Printf("%sssh_user:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SSHUser))
 	fmt.Printf("%ssource_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SourcePath))
@@ -460,7 +435,7 @@ func runRemoteStatus(args []string, projectDir string) error {
 	return nil
 }
 
-func runRemoteDestroy(args []string) error {
+func runRemoteDestroy(args []string, projectDir string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("yolobox remote destroy requires a remote name")
 	}
@@ -487,16 +462,16 @@ func runRemoteDestroy(args []string) error {
 	if err != nil {
 		return err
 	}
-	if machine.Provider == remoteProviderDigitalOcean {
-		target := machine.DropletID
-		if target == "" {
-			target = machine.DropletName
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		return err
+	}
+	if machine.Provider == remoteProviderBackend {
+		if err := releaseRemoteBackendMachine(cfg, machine); err != nil {
+			return err
 		}
-		if target != "" {
-			if err := runDoctl("compute", "droplet", "delete", target, "--force"); err != nil {
-				return err
-			}
-		}
+	} else if machine.Provider != "" {
+		info("Remote %s uses legacy provider %q; removing local registry state only", name, machine.Provider)
 	}
 	reg, err := loadRemoteRegistry()
 	if err != nil {
@@ -786,76 +761,46 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	if machine, ok := reg.Machines[opts.Name]; ok {
-		if machine.PublicIPv4 == "" && machine.Provider == remoteProviderDigitalOcean && commandExists("doctl") {
-			if droplet, err := getDigitalOceanDroplet(machine); err == nil {
-				machine.PublicIPv4 = droplet.PublicIPv4
-				machine.UpdatedAt = time.Now().UTC()
-				reg.Machines[opts.Name] = machine
-				_ = saveRemoteRegistry(reg)
-			}
+		if machine.Provider != remoteProviderBackend {
+			return remoteMachine{}, fmt.Errorf("remote %s uses legacy provider %q; create it through a configured backend", opts.Name, machine.Provider)
+		}
+		if machine.Provider == remoteProviderBackend && machine.BackendURL == "" {
+			machine.BackendURL = strings.TrimSpace(cfg.Remote.BackendURL)
 		}
 		return machine, nil
 	}
 
 	opts = applyRemoteDefaults(cfg, opts)
-	if err := validateRemoteProvisionOptions(opts); err != nil {
-		return remoteMachine{}, err
+	if opts.BackendURL != "" {
+		cfg.Remote.BackendURL = opts.BackendURL
 	}
-	if err := requireRemoteClientTools("doctl", "ssh", "rsync"); err != nil {
-		return remoteMachine{}, err
+	if !remoteBackendConfigured(cfg) {
+		return remoteMachine{}, fmt.Errorf("remote mode requires remote.backend_url or --backend-url")
 	}
-
-	dropletName := "yolobox-" + opts.Name
-	sourcePath, err := normalizedProjectPath(projectDir)
+	machine, err := ensureRemoteBackendMachine(cfg, projectDir, opts)
 	if err != nil {
 		return remoteMachine{}, err
-	}
-	repo := currentGitRepo(sourcePath)
-	projectPath := remoteWorkspaceProjectPath(opts.Name, effectiveRemoteWorkspace(opts.Workspace), sourcePath)
-	now := time.Now().UTC()
-
-	info("Creating DigitalOcean Droplet %s...", dropletName)
-	droplet, err := createDigitalOceanDroplet(opts, dropletName)
-	if err != nil {
-		return remoteMachine{}, err
-	}
-
-	machine := remoteMachine{
-		Name:           opts.Name,
-		Provider:       opts.Provider,
-		DropletID:      droplet.ID,
-		DropletName:    droplet.Name,
-		PublicIPv4:     droplet.PublicIPv4,
-		Region:         opts.Region,
-		Size:           opts.Size,
-		Image:          opts.Image,
-		SSHUser:        opts.SSHUser,
-		SourcePath:     sourcePath,
-		ProjectPath:    projectPath,
-		RepoURL:        repo.URL,
-		Branch:         repo.Branch,
-		ComposeProject: composeProjectName(projectPath, opts.Name),
-		CreatedAt:      now,
-		UpdatedAt:      now,
 	}
 	reg.Machines[machine.Name] = machine
 	if err := saveRemoteRegistry(reg); err != nil {
 		return remoteMachine{}, err
 	}
 
-	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
-		return machine, err
+	if !machine.BootstrapComplete {
+		if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+			return machine, err
+		}
+		if err := bootstrapRemoteHost(machine); err != nil {
+			return machine, err
+		}
+		machine.BootstrapComplete = true
+		machine.UpdatedAt = time.Now().UTC()
+		reg.Machines[machine.Name] = machine
+		if err := saveRemoteRegistry(reg); err != nil {
+			return machine, err
+		}
 	}
-	if err := bootstrapRemoteHost(machine); err != nil {
-		return machine, err
-	}
-	machine.BootstrapComplete = true
-	machine.UpdatedAt = time.Now().UTC()
-	reg.Machines[machine.Name] = machine
-	if err := saveRemoteRegistry(reg); err != nil {
-		return machine, err
-	}
-	success("Remote %s is ready at %s", machine.Name, machine.PublicIPv4)
+	success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
 	return machine, nil
 }
 
@@ -943,53 +888,10 @@ func ensureRemoteWorkspace(machine remoteMachine, cfg Config, projectDir string,
 }
 
 func applyRemoteDefaults(cfg Config, opts remoteProvisionOptions) remoteProvisionOptions {
-	if opts.Provider == "" {
-		opts.Provider = cfg.Remote.Provider
-	}
-	if opts.Region == "" {
-		opts.Region = cfg.Remote.Region
-	}
-	if opts.Size == "" {
-		opts.Size = cfg.Remote.Size
-	}
-	if opts.Image == "" {
-		opts.Image = cfg.Remote.Image
-	}
-	if opts.SSHKey == "" {
-		opts.SSHKey = cfg.Remote.SSHKey
-	}
 	if opts.SSHUser == "" {
 		opts.SSHUser = cfg.Remote.SSHUser
 	}
 	return opts
-}
-
-func validateRemoteProvisionOptions(opts remoteProvisionOptions) error {
-	if err := validateRemoteName(opts.Name); err != nil {
-		return err
-	}
-	if opts.Provider == "" {
-		return fmt.Errorf("remote provider is required")
-	}
-	if opts.Provider != remoteProviderDigitalOcean {
-		return fmt.Errorf("remote provider %q is not supported yet; MVP supports digitalocean", opts.Provider)
-	}
-	if opts.Region == "" {
-		return fmt.Errorf("remote region is required")
-	}
-	if opts.Size == "" {
-		return fmt.Errorf("remote size is required")
-	}
-	if opts.Image == "" {
-		return fmt.Errorf("remote image is required")
-	}
-	if opts.SSHKey == "" {
-		return fmt.Errorf("remote mode requires a DigitalOcean SSH key ID or fingerprint via --ssh-key or remote.ssh_key")
-	}
-	if opts.SSHUser == "" {
-		return fmt.Errorf("remote ssh user is required")
-	}
-	return nil
 }
 
 func validateRemoteDefaults(cfg Config) error {
@@ -1002,8 +904,13 @@ func validateRemoteDefaults(cfg Config) error {
 	if err := validateRemoteName(effectiveRemoteWorkspace(cfg.RemoteWorkspace)); err != nil {
 		return fmt.Errorf("invalid remote_workspace: %w", err)
 	}
-	opts := applyRemoteDefaults(cfg, remoteProvisionOptions{Name: cfg.RemoteName})
-	return validateRemoteProvisionOptions(opts)
+	if !remoteBackendConfigured(cfg) {
+		return fmt.Errorf("remote mode requires remote.backend_url")
+	}
+	if remoteBackendToken(cfg) == "" {
+		return fmt.Errorf("remote backend token is required; set remote.backend_token or %s", remoteBackendTokenEnv)
+	}
+	return nil
 }
 
 func validateRemoteName(name string) error {
@@ -1039,137 +946,6 @@ func gitOutput(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-func createDigitalOceanDroplet(opts remoteProvisionOptions, dropletName string) (dropletInfo, error) {
-	if !commandExists("doctl") {
-		return dropletInfo{}, fmt.Errorf("doctl is required for remote mode; install and authenticate DigitalOcean CLI first")
-	}
-	userDataPath, err := writeRemoteUserData()
-	if err != nil {
-		return dropletInfo{}, err
-	}
-	defer func() {
-		_ = os.Remove(userDataPath)
-	}()
-
-	args := []string{
-		"compute", "droplet", "create", dropletName,
-		"--size", opts.Size,
-		"--image", opts.Image,
-		"--region", opts.Region,
-		"--ssh-keys", opts.SSHKey,
-		"--tag-names", "yolobox,yolobox-remote",
-		"--user-data-file", userDataPath,
-		"--wait",
-		"--format", "ID,Name,PublicIPv4,Status",
-		"--no-header",
-	}
-	output, err := doctlOutput(args...)
-	if err != nil {
-		return dropletInfo{}, err
-	}
-	droplet, err := parseDropletInfo(output)
-	if err != nil {
-		return dropletInfo{}, err
-	}
-	if droplet.PublicIPv4 == "" {
-		refreshed, err := getDigitalOceanDroplet(remoteMachine{DropletID: droplet.ID, DropletName: droplet.Name})
-		if err == nil {
-			droplet = refreshed
-		}
-	}
-	return droplet, nil
-}
-
-func writeRemoteUserData() (string, error) {
-	file, err := os.CreateTemp("", "yolobox-remote-user-data-*.sh")
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = file.Close()
-	}()
-
-	script := `#!/bin/bash
-set -eux
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y ca-certificates curl git rsync tmux
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
-fi
-if ! command -v yolobox >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
-fi
-docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /opt/yolobox-workspaces /root/yolobox-projects
-chmod 755 /opt /opt/yolobox-workspaces
-`
-	if _, err := file.WriteString(script); err != nil {
-		return "", err
-	}
-	return file.Name(), nil
-}
-
-func getDigitalOceanDroplet(machine remoteMachine) (dropletInfo, error) {
-	target := machine.DropletID
-	if target == "" {
-		target = machine.DropletName
-	}
-	if target == "" {
-		return dropletInfo{}, fmt.Errorf("missing Droplet ID/name")
-	}
-	output, err := doctlOutput("compute", "droplet", "get", target, "--format", "ID,Name,PublicIPv4,Status", "--no-header")
-	if err != nil {
-		return dropletInfo{}, err
-	}
-	return parseDropletInfo(output)
-}
-
-func parseDropletInfo(output string) (dropletInfo, error) {
-	line := strings.TrimSpace(output)
-	if line == "" {
-		return dropletInfo{}, fmt.Errorf("empty doctl Droplet output")
-	}
-	fields := strings.Fields(line)
-	if len(fields) < 3 {
-		return dropletInfo{}, fmt.Errorf("unexpected doctl Droplet output: %q", line)
-	}
-	info := dropletInfo{
-		ID:   fields[0],
-		Name: fields[1],
-	}
-	if len(fields) == 3 {
-		info.Status = fields[2]
-		return info, nil
-	}
-	info.PublicIPv4 = fields[2]
-	info.Status = fields[3]
-	return info, nil
-}
-
-func doctlOutput(args ...string) (string, error) {
-	cmd := exec.Command("doctl", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	output, err := cmd.Output()
-	if err != nil {
-		detail := strings.TrimSpace(stderr.String())
-		if detail == "" {
-			detail = err.Error()
-		}
-		return "", fmt.Errorf("doctl %s failed: %s", strings.Join(args, " "), detail)
-	}
-	return string(output), nil
-}
-
-func runDoctl(args ...string) error {
-	cmd := exec.Command("doctl", args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
 }
 
 func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
@@ -1550,6 +1326,9 @@ func loadRemoteTarget(ref remoteRef) (remoteMachine, remoteWorkspace, error) {
 	if !ok {
 		return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote %s is not registered", ref.Machine)
 	}
+	if machine.Provider != remoteProviderBackend {
+		return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote %s uses legacy provider %q; create it through a configured backend", ref.Machine, machine.Provider)
+	}
 	workspaceID := remoteWorkspaceID(ref.Machine, ref.Workspace)
 	workspace, ok := reg.Workspaces[workspaceID]
 	if !ok {
@@ -1685,8 +1464,6 @@ func requireRemoteClientTools(names ...string) error {
 			continue
 		}
 		switch name {
-		case "doctl":
-			return fmt.Errorf("doctl is required for remote mode; install and authenticate the DigitalOcean CLI first")
 		case "rsync":
 			return fmt.Errorf("rsync is required for remote mode full-directory sync")
 		case "ssh":

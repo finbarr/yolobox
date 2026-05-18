@@ -51,8 +51,8 @@ yolobox remote sync down [<env>[/<workspace>]] --force # Copy the remote workspa
 yolobox remote forward [<env>[/<workspace>]] <port> # Forward a remote preview port to localhost
 yolobox remote stop [<env>[/<workspace>]] # Stop the remote tmux session
 yolobox remote list             # List locally registered remote machines and workspaces
-yolobox remote status [<env>[/<workspace>]] # Show local and provider state
-yolobox remote destroy <env> --force # Delete the Droplet and local registry entry
+yolobox remote status [<env>[/<workspace>]] # Show local and backend state
+yolobox remote destroy <env> --force # Release the backend host and local registry entry
 yolobox setup               # Write global defaults to ~/.config/yolobox/config.toml
 yolobox config              # Print the resolved config for the current project
 yolobox upgrade             # Update the binary and pull the latest base image
@@ -127,7 +127,7 @@ yolobox remote forward foo/app 3000
 yolobox remote forward 3000 # uses configured remote_name and remote_workspace
 ```
 
-Remote mode uses your local DigitalOcean CLI authentication, creates a Droplet when needed, mirrors the current folder to a named workspace on the VM with `rsync`, and starts the requested command in a persistent tmux session. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
+Remote mode requires a configured backend URL and token. The backend leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

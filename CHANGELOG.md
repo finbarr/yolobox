@@ -13,6 +13,7 @@ there is no `v0.6.0` tag in this repository.
 - Expanded remote mode around explicit machine, workspace, session, and exposure metadata.
 - Added named remote workspaces, directional `remote sync up` / `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
 - Added `remote_workspace` config and setup support for the default remote workspace.
+- Added token-authenticated remote backend client support for `remote.backend_url` and a documented backend API contract.
 
 ### Changed
 
@@ -31,7 +32,7 @@ there is no `v0.6.0` tag in this repository.
 
 - GitHub releases now use the curated `CHANGELOG.md` section for the release body so CLI update prompts can show human-written notes.
 - Documented that releases must be tagged only from a clean, up-to-date `master` branch and pushed with the specific release tag.
-- Updated remote mode docs to describe the SSH-first open-source model, workspace sync behavior, local registry state, preview forwarding, security boundaries, and hosted roadmap.
+- Updated remote mode docs to describe the backend-first model, workspace sync behavior, local registry state, preview forwarding, security boundaries, and hosted roadmap.
 - Remote workspaces now sync under `/opt/yolobox-workspaces` and non-interactive remote commands run directly over SSH instead of requiring a terminal-backed tmux attach.
 
 ## v0.17.1 - 2026-05-17

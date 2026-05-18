@@ -43,7 +43,7 @@ yolobox remote resume foo/app codex
 
 ## Remote machines
 
-Create or reuse a named DigitalOcean remote machine:
+Create or reuse a named remote machine. The configured backend leases an SSH host:
 
 ```bash
 yolobox remote --name foo codex
@@ -75,7 +75,7 @@ yolobox remote forward foo/app 3000
 yolobox remote forward 3000 # uses configured remote_name and remote_workspace
 ```
 
-Inspect and clean up local registry state plus the DigitalOcean Droplet:
+Inspect and clean up local registry state plus the backend lease:
 
 ```bash
 yolobox remote list
@@ -83,7 +83,7 @@ yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-The MVP depends on local `doctl` auth, `ssh`, `rsync`, a configured DigitalOcean SSH key, and SSH access to the Droplet. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on a backend URL, token, `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 

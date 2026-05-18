@@ -16,13 +16,10 @@ type CustomizeConfig struct {
 }
 
 type RemoteConfig struct {
-	Provider string   `toml:"provider"`
-	Region   string   `toml:"region"`
-	Size     string   `toml:"size"`
-	Image    string   `toml:"image"`
-	SSHKey   string   `toml:"ssh_key"`
-	SSHUser  string   `toml:"ssh_user"`
-	Setup    []string `toml:"setup"`
+	BackendURL   string   `toml:"backend_url"`
+	BackendToken string   `toml:"backend_token"`
+	SSHUser      string   `toml:"ssh_user"`
+	Setup        []string `toml:"setup"`
 }
 
 type ForkConfig struct {
@@ -91,11 +88,7 @@ func defaultConfig() Config {
 	return Config{
 		Image: "ghcr.io/finbarr/yolobox:latest",
 		Remote: RemoteConfig{
-			Provider: "digitalocean",
-			Region:   "nyc3",
-			Size:     "s-2vcpu-4gb",
-			Image:    "ubuntu-24-04-x64",
-			SSHUser:  "root",
+			SSHUser: "root",
 		},
 	}
 }
@@ -298,20 +291,11 @@ func mergeConfig(dst *Config, src Config) {
 }
 
 func mergeRemoteConfig(dst *RemoteConfig, src RemoteConfig) {
-	if src.Provider != "" {
-		dst.Provider = strings.ToLower(strings.TrimSpace(src.Provider))
+	if src.BackendURL != "" {
+		dst.BackendURL = strings.TrimRight(strings.TrimSpace(src.BackendURL), "/")
 	}
-	if src.Region != "" {
-		dst.Region = strings.TrimSpace(src.Region)
-	}
-	if src.Size != "" {
-		dst.Size = strings.TrimSpace(src.Size)
-	}
-	if src.Image != "" {
-		dst.Image = strings.TrimSpace(src.Image)
-	}
-	if src.SSHKey != "" {
-		dst.SSHKey = strings.TrimSpace(src.SSHKey)
+	if src.BackendToken != "" {
+		dst.BackendToken = strings.TrimSpace(src.BackendToken)
 	}
 	if src.SSHUser != "" {
 		dst.SSHUser = strings.TrimSpace(src.SSHUser)
@@ -366,11 +350,8 @@ func printConfig(cfg Config) error {
 	printSliceConfigField("runtime_args", cfg.RuntimeArgs)
 	printSliceConfigField("customize.packages", cfg.Customize.Packages)
 	printStringConfigField("customize.dockerfile", cfg.Customize.Dockerfile)
-	printStringConfigField("remote.provider", cfg.Remote.Provider)
-	printStringConfigField("remote.region", cfg.Remote.Region)
-	printStringConfigField("remote.size", cfg.Remote.Size)
-	printStringConfigField("remote.image", cfg.Remote.Image)
-	printStringConfigField("remote.ssh_key", cfg.Remote.SSHKey)
+	printStringConfigField("remote.backend_url", cfg.Remote.BackendURL)
+	printStringConfigField("remote.backend_token", redactConfigSecret(cfg.Remote.BackendToken))
 	printStringConfigField("remote.ssh_user", cfg.Remote.SSHUser)
 	printSliceConfigField("remote.setup", cfg.Remote.Setup)
 	printSliceConfigField("exclude", cfg.Exclude)
@@ -535,20 +516,11 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if hasRemoteConfig(cfg.Remote) {
 		lines = append(lines, "", "[remote]")
-		if cfg.Remote.Provider != "" {
-			lines = append(lines, fmt.Sprintf("provider = %q", cfg.Remote.Provider))
+		if cfg.Remote.BackendURL != "" {
+			lines = append(lines, fmt.Sprintf("backend_url = %q", cfg.Remote.BackendURL))
 		}
-		if cfg.Remote.Region != "" {
-			lines = append(lines, fmt.Sprintf("region = %q", cfg.Remote.Region))
-		}
-		if cfg.Remote.Size != "" {
-			lines = append(lines, fmt.Sprintf("size = %q", cfg.Remote.Size))
-		}
-		if cfg.Remote.Image != "" {
-			lines = append(lines, fmt.Sprintf("image = %q", cfg.Remote.Image))
-		}
-		if cfg.Remote.SSHKey != "" {
-			lines = append(lines, fmt.Sprintf("ssh_key = %q", cfg.Remote.SSHKey))
+		if cfg.Remote.BackendToken != "" {
+			lines = append(lines, fmt.Sprintf("backend_token = %q", cfg.Remote.BackendToken))
 		}
 		if cfg.Remote.SSHUser != "" {
 			lines = append(lines, fmt.Sprintf("ssh_user = %q", cfg.Remote.SSHUser))
@@ -572,13 +544,17 @@ func saveGlobalConfig(cfg Config) error {
 
 func hasRemoteConfig(remote RemoteConfig) bool {
 	def := defaultConfig().Remote
-	return (remote.Provider != "" && remote.Provider != def.Provider) ||
-		(remote.Region != "" && remote.Region != def.Region) ||
-		(remote.Size != "" && remote.Size != def.Size) ||
-		(remote.Image != "" && remote.Image != def.Image) ||
-		remote.SSHKey != "" ||
+	return remote.BackendURL != "" ||
+		remote.BackendToken != "" ||
 		(remote.SSHUser != "" && remote.SSHUser != def.SSHUser) ||
 		len(remote.Setup) > 0
+}
+
+func redactConfigSecret(value string) string {
+	if strings.TrimSpace(value) == "" {
+		return ""
+	}
+	return "(set)"
 }
 
 func loadConfigFromEnv() (Config, error) {

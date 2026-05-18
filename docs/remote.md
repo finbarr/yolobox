@@ -2,13 +2,13 @@
 
 Remote mode gives yolobox a machine that keeps running after your laptop disconnects. It is designed for Claude, Codex, and other terminal agents that benefit from real Linux compute, persistent sessions, and preview ports without turning yolobox into a hosted IDE.
 
-The open-source path deliberately starts without a hosted control plane. The local CLI uses your DigitalOcean CLI credentials, connects over SSH, stores registry metadata locally, and keeps the core workflow usable for bring-your-own infrastructure. Managed machines, public preview URLs, team auth, billing, and dashboards belong to a later hosted layer.
+The client is backend-agnostic. The local CLI asks a configured backend for an SSH host and then uses the returned target for sync, sessions, and forwarding. The backend may be the hosted yolobox service or a self-hosted service backed by your own pool of machines. Provider-specific provisioning belongs behind that backend API, not in the client.
 
 ## Mental model
 
 Remote support has four separate concepts:
 
-- **Machine:** the remote compute target, currently a DigitalOcean Droplet created through `doctl`.
+- **Machine:** the remote compute target returned by the backend.
 - **Workspace:** a durable project copy on a machine. A machine can host more than one named workspace.
 - **Session:** a persistent `tmux` session inside a workspace. Closing the local terminal does not stop it.
 - **Exposure:** explicit port access. The MVP supports local SSH forwarding; managed public URLs are not part of the open-source MVP.
@@ -37,15 +37,21 @@ If `remote_name` is configured, commands that take a remote target can omit `foo
 
 ## Prerequisites
 
-Install and authenticate the DigitalOcean CLI before provisioning:
+Configure a backend URL and token:
 
-```bash
-doctl auth init
+```toml
+mode = "remote"
+remote_name = "foo"
+remote_workspace = "app"
+default_harness = "codex"
+
+[remote]
+backend_url = "https://remote.example.com"
+# Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
+backend_token = "your-backend-token"
 ```
 
-Remote provisioning also requires a DigitalOcean SSH key ID or fingerprint. Configure it with `remote.ssh_key` or pass `--ssh-key`.
-
-The local machine must have `ssh` and `rsync`. yolobox checks for `doctl`, `ssh`, and `rsync` before creating a Droplet so a missing sync tool does not leave a half-provisioned machine behind.
+The backend returns an SSH host. The local machine still needs `ssh` and `rsync` because the client syncs the project and attaches over SSH.
 
 ## Configuration
 
@@ -58,11 +64,7 @@ remote_workspace = "app"
 default_harness = "codex"
 
 [remote]
-provider = "digitalocean"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+backend_url = "https://remote.example.com"
 ssh_user = "root"
 setup = [
   "docker compose pull",
@@ -78,11 +80,44 @@ yolobox remote resume foo/app codex
 
 `remote.setup` commands run after `sync up` finishes. They are useful for pulling images, starting databases, or refreshing dependencies on the remote machine.
 
+## Backend Contract
+
+The backend is a small HTTP control plane. Its job is to allocate or release hosts; the client still handles SSH readiness, bootstrap when the backend returns an unprepared host, project sync, SSH attach, and local forwarding. That boundary keeps the CLI stable while the backend can be hosted, self-hosted, backed by a static pool, or backed by provider-specific provisioners.
+
+The client uses these token-authenticated endpoints:
+
+```http
+GET /healthz
+POST /v1/machines/ensure
+GET /v1/machines/{name}
+DELETE /v1/machines/{name}
+```
+
+`POST /v1/machines/ensure` receives the logical machine name, workspace name, repo URL, and branch when available. It returns:
+
+```json
+{
+  "machine": {
+    "name": "foo",
+    "public_ipv4": "203.0.113.10",
+    "ssh_user": "root",
+    "provider_id": "host-a",
+    "region": "fsn1",
+    "size": "cx22",
+    "image": "ubuntu-24.04",
+    "bootstrap_complete": true
+  },
+  "status": "leased"
+}
+```
+
+If `bootstrap_complete` is false or omitted, the client waits for SSH and installs the runtime pieces it needs before syncing. `yolobox remote destroy <name> --force` calls `DELETE /v1/machines/{name}` and then removes local registry state.
+
 ## Provisioning
 
-The first `yolobox remote --name foo ...` call creates a Droplet named `yolobox-foo`, waits for SSH, installs Docker, `tmux`, `git`, `rsync`, and yolobox, pulls the base image, creates the requested workspace, syncs the project, and attaches to the session.
+The first `yolobox remote --name foo ...` call asks the configured backend for a host. If the host is not already bootstrapped, the client waits for SSH, installs Docker, `tmux`, `git`, `rsync`, and yolobox, pulls the base image, creates the requested workspace, syncs the project, and attaches to the session.
 
-Later calls reuse the registered machine and workspace. `yolobox remote status foo/app` refreshes the Droplet IP from DigitalOcean when possible.
+Later calls reuse the registered machine and workspace. `yolobox remote status foo/app` refreshes backend state when possible.
 
 ## Sync
 
@@ -145,7 +180,7 @@ The local registry lives at:
 ~/.local/state/yolobox/remotes.json
 ```
 
-It records machines, workspaces, sessions, and exposures. It is local state, not the source of truth for the cloud provider. If the registry drifts, `remote status` refreshes what it can from DigitalOcean.
+It records machines, workspaces, sessions, and exposures. It is local state, not the source of truth for the backend. If the registry drifts, `remote status` refreshes what it can from the configured backend.
 
 ## Security
 
@@ -163,12 +198,14 @@ The current CLI contract is intended to survive future hosted work.
 
 Planned open-source improvements:
 
+- a separate self-hosted backend implementation
+- backend provisioners beyond static SSH pools
 - remote agent subcommands for workspace management over SSH
 - long-lived workspace containers with per-workspace home, cache, output volumes, and networks
 - explicit secret/config staging for Claude, Codex, Git, and GitHub auth
 - better dirty-state checks before `sync up` and `sync down`
 - local port-forward lifecycle listing and cleanup
-- bring-your-own SSH host support beyond DigitalOcean provisioning
+- bring-your-own SSH host setup helpers beyond backend pool configuration
 
 Hosted or team features:
 

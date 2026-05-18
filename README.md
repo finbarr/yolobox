@@ -213,7 +213,7 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 
 ## Remote Mode
 
-Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The open-source path is SSH-first: the local CLI provisions or reuses a DigitalOcean Droplet through your `doctl` authentication, stores local registry metadata in `~/.local/state/yolobox/remotes.json`, mirrors a named workspace with `rsync`, and attaches to a persistent `tmux` session over SSH.
+Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The client is backend-agnostic: yolobox asks a hosted or self-hosted backend for an SSH host, then mirrors a named workspace with `rsync` and attaches over SSH. Provider-specific provisioning belongs behind the backend API, not in the client.
 
 ```bash
 yolobox remote --name foo codex
@@ -228,13 +228,15 @@ yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-Remote support is modeled as machines, workspaces, sessions, and exposures. A machine is the VM. A workspace is a durable project copy on that machine. A session is the persistent `tmux` process running the harness. An exposure is explicit port access; the open-source MVP supports local SSH forwarding with `remote forward`, while managed preview URLs remain a later hosted feature.
+Remote support is modeled as machines, workspaces, sessions, and exposures. A machine is the VM or host returned by the backend. A workspace is a durable project copy on that machine. A session is the persistent `tmux` process running the harness. An exposure is explicit port access; the open-source client supports local SSH forwarding with `remote forward`, while managed preview URLs belong behind a hosted backend.
 
 When `remote_name` is configured, commands that take a remote target can omit `foo/app`; `remote_workspace` selects the workspace, defaulting to `default`.
 
 Remote sync copies the entire current folder into `/opt/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
-See [Remote Mode](docs/remote.md) for the MVP spec and roadmap.
+Backends expose a small HTTP API for leasing and releasing SSH hosts. A hosted or self-hosted backend can put static pools, warm pools, billing, provider-specific provisioning, snapshots, and policy controls behind the same client workflow.
+
+See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
 ## Configuration
 
@@ -267,11 +269,8 @@ devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
-provider = "digitalocean"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
+# backend_url = "https://remote.example.com" # required for remote mode
+# backend_token = "prefer-YOLOBOX_REMOTE_TOKEN-for-local-testing"
 ssh_user = "root"
 ```
 

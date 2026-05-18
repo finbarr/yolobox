@@ -59,6 +59,7 @@ type contextConfigManifest struct {
 	ContainerName         string                         `json:"container_name"`
 	DefaultHarness        string                         `json:"default_harness"`
 	RemoteWorkspace       string                         `json:"remote_workspace"`
+	RemoteBackendURL      string                         `json:"remote_backend_url,omitempty"`
 	Mounts                []string                       `json:"mounts"`
 	EnvKeys               []string                       `json:"env_keys"`
 	Exclude               []string                       `json:"exclude"`
@@ -166,6 +167,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ContainerName:         cfg.ContainerName,
 			DefaultHarness:        displayDefaultHarness(cfg.DefaultHarness),
 			RemoteWorkspace:       effectiveRemoteWorkspace(cfg.RemoteWorkspace),
+			RemoteBackendURL:      cfg.Remote.BackendURL,
 			Mounts:                append([]string{}, cfg.Mounts...),
 			EnvKeys:               envKeys(cfg.Env),
 			Exclude:               append([]string{}, cfg.Exclude...),
