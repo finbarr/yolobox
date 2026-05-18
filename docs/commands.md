@@ -108,6 +108,12 @@ yolobox run --packages default-jdk,maven mvn --version
 yolobox config
 ```
 
+### Trace startup timing
+
+```bash
+YOLOBOX_TIMING=1 yolobox run true
+```
+
 ### Reset persistent state
 
 ```bash

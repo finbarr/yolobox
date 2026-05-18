@@ -246,7 +246,13 @@ Priority: CLI flags > project config > global config > defaults.
 
 Each `runtime_args` entry is a single CLI argument. For flags that take a value, add them as separate entries so `--security-opt seccomp=unconfined` becomes `["--security-opt", "seccomp=unconfined"]`.
 
-> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will copy your host config on **every** container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex`, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and restores imported session file mtimes from their session timestamps so old host sessions do not appear freshly created in resume lists. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will sync your host config on **every** container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+
+Set `YOLOBOX_TIMING=1` before a command to print host and entrypoint timing markers while debugging slow startup:
+
+```bash
+YOLOBOX_TIMING=1 yolobox run true
+```
 
 yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.
 
@@ -377,7 +383,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--readonly-project` | Mount project read-only (outputs go to `/output`) | `--no-project` |
 | `--no-project` | Skip automatic project mount (caller provides `--mount` and `--runtime-arg=--workdir`) | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into container | |
-| `--codex-config` | Copy host `~/.codex` config into container | |
+| `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` config into container | |
 | `--opencode-config` | Copy host `~/.config/opencode` config into container | |
 | `--pi-config` | Copy host `~/.pi/agent` config into container | |

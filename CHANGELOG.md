@@ -8,9 +8,16 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.17.1 - 2026-05-17
+
 ### Added
 
 - Added this changelog.
+- Added `YOLOBOX_TIMING=1` startup diagnostics for host-side and container entrypoint timing.
+
+### Fixed
+
+- Made Codex config sync incremental, installed `rsync` in the base image, skipped volatile log/state/cache/temp files, and live-mounted host Codex sessions so large host `~/.codex` trees are not recopied and rechowned on every yolobox start.
 
 ## v0.17.0 - 2026-05-16
 

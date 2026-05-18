@@ -43,6 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Common utilities
     bubblewrap \
     jq \
+    rsync \
     ripgrep \
     fd-find \
     bat \
@@ -368,7 +369,7 @@ RUN printf '%s\n' \
     chmod +x /usr/local/bin/yolobox-uid-fix.sh
 
 # Create entrypoint script
-RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -384,6 +385,24 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '# Check YOLOBOX_HOST_FILES env var for the mount location' \
     'HF="${YOLOBOX_HOST_FILES:-}"' \
     '' \
+    'yolobox_timing_mark() {' \
+    '    [ -n "${YOLOBOX_TIMING:-}" ] || return 0' \
+    '    local label="$1" now delta total' \
+    '    now="$(date +%s%3N 2>/dev/null || true)"' \
+    '    [ -n "$now" ] || return 0' \
+    '    [ -n "${YOLOBOX_TIMING_START_MS:-}" ] || YOLOBOX_TIMING_START_MS="$now"' \
+    '    [ -n "${YOLOBOX_TIMING_LAST_MS:-}" ] || YOLOBOX_TIMING_LAST_MS="$YOLOBOX_TIMING_START_MS"' \
+    '    delta=$((now - YOLOBOX_TIMING_LAST_MS))' \
+    '    total=$((now - YOLOBOX_TIMING_START_MS))' \
+    '    YOLOBOX_TIMING_LAST_MS="$now"' \
+    '    printf "\033[35m[timing]\033[0m +%d.%03ds total %d.%03ds entrypoint: %s\n" "$((delta / 1000))" "$((delta % 1000))" "$((total / 1000))" "$((total % 1000))" "$label" >&2' \
+    '}' \
+    'if [ -n "${YOLOBOX_TIMING:-}" ]; then' \
+    '    YOLOBOX_TIMING_START_MS="$(date +%s%3N 2>/dev/null || true)"' \
+    '    YOLOBOX_TIMING_LAST_MS="$YOLOBOX_TIMING_START_MS"' \
+    '    yolobox_timing_mark "start"' \
+    'fi' \
+    '' \
     'inject_agent_guidance() {' \
     '    local target="$1"' \
     '    local source_file="$2"' \
@@ -391,26 +410,6 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '    local end_marker="$4"' \
     '    /usr/local/bin/yolobox-upsert-block "$target" "$source_file" "$start_marker" "$end_marker"' \
     '    sudo chown yolo:yolo "$target"' \
-    '}' \
-    'restore_codex_session_mtimes() {' \
-    '    local sessions_dir="${1:-/home/yolo/.codex/sessions}"' \
-    '    [ -d "$sessions_dir" ] || return 0' \
-    '    local file ts base stamp mtime' \
-    '    while IFS= read -r -d "" file; do' \
-    '        ts=""' \
-    '        if command -v jq >/dev/null 2>&1; then' \
-    '            ts="$(tail -n 20 "$file" 2>/dev/null | jq -r '\''select(.timestamp? != null) | .timestamp'\'' 2>/dev/null | tail -n 1 || true)"' \
-    '        fi' \
-    '        if [ -n "$ts" ] && [ "$ts" != "null" ]; then' \
-    '            touch -d "$ts" "$file" 2>/dev/null && continue' \
-    '        fi' \
-    '        base="${file##*/}"' \
-    '        stamp="${base#rollout-}"' \
-    '        if [[ "$stamp" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}-[0-9]{2}-[0-9]{2}- ]]; then' \
-    '            mtime="${stamp:0:4}${stamp:5:2}${stamp:8:2}${stamp:11:2}${stamp:14:2}.${stamp:17:2}"' \
-    '            touch -t "$mtime" "$file" 2>/dev/null || true' \
-    '        fi' \
-    '    done < <(find "$sessions_dir" -type f -name '\''rollout-*.jsonl'\'' -print0)' \
     '}' \
     'warn_low_space() {' \
     '    local path="$1"' \
@@ -494,18 +493,29 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '# Copy Codex config from host staging area if present' \
     'if [ -d /host-codex/.codex ]; then' \
     '    echo -e "\033[33m→ Copying host Codex config to container\033[0m" >&2' \
+    '    yolobox_timing_mark "codex config sync start"' \
     '    CODEX_AUTH_BACKUP=""' \
     '    if [ -s /home/yolo/.codex/auth.json ] && { [ ! -f /host-codex/.codex/auth.json ] || [ ! -s /host-codex/.codex/auth.json ]; }; then' \
-    '        CODEX_AUTH_BACKUP="/home/yolo/.codex/auth.json.yolobox-backup.$$"' \
-    '        sudo mv -f /home/yolo/.codex/auth.json "$CODEX_AUTH_BACKUP"' \
+    '        CODEX_AUTH_BACKUP="/tmp/codex-auth.json.yolobox-backup.$$"' \
+    '        sudo cp -a /home/yolo/.codex/auth.json "$CODEX_AUTH_BACKUP"' \
     '    fi' \
     '    mkdir -p /home/yolo/.codex' \
-    '    sudo cp -a /host-codex/.codex/. /home/yolo/.codex/' \
+    '    sudo rm -rf /home/yolo/.codex/log /home/yolo/.codex/sqlite /home/yolo/.codex/.tmp /home/yolo/.codex/tmp /home/yolo/.codex/cache /home/yolo/.codex/generated_images /home/yolo/.codex/computer-use /home/yolo/.codex/logs_*.sqlite* /home/yolo/.codex/state_*.sqlite*' \
+    '    if command -v rsync >/dev/null 2>&1; then' \
+    '        sudo rsync -a --chown=yolo:yolo --exclude=sessions/ --exclude=log/ --exclude=logs_*.sqlite* --exclude=state_*.sqlite* --exclude=sqlite/ --exclude=.tmp/ --exclude=tmp/ --exclude=cache/ --exclude=generated_images/ --exclude=computer-use/ /host-codex/.codex/ /home/yolo/.codex/' \
+    '    else' \
+    '        sudo cp -a /host-codex/.codex/. /home/yolo/.codex/' \
+    '        sudo chown -R yolo:yolo /home/yolo/.codex' \
+    '    fi' \
     '    if [ -n "$CODEX_AUTH_BACKUP" ] && [ -s "$CODEX_AUTH_BACKUP" ]; then' \
     '        sudo mv -f "$CODEX_AUTH_BACKUP" /home/yolo/.codex/auth.json' \
+    '        sudo chown yolo:yolo /home/yolo/.codex/auth.json' \
     '    fi' \
-    '    sudo chown -R yolo:yolo /home/yolo/.codex' \
-    '    restore_codex_session_mtimes /home/yolo/.codex/sessions' \
+    '    if [ -d /host-codex-sessions ]; then' \
+    '        sudo rm -rf /home/yolo/.codex/sessions' \
+    '        ln -s /host-codex-sessions /home/yolo/.codex/sessions' \
+    '    fi' \
+    '    yolobox_timing_mark "codex config sync done"' \
     'fi' \
     'if [ -f /home/yolo/.codex/auth.json ] && [ ! -s /home/yolo/.codex/auth.json ]; then' \
     '    echo -e "\033[33m→ Removing empty Codex auth file\033[0m" >&2' \
@@ -566,7 +576,7 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     'if [ -f "$CODEX_MD" ]; then' \
     '    mkdir -p /home/yolo/.codex' \
     '    sudo cp -a "$CODEX_MD" /home/yolo/.codex/AGENTS.md' \
-    '    sudo chown -R yolo:yolo /home/yolo/.codex' \
+    '    sudo chown yolo:yolo /home/yolo/.codex/AGENTS.md' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \
     '# Codex: skills/ directory' \
@@ -576,7 +586,7 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '    mkdir -p /home/yolo/.codex' \
     '    sudo rm -rf /home/yolo/.codex/skills' \
     '    sudo cp -a "$CODEX_SKILLS_DIR" /home/yolo/.codex/skills' \
-    '    sudo chown -R yolo:yolo /home/yolo/.codex' \
+    '    sudo chown -R yolo:yolo /home/yolo/.codex/skills' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \
     '# Pi: AGENTS.md' \
@@ -618,7 +628,7 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     '    sudo cp -a /opt/yolobox/skills/yolobox /home/yolo/.codex/skills/yolobox' \
     '    sudo rm -rf /home/yolo/.claude/skills/yolobox' \
     '    sudo cp -a /opt/yolobox/skills/yolobox /home/yolo/.claude/skills/yolobox' \
-    '    sudo chown -R yolo:yolo /home/yolo/.codex /home/yolo/.claude' \
+    '    sudo chown -R yolo:yolo /home/yolo/.codex/skills/yolobox /home/yolo/.claude/skills/yolobox' \
     'fi' \
     '' \
     '# Inject built-in agent guidance so Claude and Codex use the yolobox skill when it matters' \
@@ -663,6 +673,7 @@ RUN mkdir -p /host-claude /host-codex /host-gemini /host-opencode /host-pi /host
     'if [ "$_YOLOBOX_NEED_REGROUP" = "1" ]; then' \
     '    exec sudo -E --preserve-env=PATH setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups -- "$@"' \
     'fi' \
+    'yolobox_timing_mark "exec command"' \
     'exec "$@"' \
     > /usr/local/bin/yolobox-entrypoint.sh && \
     chmod +x /usr/local/bin/yolobox-entrypoint.sh

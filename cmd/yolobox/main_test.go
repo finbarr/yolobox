@@ -1355,13 +1355,24 @@ func TestBuildRunArgsCodexConfig(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(codexConfigDir, "config.toml"), []byte("model = \"gpt-5\"\n"), 0644); err != nil {
 		t.Fatalf("failed to write codex config file: %v", err)
 	}
+	codexSessionsDir := filepath.Join(codexConfigDir, "sessions")
+	if err := os.MkdirAll(codexSessionsDir, 0755); err != nil {
+		t.Fatalf("failed to create codex sessions dir: %v", err)
+	}
+	external := t.TempDir()
+	if err := os.WriteFile(filepath.Join(external, "linked-config.toml"), []byte("model = \"gpt-5.1\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write linked codex config file: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(external, "linked-config.toml"), filepath.Join(codexConfigDir, "linked-config.toml")); err != nil {
+		t.Fatalf("failed to create codex config symlink: %v", err)
+	}
 
 	cfg := Config{
 		Image:       "test-image",
 		CodexConfig: true,
 	}
 
-	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	args, cleanupPaths, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -1369,6 +1380,12 @@ func TestBuildRunArgsCodexConfig(t *testing.T) {
 	argsStr := strings.Join(args, " ")
 	if !strings.Contains(argsStr, codexConfigDir+":/host-codex/.codex:ro") {
 		t.Fatalf("expected codex config mount, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, codexSessionsDir+":/host-codex-sessions:rw") {
+		t.Fatalf("expected codex sessions live mount, got %s", argsStr)
+	}
+	if len(cleanupPaths) != 0 {
+		t.Fatalf("expected codex config to mount directly without staging, got cleanup paths %v", cleanupPaths)
 	}
 }
 
@@ -1434,6 +1451,9 @@ func TestDockerfileCodexConfigImportPreservesAuth(t *testing.T) {
 		t.Fatalf("failed to read Dockerfile: %v", err)
 	}
 	dockerfile := string(data)
+	if !strings.Contains(dockerfile, "\n    rsync \\\n") {
+		t.Fatal("Codex config import depends on rsync being installed in the base image")
+	}
 	start := strings.Index(dockerfile, "'# Copy Codex config from host staging area if present'")
 	if start < 0 {
 		t.Fatal("failed to find Codex config import block")
@@ -1445,28 +1465,28 @@ func TestDockerfileCodexConfigImportPreservesAuth(t *testing.T) {
 	}
 	block := rest[:end]
 
-	if strings.Contains(block, "rm -rf /home/yolo/.codex") {
-		t.Fatal("Codex config import must not delete the existing container config directory")
+	for _, line := range strings.Split(block, "\n") {
+		if idx := strings.Index(line, "rm -rf /home/yolo/.codex"); idx >= 0 {
+			after := line[idx+len("rm -rf /home/yolo/.codex"):]
+			if after == "" || !strings.HasPrefix(after, "/") {
+				t.Fatal("Codex config import must not delete the existing container config directory")
+			}
+		}
 	}
 	for _, want := range []string{
 		"CODEX_AUTH_BACKUP",
-		"sudo mv -f /home/yolo/.codex/auth.json",
-		"sudo cp -a /host-codex/.codex/. /home/yolo/.codex/",
+		"sudo cp -a /home/yolo/.codex/auth.json \"$CODEX_AUTH_BACKUP\"",
+		"sudo rm -rf /home/yolo/.codex/log /home/yolo/.codex/sqlite /home/yolo/.codex/.tmp /home/yolo/.codex/tmp /home/yolo/.codex/cache /home/yolo/.codex/generated_images /home/yolo/.codex/computer-use /home/yolo/.codex/logs_*.sqlite* /home/yolo/.codex/state_*.sqlite*",
+		"sudo rsync -a --chown=yolo:yolo --exclude=sessions/ --exclude=log/ --exclude=logs_*.sqlite* --exclude=state_*.sqlite* --exclude=sqlite/ --exclude=.tmp/ --exclude=tmp/ --exclude=cache/ --exclude=generated_images/ --exclude=computer-use/ /host-codex/.codex/ /home/yolo/.codex/",
 		"sudo mv -f \"$CODEX_AUTH_BACKUP\" /home/yolo/.codex/auth.json",
-		"restore_codex_session_mtimes /home/yolo/.codex/sessions",
+		"ln -s /host-codex-sessions /home/yolo/.codex/sessions",
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("expected Codex config import block to contain %q", want)
 		}
 	}
-	for _, want := range []string{
-		"restore_codex_session_mtimes()",
-		"touch -d \"$ts\" \"$file\"",
-		"touch -t \"$mtime\" \"$file\"",
-	} {
-		if !strings.Contains(dockerfile, want) {
-			t.Fatalf("expected Dockerfile to contain %q", want)
-		}
+	if strings.Contains(dockerfile, "restore_codex_session_mtimes") {
+		t.Fatal("Codex sessions are live-mounted; entrypoint must not scan and touch session mtimes")
 	}
 }
 
@@ -1540,7 +1560,7 @@ func TestDockerfileConfiguresNpmReleaseAgeGate(t *testing.T) {
 	if upgrade < 0 || devTools < 0 || aiTools < 0 || envGate < 0 {
 		t.Fatalf("failed to locate npm install ordering in Dockerfile")
 	}
-	if !(upgrade < envGate && envGate < devTools && envGate < aiTools) {
+	if upgrade >= envGate || envGate >= devTools || envGate >= aiTools {
 		t.Fatalf("expected npm age gate before later npm installs")
 	}
 }

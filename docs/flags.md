@@ -28,7 +28,7 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
 | `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into the container | |
-| `--codex-config` | Copy host `~/.codex` config into the container | |
+| `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` config into the container | |
 | `--opencode-config` | Copy host `~/.config/opencode` config into the container | |
 | `--pi-config` | Copy host `~/.pi/agent` config into the container | |

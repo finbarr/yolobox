@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -118,19 +119,27 @@ func run() int {
 
 func runCmd() error {
 	args := os.Args[1:]
+	traceTiming("host: start")
 
 	// Check for updates (skip for version/help/upgrade commands)
 	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade")
 	if !skipCheck {
+		started := time.Now()
 		checkForUpdates()
+		traceDuration("host: update check", started)
 	}
 
+	started := time.Now()
 	projectDir, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("failed to get working directory: %w", err)
 	}
+	traceDuration("host: get working directory", started)
 
-	return runCmdArgs(args, projectDir, nil)
+	started = time.Now()
+	err = runCmdArgs(args, projectDir, nil)
+	traceDuration("host: command", started)
+	return err
 }
 
 func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
@@ -315,7 +324,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
-	fmt.Fprintln(os.Stderr, "  --codex-config        Copy host Codex config to container")
+	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini config to container")
 	fmt.Fprintln(os.Stderr, "  --opencode-config     Copy host OpenCode config to container")
 	fmt.Fprintln(os.Stderr, "  --pi-config           Copy host Pi config to container")
@@ -428,7 +437,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
-	fs.BoolVar(&codexConfig, "codex-config", false, "copy host Codex config to container")
+	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini config to container")
 	fs.BoolVar(&opencodeConfig, "opencode-config", false, "copy host OpenCode config to container")
 	fs.BoolVar(&piConfig, "pi-config", false, "copy host Pi config to container")
@@ -746,10 +755,13 @@ func runShell(cfg Config) error {
 }
 
 func runCommand(cfg Config, command []string, interactive bool) error {
+	traceTiming("host: run command start")
+	started := time.Now()
 	projectDir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
+	traceDuration("host: run command get working directory", started)
 
 	// Warn about scratch mode implications
 	if cfg.Scratch {
@@ -759,11 +771,15 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		}
 	}
 
-	if err := validateRuntimeConstraints(cfg); err != nil {
+	if err := traceTimed("host: validate runtime constraints", func() error {
+		return validateRuntimeConstraints(cfg)
+	}); err != nil {
 		return err
 	}
 	if hasCustomization(cfg) {
+		started = time.Now()
 		customImage, err := prepareCustomImage(&cfg, projectDir)
+		traceDuration("host: prepare custom image", started)
 		if err != nil {
 			return err
 		}
@@ -772,11 +788,15 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 	warnSecurityRelaxations(cfg)
 
 	// Warn if Docker has low memory (can cause OOM with Claude)
+	started = time.Now()
 	checkDockerMemory(cfg.Runtime)
+	traceDuration("host: check Docker memory", started)
 
 	var clipboard *clipboardBridge
 	if cfg.Clipboard {
+		started = time.Now()
 		clipboard, err = startClipboardBridge(cfg.Runtime)
+		traceDuration("host: start clipboard bridge", started)
 		if err != nil {
 			return err
 		}
@@ -787,7 +807,9 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 	}
 	var open *openBridge
 	if cfg.OpenBridge {
+		started = time.Now()
 		open, err = startOpenBridge(cfg.Runtime)
+		traceDuration("host: start open bridge", started)
 		if err != nil {
 			return err
 		}
@@ -803,12 +825,17 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		if networkName == "" {
 			networkName = "yolobox-net"
 		}
-		if err := ensureDockerNetwork(cfg.Runtime, networkName); err != nil {
+		started = time.Now()
+		err := ensureDockerNetwork(cfg.Runtime, networkName)
+		traceDuration("host: ensure Docker network", started)
+		if err != nil {
 			return err
 		}
 	}
 
+	started = time.Now()
 	args, cleanupPaths, err := buildRunArgs(cfg, projectDir, command, interactive)
+	traceDuration("host: build runtime args", started)
 	if err != nil {
 		return err
 	}
@@ -818,7 +845,9 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 			_ = os.RemoveAll(p)
 		}
 	}()
-	return execRuntime(cfg.Runtime, args)
+	return traceTimed("host: runtime execution", func() error {
+		return execRuntime(cfg.Runtime, args)
+	})
 }
 
 func formatTomlStringSlice(values []string) string {
@@ -979,7 +1008,7 @@ func runSetup() (Config, error) {
 				Options(
 					huh.NewOption("Git identity (copy ~/.gitconfig)", "git_config"),
 					huh.NewOption("Claude config (copy ~/.claude and ~/.claude.json)", "claude_config"),
-					huh.NewOption("Codex config (copy ~/.codex)", "codex_config"),
+					huh.NewOption("Codex config (sync ~/.codex; live sessions)", "codex_config"),
 					huh.NewOption("Gemini config (copy ~/.gemini)", "gemini_config"),
 					huh.NewOption("OpenCode config (copy ~/.config/opencode)", "opencode_config"),
 					huh.NewOption("Pi config (copy ~/.pi/agent)", "pi_config"),
@@ -1213,10 +1242,13 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 }
 
 func buildRunArgs(cfg Config, projectDir string, command []string, interactive bool) ([]string, []string, error) {
+	traceTiming("host: build args start")
+	started := time.Now()
 	absProject, err := filepath.Abs(projectDir)
 	if err != nil {
 		return nil, nil, err
 	}
+	traceDuration("host: resolve project path", started)
 	projectMountTarget := absProject
 	containerWorkingDir := absProject
 	if cfg.Fork.Name != "" {
@@ -1258,6 +1290,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	args = append(args, "-e", "YOLOBOX=1")
+	if timingValue := timingEnvForContainer(); timingValue != "" {
+		args = append(args, "-e", "YOLOBOX_TIMING="+timingValue)
+	}
 
 	if !cfg.NoProject {
 		args = append(args, "-w", containerWorkingDir)
@@ -1326,10 +1361,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// Forward GitHub CLI token (extracted from keychain/credential store)
 	ghTokenForwarded := false
 	if cfg.GhToken {
+		started = time.Now()
 		if token := getGhToken(); token != "" {
 			args = append(args, "-e", "GH_TOKEN="+token)
 			ghTokenForwarded = true
 		}
+		traceDuration("host: get GitHub token", started)
 	}
 
 	// User-specified env vars
@@ -1338,7 +1375,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	if !cfg.NoProject {
+		started = time.Now()
 		projectMountSource, overlayCleanupPaths, err := buildProjectFilterMounts(cfg, absProject)
+		traceDuration("host: build project mounts", started)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1378,6 +1417,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Mount Claude config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.ClaudeConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1439,10 +1479,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 				}
 			}
 		}
+		traceDuration("host: mount Claude config", started)
 	}
 
 	// Mount Gemini config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.GeminiConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1461,10 +1503,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-gemini/.gemini:ro")
 		}
+		traceDuration("host: mount Gemini config", started)
 	}
 
 	// Mount OpenCode config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.OpencodeConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1483,10 +1527,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-opencode/.config/opencode:ro")
 		}
+		traceDuration("host: mount OpenCode config", started)
 	}
 
 	// Mount Pi config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.PiConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1505,32 +1551,33 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-pi/.pi/agent:ro")
 		}
+		traceDuration("host: mount Pi config", started)
 	}
 
-	// Mount Codex config from host to staging area (copied to /home/yolo by entrypoint)
+	// Mount Codex config from host to the entrypoint import area. Do not
+	// pre-stage it: ~/.codex can be large, and the entrypoint sync is incremental.
+	// Sessions are mounted live so resume history stays current without copying
+	// the hottest part of the Codex tree.
 	if cfg.CodexConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
 		}
 		codexConfigDir := filepath.Join(home, ".codex")
 		if _, err := os.Stat(codexConfigDir); err == nil {
-			mountSrc := codexConfigDir
-			if dirContainsSymlinks(codexConfigDir) {
-				staged, err := stageDirResolvingSymlinks(codexConfigDir)
-				if err != nil {
-					warn("Failed to resolve symlinks in %s: %s", codexConfigDir, err)
-				} else {
-					mountSrc = staged
-					cleanupPaths = append(cleanupPaths, staged)
-				}
+			args = append(args, "-v", codexConfigDir+":/host-codex/.codex:ro")
+			codexSessionsDir := filepath.Join(codexConfigDir, "sessions")
+			if info, err := os.Stat(codexSessionsDir); err == nil && info.IsDir() {
+				args = append(args, "-v", codexSessionsDir+":/host-codex-sessions:rw")
 			}
-			args = append(args, "-v", mountSrc+":/host-codex/.codex:ro")
 		}
+		traceDuration("host: mount Codex config", started)
 	}
 
 	// Mount git config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.GitConfig {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1543,11 +1590,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 				args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
 			}
 		}
+		traceDuration("host: mount git config", started)
 	}
 
 	// Mount global agent instruction files from host to staging area (copied by entrypoint)
 	// These are the global/user-level instruction files, not project-level ones
 	if cfg.CopyAgentInstructions {
+		started = time.Now()
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return nil, nil, err
@@ -1648,6 +1697,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-agent-instructions/copilot/agents:ro")
 		}
+		traceDuration("host: mount agent instructions", started)
 	}
 
 	// For Apple container: create temp dir with collected files and mount it
@@ -1688,6 +1738,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// SSH agent forwarding
 	if cfg.SSHAgent {
+		started = time.Now()
 		if appleContainer {
 			// Apple container uses --ssh flag instead of socket mounts
 			args = append(args, "--ssh")
@@ -1700,11 +1751,14 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 				args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
 			}
 		}
+		traceDuration("host: configure SSH agent", started)
 	}
 
 	// Docker socket forwarding
 	if cfg.Docker {
+		started = time.Now()
 		sock, err := findDockerSocket()
+		traceDuration("host: configure Docker socket", started)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1727,7 +1781,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 	}
 
+	started = time.Now()
 	contextPayload, err := encodeContextManifest(cfg, containerWorkingDir, command, interactive, autoPassthroughEnvKeys, ghTokenForwarded)
+	traceDuration("host: encode context manifest", started)
 	if err != nil {
 		return nil, nil, err
 	}

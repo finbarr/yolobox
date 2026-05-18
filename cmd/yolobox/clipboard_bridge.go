@@ -135,14 +135,6 @@ func randomToken() (string, error) {
 	return hex.EncodeToString(bytes[:]), nil
 }
 
-func clipboardHostName(runtimeName string) string {
-	return hostBridgeHostName(runtimeName)
-}
-
-func clipboardRuntimeArgs(runtimeName string) []string {
-	return hostBridgeRuntimeArgs(runtimeName)
-}
-
 func hostBridgeHostName(runtimeName string) string {
 	if os.Getenv("YOLOBOX") == "1" {
 		if ip := firstNonLoopbackIPv4(); ip != "" {

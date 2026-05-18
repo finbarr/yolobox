@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -77,6 +78,11 @@ func defaultConfig() Config {
 }
 
 func loadConfig(projectDir string) (Config, error) {
+	started := time.Now()
+	defer func() {
+		traceDuration("host: load config", started)
+	}()
+
 	cfg := defaultConfig()
 
 	globalPath, err := globalConfigPath()

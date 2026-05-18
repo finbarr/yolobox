@@ -192,8 +192,18 @@ yolobox also injects a managed guidance block into `~/.claude/CLAUDE.md` and `~/
 ## Config sync warning
 
 ::: warning
-Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config copies your host config on every container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync merges host files into `~/.codex`, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and restores imported session file mtimes from their session timestamps so old host sessions do not appear freshly created in resume lists. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config syncs your host config on every container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
 :::
+
+## Startup timing diagnostics
+
+Set `YOLOBOX_TIMING=1` to print host-side and container-entrypoint timing markers:
+
+```bash
+YOLOBOX_TIMING=1 yolobox run true
+```
+
+This is useful when diagnosing slow config sync, Docker startup, update checks, or runtime argument construction.
 
 yolobox removes a zero-byte `/home/yolo/.codex/auth.json` during startup. Recent Codex versions fail with `EOF while parsing a value` when that stale file exists; removing it lets Codex recreate auth normally or show the sign-in flow.
 
