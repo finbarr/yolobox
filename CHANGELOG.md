@@ -8,8 +8,11 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.18.0 - 2026-05-18
+
 ### Added
 
+- Added opt-in RTK command-output compression for supported AI CLIs with `--rtk` or `rtk = true`.
 - Added concise release summaries to update prompts and post-upgrade output.
 - Added `yolobox upgrade --check` to inspect the latest release without changing the binary or image.
 
