@@ -18,6 +18,7 @@ const (
 type remoteBackendEnsureRequest struct {
 	Name      string `json:"name"`
 	Workspace string `json:"workspace,omitempty"`
+	SSHUser   string `json:"ssh_user,omitempty"`
 	RepoURL   string `json:"repo_url,omitempty"`
 	Branch    string `json:"branch,omitempty"`
 }
@@ -39,6 +40,7 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 	req := remoteBackendEnsureRequest{
 		Name:      opts.Name,
 		Workspace: effectiveRemoteWorkspace(opts.Workspace),
+		SSHUser:   firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root"),
 		RepoURL:   repo.URL,
 		Branch:    repo.Branch,
 	}
@@ -70,7 +72,7 @@ func releaseRemoteBackendMachine(cfg Config, machine remoteMachine) error {
 	if cfg.Remote.BackendURL == "" {
 		cfg.Remote.BackendURL = machine.BackendURL
 	}
-	return remoteBackendRequest(cfg, http.MethodDelete, "/v1/machines/"+machine.Name, nil, nil)
+	return remoteBackendMachineRequest(cfg, machine, http.MethodDelete, "/v1/machines/"+machine.Name, nil, nil)
 }
 
 func getRemoteBackendMachine(cfg Config, machine remoteMachine) (remoteMachine, string, error) {
@@ -78,7 +80,7 @@ func getRemoteBackendMachine(cfg Config, machine remoteMachine) (remoteMachine, 
 		cfg.Remote.BackendURL = machine.BackendURL
 	}
 	var response remoteBackendMachineResponse
-	if err := remoteBackendRequest(cfg, http.MethodGet, "/v1/machines/"+machine.Name, nil, &response); err != nil {
+	if err := remoteBackendMachineRequest(cfg, machine, http.MethodGet, "/v1/machines/"+machine.Name, nil, &response); err != nil {
 		return remoteMachine{}, "", err
 	}
 	if response.Machine.BackendURL == "" {
@@ -88,7 +90,11 @@ func getRemoteBackendMachine(cfg Config, machine remoteMachine) (remoteMachine, 
 }
 
 func remoteBackendRequest(cfg Config, method string, endpoint string, body any, out any) error {
-	baseURL := remoteBackendURL(cfg, remoteMachine{})
+	return remoteBackendMachineRequest(cfg, remoteMachine{}, method, endpoint, body, out)
+}
+
+func remoteBackendMachineRequest(cfg Config, machine remoteMachine, method string, endpoint string, body any, out any) error {
+	baseURL := remoteBackendURL(cfg, machine)
 	if baseURL == "" {
 		return fmt.Errorf("remote backend URL is not configured")
 	}
@@ -133,6 +139,20 @@ func remoteBackendRequest(cfg Config, method string, endpoint string, body any, 
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func putRemoteBackendSession(cfg Config, machine remoteMachine, session remoteSession) error {
+	if machine.Provider != remoteProviderBackend || remoteBackendURL(cfg, machine) == "" {
+		return nil
+	}
+	return remoteBackendMachineRequest(cfg, machine, http.MethodPut, "/v1/sessions/"+session.ID, session, nil)
+}
+
+func deleteRemoteBackendSession(cfg Config, machine remoteMachine, sessionID string) error {
+	if machine.Provider != remoteProviderBackend || remoteBackendURL(cfg, machine) == "" {
+		return nil
+	}
+	return remoteBackendMachineRequest(cfg, machine, http.MethodDelete, "/v1/sessions/"+sessionID, nil, nil)
 }
 
 func remoteBackendConfigured(cfg Config) bool {

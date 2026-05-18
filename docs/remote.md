@@ -2,25 +2,35 @@
 
 Remote mode gives yolobox a machine that keeps running after your laptop disconnects. It is designed for Claude, Codex, and other terminal agents that benefit from real Linux compute, persistent sessions, and preview ports without turning yolobox into a hosted IDE.
 
-This page is the client and backend contract. The yolobox CLI should not know whether a machine came from a hosted yolobox service, a self-hosted pool, Hetzner, AWS, bare metal, or anything else. Provider-specific provisioning belongs behind the backend API.
+This page is the client, backend, and provider contract. The yolobox CLI normally should not care whether a machine came from a hosted yolobox service, a self-hosted pool, Hetzner, AWS, bare metal, or anything else. For local experimentation, the CLI can also use the same provider adapter directly when no backend is configured.
 
 ## Status
 
 Implemented in the client:
 
-- backend-only machine leasing over HTTP
+- backend machine leasing over HTTP
+- direct local machine provisioning through provider adapters
+- DigitalOcean provider adapter
 - named machines and named workspaces
 - persistent `tmux` sessions
 - full-folder sync up and forced sync down
 - local SSH preview forwarding
 - local registry state for machines, workspaces, sessions, and exposures
-- host bootstrap when the backend returns an unprepared machine
+- host bootstrap when the backend or provider returns an unprepared machine
+
+Implemented in the backend service:
+
+- `yolobox remote backend serve`
+- bearer-token API auth
+- shared machine lease state in a JSON state file
+- shared session metadata in the backend state file
+- the same provider adapter interface used by the direct client path
 
 Not implemented in this repo:
 
 - hosted backend service
-- self-hosted backend server
-- provider-specific provisioners
+- multi-user identity, team roles, billing, quotas, and audit logs
+- provider adapters beyond DigitalOcean
 - public preview URLs
 - managed workspace containers with per-workspace volumes
 - secret/config staging for Claude, Codex, Git, or GitHub auth
@@ -28,15 +38,16 @@ Not implemented in this repo:
 ## Goals
 
 - Make `yolobox remote --name foo codex` feel like the normal local yolobox workflow, but on durable Linux compute.
-- Keep the CLI provider-agnostic. The client leases SSH hosts from a backend and then handles sync, attach, and forwarding.
+- Keep the sync and execution path provider-agnostic. The client leases SSH hosts from either a backend or a local provider adapter, then handles sync, attach, and forwarding.
 - Support both hosted and self-hosted backends with the same client contract.
+- Let users try remote mode without running a backend by using the direct DigitalOcean adapter.
 - Keep remote access explicit. Starting a remote command must not imply public port exposure.
 - Preserve local escape hatches: users can inspect local registry state, sync back with `--force`, and destroy a lease.
 
 ## Non-goals
 
-- The yolobox client does not create cloud VMs directly.
-- The yolobox client does not contain provider SDKs or provider-specific CLI wrappers.
+- The yolobox client does not use provider-specific CLIs such as `doctl`.
+- The built-in backend is not the hosted yolobox product. It is a deployable control-plane baseline.
 - The open-source client does not create public preview URLs.
 - The current client does not yet run a long-lived managed workspace container on the remote host.
 
@@ -44,7 +55,7 @@ Not implemented in this repo:
 
 Remote support has four separate concepts:
 
-- **Machine:** the remote compute target returned by the backend.
+- **Machine:** the remote compute target returned by the backend or direct provider.
 - **Workspace:** a durable project copy on a machine. A machine can host more than one named workspace.
 - **Session:** a persistent `tmux` session inside a workspace. Closing the local terminal does not stop it.
 - **Exposure:** explicit port access. The open-source client supports local SSH forwarding; public URLs belong to a backend or hosted service.
@@ -66,6 +77,7 @@ yolobox remote stop foo/app
 yolobox remote list
 yolobox remote status foo/app
 yolobox remote destroy foo --force
+yolobox remote backend serve --provider digitalocean --token "$YOLOBOX_BACKEND_TOKEN"
 ```
 
 `foo` is the machine name. `app` is the workspace name. If the workspace is omitted, yolobox uses `default`, so `foo` and `foo/default` refer to the same workspace.
@@ -97,7 +109,36 @@ setup = [
 ]
 ```
 
-`backend_url` is required for remote mode unless `--backend-url` is passed. `backend_token` may be omitted when `YOLOBOX_REMOTE_TOKEN` is set.
+`backend_url` is required for backend-backed remote mode unless `--backend-url` is passed. `backend_token` may be omitted when `YOLOBOX_REMOTE_TOKEN` is set.
+
+For direct local provisioning without a backend:
+
+```toml
+mode = "remote"
+remote_name = "foo"
+remote_workspace = "app"
+default_harness = "codex"
+
+[remote]
+provider = "digitalocean"
+ssh_user = "root"
+
+[remote.digitalocean]
+# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+token = "dop_v1_example"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
+# Optional. If omitted, yolobox uploads your default public SSH key.
+ssh_keys = ["123456", "aa:bb:cc:fingerprint"]
+tags = ["yolobox"]
+```
+
+The equivalent one-off command is:
+
+```bash
+DIGITALOCEAN_TOKEN=... yolobox remote --provider digitalocean --name foo codex
+```
 
 `ssh_user` defaults to `root` and is used when the backend response does not include `ssh_user`.
 
@@ -111,7 +152,21 @@ yolobox remote resume foo/app codex
 
 ## Backend Responsibilities
 
-The backend is the control plane. It owns allocation and release of hosts. It may be hosted or self-hosted. It may lease from a static pool, warm pool, cloud provider, on-prem cluster, or any other substrate.
+The backend is the control plane. It owns allocation and release of hosts. It may be hosted or self-hosted. It may lease from a static pool, warm pool, cloud provider, on-prem cluster, or any other substrate. The built-in server starts with one provider at a time:
+
+```bash
+YOLOBOX_BACKEND_TOKEN=change-me \
+DIGITALOCEAN_TOKEN=dop_v1_example \
+yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
+```
+
+Clients then point at it:
+
+```toml
+[remote]
+backend_url = "https://remote.example.com"
+backend_token = "change-me"
+```
 
 The backend must:
 
@@ -122,6 +177,7 @@ The backend must:
 - return `ssh_user` when the host should not be reached as `root`
 - release or mark the lease idle on `DELETE /v1/machines/{name}`
 - keep provider-specific details behind the API
+- accept shared session metadata from clients so teammates can inspect active sessions
 
 The backend may:
 
@@ -134,8 +190,8 @@ The backend may:
 
 The yolobox client owns the developer workflow after a host is leased. It:
 
-- sends the desired machine name, workspace name, repo URL, and branch to the backend
-- waits for SSH when the backend does not mark the host bootstrapped
+- sends the desired machine name, workspace name, repo URL, and branch to the backend or provider
+- waits for SSH when the backend or provider does not mark the host bootstrapped
 - bootstraps Docker, `tmux`, `git`, `rsync`, and yolobox when needed
 - mirrors the local folder with `rsync`
 - runs setup commands after upward sync
@@ -177,6 +233,7 @@ Request:
 {
   "name": "foo",
   "workspace": "app",
+  "ssh_user": "root",
   "repo_url": "git@github.com:example/project.git",
   "branch": "feature/remote-work"
 }
@@ -186,6 +243,7 @@ Fields:
 
 - `name` is required and is the logical machine name.
 - `workspace` is optional and defaults to `default` in the client.
+- `ssh_user` is optional and lets the client send its preferred SSH user.
 - `repo_url` is optional Git metadata from the local checkout.
 - `branch` is optional Git metadata from the local checkout.
 
@@ -229,6 +287,24 @@ Recommended error responses:
 - `409` when no host is available
 - `500` for backend failures
 
+### `GET /v1/machines`
+
+Return the machine leases known to the backend state file.
+
+Successful response:
+
+```json
+{
+  "machines": [
+    {
+      "name": "foo",
+      "public_ipv4": "203.0.113.10",
+      "provider_id": "host-a"
+    }
+  ]
+}
+```
+
 ### `GET /v1/machines/{name}`
 
 Return the current lease for a logical machine name. `yolobox remote status` uses this to refresh address and metadata.
@@ -265,25 +341,70 @@ Successful response:
 
 Backends should prefer idempotent success when a lease is already gone if that is safe for their ownership model. The current client treats any non-2xx response as an error.
 
+### `GET /v1/sessions`
+
+Return shared session metadata known to the backend. `?machine=foo` filters to one machine.
+
+Successful response:
+
+```json
+{
+  "sessions": [
+    {
+      "id": "foo-app-main",
+      "name": "main",
+      "machine": "foo",
+      "workspace": "foo-app",
+      "tmux_session": "yolobox-foo-app-main",
+      "last_command": ["codex"],
+      "updated_at": "2026-05-18T17:10:00Z"
+    }
+  ]
+}
+```
+
+### `PUT /v1/sessions/{id}`
+
+Create or update shared session metadata. Clients call this after starting or attaching to a persistent remote session.
+
+### `DELETE /v1/sessions/{id}`
+
+Remove shared session metadata. Clients call this after `remote stop`.
+
+## Provider Adapters
+
+Provider adapters implement host leasing, status refresh, and release. The direct client path and the backend service use the same adapter interface.
+
+The DigitalOcean adapter:
+
+- reads credentials from `remote.digitalocean.token`, `DIGITALOCEAN_TOKEN`, or `DO_API_TOKEN`
+- creates Droplets through the DigitalOcean API, not `doctl`
+- uses `remote.digitalocean.region`, `size`, `image`, `ssh_keys`, `tags`, and `vpc_uuid`
+- tags created Droplets with `yolobox` and `yolobox-machine-<name>`
+- reuses a matching tagged Droplet for idempotent `ensure`
+- uploads the user's default public SSH key when no `ssh_keys` are configured
+- deletes the Droplet on release
+
 ## Machine Lifecycle
 
 1. User runs `yolobox remote --name foo --workspace app codex`.
-2. Client loads config and validates `remote.backend_url` plus token.
+2. Client loads config and validates either backend settings or direct provider settings.
 3. Client checks for an existing local registry machine.
-4. If none exists, client calls `POST /v1/machines/ensure`.
-5. Backend leases or returns an SSH host.
-6. Client saves the machine in local registry.
-7. If `bootstrap_complete` is false, client waits up to five minutes for SSH and bootstraps the host.
-8. Client ensures the workspace path exists.
-9. Client syncs the local project folder to the remote workspace.
-10. Client runs any configured setup commands.
-11. Client starts or attaches to the requested command/session.
+4. If none exists and `backend_url` is configured, client calls `POST /v1/machines/ensure`.
+5. If none exists and `provider = "digitalocean"` is configured, client provisions through the DigitalOcean adapter.
+6. Backend or provider leases or returns an SSH host.
+7. Client saves the machine in local registry.
+8. If `bootstrap_complete` is false, client waits up to five minutes for SSH and bootstraps the host.
+9. Client ensures the workspace path exists.
+10. Client syncs the local project folder to the remote workspace.
+11. Client runs any configured setup commands.
+12. Client starts or attaches to the requested command/session and publishes session metadata to the backend when one is configured.
 
-Later runs reuse the local machine and workspace registry entries. `remote status` can refresh backend state. `remote destroy --force` releases the backend lease and removes local machine, workspace, session, and exposure records for that machine.
+Later runs reuse the local machine and workspace registry entries. `remote status` can refresh backend or provider state. `remote destroy --force` releases the backend lease or direct provider machine and removes local machine, workspace, session, and exposure records for that machine.
 
 ## Host Bootstrap
 
-When a backend returns `bootstrap_complete = false` or omits it, the client assumes an Ubuntu-like host reachable over SSH with enough privilege for `apt-get` and Docker installation.
+When a backend or provider returns `bootstrap_complete = false` or omits it, the client assumes an Ubuntu-like host reachable over SSH with enough privilege for `apt-get` and Docker installation.
 
 The bootstrap script:
 
@@ -294,7 +415,7 @@ The bootstrap script:
 - pulls `ghcr.io/finbarr/yolobox:latest` best-effort
 - creates `/opt/yolobox-workspaces`
 
-Backends that do not want client-side bootstrap should return hosts that already have these pieces and set `bootstrap_complete = true`.
+Backends or providers that do not want client-side bootstrap should return hosts that already have these pieces and set `bootstrap_complete = true`.
 
 ## Workspace Sync
 
@@ -367,25 +488,27 @@ The local registry lives at:
 
 It records:
 
-- `machines`: backend leases known to this client
+- `machines`: backend leases or direct-provider machines known to this client
 - `workspaces`: local-to-remote project mappings
 - `sessions`: known tmux sessions started by this client
 - `exposures`: local forwarding records
 
-The registry is local cache and workflow state, not the backend source of truth. `remote status` refreshes what it can from the configured backend. If a local registry entry points at a legacy non-backend provider, most remote commands reject it and tell the user to recreate through a backend; `destroy --force` removes local state for legacy entries.
+The registry is local cache and workflow state, not the backend source of truth. `remote status` refreshes what it can from the configured backend or provider.
 
 Registry files are written with normal user-readable config permissions. They should not contain backend tokens.
 
 ## Failure Behavior
 
-- Missing `remote.backend_url` fails before any backend request.
+- Missing both `remote.backend_url` and `remote.provider` fails before machine creation.
 - Missing backend token fails before any backend request.
+- Missing DigitalOcean token fails before direct DigitalOcean provisioning.
 - Missing local `ssh` or `rsync` fails before sync or SSH work.
 - Backend non-2xx responses fail the command and surface the response body when present.
 - Missing `machine.public_ipv4` in the backend response fails the command.
+- Missing `machine.public_ipv4` in a provider response fails the command.
 - SSH readiness waits up to five minutes during bootstrap.
 - `sync down` refuses to run without `--force`.
-- `destroy --force` removes local registry state only after a backend release succeeds for backend machines.
+- `destroy --force` removes local registry state only after the backend or direct provider release succeeds.
 
 ## Security
 
@@ -394,30 +517,33 @@ Treat a remote machine like another trusted development machine:
 - Anyone with SSH access to the remote host can inspect synced files, tmux sessions, running containers, and forwarded preview traffic.
 - `sync up` copies project-local secrets if they are in the folder.
 - `sync down --force` can overwrite local files.
-- Remote backend tokens authorize host leasing and release.
+- Remote backend tokens authorize host leasing, release, and session metadata updates.
+- DigitalOcean tokens authorize Droplet and SSH key management.
 - A self-hosted backend should listen behind TLS or on a private network.
 - If backend-provided hosts expose Docker access to agents, dedicate those hosts to one user or workspace because Docker access is effectively host-level access.
 
 ## Backend Implementation Boundary
 
-The self-hosted backend should live outside the yolobox client repo unless there is a strong reason to merge it later. A separate backend project should own:
+The built-in backend is a deployable baseline for one shared provider-backed machine pool. It stores state in a JSON file and is suitable for early self-hosted testing behind TLS or a private network.
+
+A production hosted service should still grow into a dedicated backend project that owns:
 
 - persistent lease database
 - user/team auth
 - token issuance and rotation
 - pool membership and health checks
-- provider adapters
+- provider adapters beyond the shared built-in interface
 - idle shutdown and cleanup
 - billing or quota policy
 - audit events
 - public preview routing and TLS
 
-A minimal self-hosted backend can start with:
+The built-in backend starts with:
 
-- static SSH host pool
 - token auth
-- lease table keyed by owner plus machine name
-- the three machine endpoints in this spec
+- a JSON lease and session state file
+- one configured provider adapter at a time
+- the machine and session endpoints in this spec
 - health check endpoint
 
 ## Roadmap
@@ -432,8 +558,8 @@ Planned client-side improvements:
 
 Backend or hosted-service improvements:
 
-- self-hosted backend implementation
-- provider provisioners beyond static SSH pools
+- durable database storage for the self-hosted backend
+- provider adapters beyond DigitalOcean
 - managed machines and warm pools
 - managed preview URLs with TLS and auth
 - team sharing roles for viewer, commenter, controller, and owner

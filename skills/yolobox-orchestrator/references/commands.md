@@ -43,11 +43,19 @@ yolobox remote resume foo/app codex
 
 ## Remote machines
 
-Create or reuse a named remote machine. The configured backend leases an SSH host:
+Create or reuse a named remote machine. A configured backend or direct provider leases an SSH host:
 
 ```bash
 yolobox remote --name foo codex
 yolobox remote --name foo --workspace app codex
+yolobox remote --provider digitalocean --name foo codex
+```
+
+Run the built-in backend for a shared machine pool:
+
+```bash
+YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_TOKEN=... \
+  yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
 ```
 
 Reattach later:
@@ -83,7 +91,7 @@ yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-The remote path depends on a backend URL, token, `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on either a backend URL/token or direct provider credentials, plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 

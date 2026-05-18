@@ -53,6 +53,7 @@ yolobox remote stop [<env>[/<workspace>]] # Stop the remote tmux session
 yolobox remote list             # List locally registered remote machines and workspaces
 yolobox remote status [<env>[/<workspace>]] # Show local and backend state
 yolobox remote destroy <env> --force # Release the backend host and local registry entry
+yolobox remote backend serve --provider digitalocean # Run a self-hosted machine backend
 yolobox setup               # Write global defaults to ~/.config/yolobox/config.toml
 yolobox config              # Print the resolved config for the current project
 yolobox upgrade             # Update the binary and pull the latest base image
@@ -122,12 +123,14 @@ See [Recipes](/recipes) for common fork workflows, including webapp routing.
 ```bash
 yolobox remote --name foo codex
 yolobox remote --name foo --workspace app codex
+yolobox remote --provider digitalocean --name foo codex
 yolobox remote resume foo/app codex
 yolobox remote forward foo/app 3000
 yolobox remote forward 3000 # uses configured remote_name and remote_workspace
+yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
 ```
 
-Remote mode requires a configured backend URL and token. The backend leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
+Remote mode requires a configured backend URL and token, or a direct provider such as `--provider digitalocean` with `DIGITALOCEAN_TOKEN`. The backend or direct provider leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

@@ -62,9 +62,9 @@ These are useful, but they are explicit trust decisions.
 
 ## Remote mode
 
-`yolobox remote` runs on a VM or host returned by a configured backend. That remote host is outside the local container trust boundary. Anyone with SSH access to it can inspect synced workspace folders, running containers, tmux sessions, forwarded preview traffic, and any files or secrets you place there.
+`yolobox remote` runs on a VM or host returned by a configured backend or direct provider adapter. That remote host is outside the local container trust boundary. Anyone with SSH access to it can inspect synced workspace folders, running containers, tmux sessions, forwarded preview traffic, and any files or secrets you place there.
 
-Remote backend tokens authorize host leasing and release. Treat `remote.backend_token` and `YOLOBOX_REMOTE_TOKEN` like cloud credentials. A self-hosted backend should listen behind TLS or on a private network, and its machine pool should contain hosts you are comfortable dedicating to yolobox workloads.
+Remote backend tokens authorize host leasing, release, and shared session metadata updates. Treat `remote.backend_token`, `YOLOBOX_REMOTE_TOKEN`, and `YOLOBOX_BACKEND_TOKEN` like cloud credentials. DigitalOcean direct provisioning uses `remote.digitalocean.token`, `DIGITALOCEAN_TOKEN`, or `DO_API_TOKEN`; those tokens can create SSH keys and Droplets and should be scoped accordingly. A self-hosted backend should listen behind TLS or on a private network, and its machine pool should contain hosts you are comfortable dedicating to yolobox workloads.
 
 The MVP mirrors the entire current folder with `rsync` on `remote sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop. `remote sync down ... --force` copies remote files back into the local folder and can overwrite local changes.
 

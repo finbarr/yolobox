@@ -40,7 +40,15 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 backend_url = "https://remote.example.com"
 # Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
 backend_token = "your-backend-token"
+# provider = "digitalocean" # direct local provisioning when no backend_url is set
 ssh_user = "root"
+
+[remote.digitalocean]
+# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+# token = "dop_v1_example"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
 ```
 
 ### Project config
@@ -95,13 +103,23 @@ default_harness = "codex"
 backend_url = "https://remote.example.com"
 # Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
 backend_token = "your-backend-token"
+# Or use direct local provisioning when no backend_url is set:
+# provider = "digitalocean"
 ssh_user = "root"
 setup = ["docker compose pull"]
+
+[remote.digitalocean]
+# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+# token = "dop_v1_example"
+region = "nyc3"
+size = "s-2vcpu-4gb"
+image = "ubuntu-24-04-x64"
+# ssh_keys = ["123456", "aa:bb:cc:fingerprint"]
 ```
 
 With that config, bare `yolobox` behaves like `yolobox remote resume foo/app codex`.
 
-Remote mode requires `remote.backend_url` or `--backend-url`. Yolobox asks that hosted or self-hosted backend for an SSH host and does not care which infrastructure provider supplied it. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command through SSH.
+Remote mode requires either `remote.backend_url` / `--backend-url` or `remote.provider` / `--provider`. With a backend, yolobox asks that hosted or self-hosted control plane for an SSH host. With `provider = "digitalocean"`, yolobox provisions directly through the shared DigitalOcean adapter. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command through SSH.
 
 Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote workspace back to the local folder and requires `--force` because it can overwrite local files.
 

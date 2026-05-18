@@ -239,14 +239,59 @@ func TestValidateRemoteDefaultsRequiresBackend(t *testing.T) {
 	cfg.RemoteName = "foo"
 
 	err := validateRemoteDefaults(cfg)
-	if err == nil || !strings.Contains(err.Error(), "remote.backend_url") {
-		t.Fatalf("expected missing backend URL error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "remote.backend_url or remote.provider") {
+		t.Fatalf("expected missing remote backend/provider error, got %v", err)
 	}
 
 	cfg.Remote.BackendURL = "https://remote.example.com"
 	err = validateRemoteDefaults(cfg)
 	if err == nil || !strings.Contains(err.Error(), "remote backend token") {
 		t.Fatalf("expected missing backend token error, got %v", err)
+	}
+
+	cfg.Remote.BackendToken = "secret-token"
+	if err := validateRemoteDefaults(cfg); err != nil {
+		t.Fatalf("expected backend config to validate: %v", err)
+	}
+}
+
+func TestValidateRemoteDefaultsAllowsDirectProvider(t *testing.T) {
+	t.Setenv(digitalOceanTokenEnv, "do-token")
+	cfg := defaultConfig()
+	cfg.Mode = "remote"
+	cfg.RemoteName = "foo"
+	cfg.Remote.Provider = remoteProviderDigitalOcean
+	cfg.Remote.BackendURL = ""
+	cfg.Remote.BackendToken = ""
+
+	if err := validateRemoteDefaults(cfg); err != nil {
+		t.Fatalf("expected direct provider config to validate: %v", err)
+	}
+}
+
+func TestParseRemoteCreateFlagsSupportsDirectProvider(t *testing.T) {
+	opts, command, err := parseRemoteCreateFlags([]string{
+		"--provider", "digitalocean",
+		"--name", "Foo",
+		"--workspace", "App",
+		"--region", "sfo3",
+		"--size", "s-2vcpu-4gb",
+		"--image", "ubuntu-24-04-x64",
+		"--ssh-key", "123",
+		"--tag", "team-dev",
+		"codex",
+	}, defaultConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if opts.Provider != remoteProviderDigitalOcean || opts.Name != "foo" || opts.Workspace != "app" || opts.Region != "sfo3" {
+		t.Fatalf("unexpected provider opts: %+v", opts)
+	}
+	if len(opts.SSHKeys) != 1 || opts.SSHKeys[0] != "123" || len(opts.Tags) == 0 || opts.Tags[len(opts.Tags)-1] != "team-dev" {
+		t.Fatalf("unexpected key/tag opts: %+v", opts)
+	}
+	if len(command) != 1 || command[0] != "codex" {
+		t.Fatalf("unexpected command args: %+v", command)
 	}
 }
 
@@ -494,6 +539,38 @@ func TestRemoteStatusUsesConfiguredTarget(t *testing.T) {
 
 	if err := runRemoteStatus(nil, projectDir); err != nil {
 		t.Fatalf("runRemoteStatus failed: %v", err)
+	}
+}
+
+func TestLoadRemoteTargetAllowsDirectProvider(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	workspace := remoteWorkspace{
+		ID:          remoteWorkspaceID("foo", "app"),
+		Name:        "app",
+		Machine:     "foo",
+		ProjectPath: "/opt/yolobox-workspaces/foo-app/project",
+	}
+	if err := saveRemoteRegistry(remoteRegistry{
+		Machines: map[string]remoteMachine{
+			"foo": {
+				Name:       "foo",
+				Provider:   remoteProviderDigitalOcean,
+				ProviderID: "123",
+				PublicIPv4: "203.0.113.10",
+				SSHUser:    "root",
+			},
+		},
+		Workspaces: map[string]remoteWorkspace{workspace.ID: workspace},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	machine, loadedWorkspace, err := loadRemoteTarget(remoteRef{Machine: "foo", Workspace: "app"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if machine.Provider != remoteProviderDigitalOcean || loadedWorkspace.ID != workspace.ID {
+		t.Fatalf("unexpected direct-provider target: machine=%+v workspace=%+v", machine, loadedWorkspace)
 	}
 }
 

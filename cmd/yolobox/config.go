@@ -16,10 +16,22 @@ type CustomizeConfig struct {
 }
 
 type RemoteConfig struct {
-	BackendURL   string   `toml:"backend_url"`
-	BackendToken string   `toml:"backend_token"`
-	SSHUser      string   `toml:"ssh_user"`
-	Setup        []string `toml:"setup"`
+	BackendURL   string                   `toml:"backend_url"`
+	BackendToken string                   `toml:"backend_token"`
+	Provider     string                   `toml:"provider"`
+	SSHUser      string                   `toml:"ssh_user"`
+	Setup        []string                 `toml:"setup"`
+	DigitalOcean RemoteDigitalOceanConfig `toml:"digitalocean"`
+}
+
+type RemoteDigitalOceanConfig struct {
+	Token   string   `toml:"token"`
+	Region  string   `toml:"region"`
+	Size    string   `toml:"size"`
+	Image   string   `toml:"image"`
+	SSHKeys []string `toml:"ssh_keys"`
+	Tags    []string `toml:"tags"`
+	VPCUUID string   `toml:"vpc_uuid"`
 }
 
 type ForkConfig struct {
@@ -89,6 +101,12 @@ func defaultConfig() Config {
 		Image: "ghcr.io/finbarr/yolobox:latest",
 		Remote: RemoteConfig{
 			SSHUser: "root",
+			DigitalOcean: RemoteDigitalOceanConfig{
+				Region: "nyc3",
+				Size:   "s-2vcpu-4gb",
+				Image:  "ubuntu-24-04-x64",
+				Tags:   []string{"yolobox"},
+			},
 		},
 	}
 }
@@ -297,11 +315,39 @@ func mergeRemoteConfig(dst *RemoteConfig, src RemoteConfig) {
 	if src.BackendToken != "" {
 		dst.BackendToken = strings.TrimSpace(src.BackendToken)
 	}
+	if src.Provider != "" {
+		dst.Provider = strings.ToLower(strings.TrimSpace(src.Provider))
+	}
 	if src.SSHUser != "" {
 		dst.SSHUser = strings.TrimSpace(src.SSHUser)
 	}
 	if len(src.Setup) > 0 {
 		dst.Setup = append([]string{}, src.Setup...)
+	}
+	mergeRemoteDigitalOceanConfig(&dst.DigitalOcean, src.DigitalOcean)
+}
+
+func mergeRemoteDigitalOceanConfig(dst *RemoteDigitalOceanConfig, src RemoteDigitalOceanConfig) {
+	if src.Token != "" {
+		dst.Token = strings.TrimSpace(src.Token)
+	}
+	if src.Region != "" {
+		dst.Region = strings.TrimSpace(src.Region)
+	}
+	if src.Size != "" {
+		dst.Size = strings.TrimSpace(src.Size)
+	}
+	if src.Image != "" {
+		dst.Image = strings.TrimSpace(src.Image)
+	}
+	if len(src.SSHKeys) > 0 {
+		dst.SSHKeys = append([]string{}, src.SSHKeys...)
+	}
+	if len(src.Tags) > 0 {
+		dst.Tags = append([]string{}, src.Tags...)
+	}
+	if src.VPCUUID != "" {
+		dst.VPCUUID = strings.TrimSpace(src.VPCUUID)
 	}
 }
 
@@ -352,8 +398,16 @@ func printConfig(cfg Config) error {
 	printStringConfigField("customize.dockerfile", cfg.Customize.Dockerfile)
 	printStringConfigField("remote.backend_url", cfg.Remote.BackendURL)
 	printStringConfigField("remote.backend_token", redactConfigSecret(cfg.Remote.BackendToken))
+	printStringConfigField("remote.provider", cfg.Remote.Provider)
 	printStringConfigField("remote.ssh_user", cfg.Remote.SSHUser)
 	printSliceConfigField("remote.setup", cfg.Remote.Setup)
+	printStringConfigField("remote.digitalocean.token", redactConfigSecret(remoteDigitalOceanToken(cfg)))
+	printStringConfigField("remote.digitalocean.region", cfg.Remote.DigitalOcean.Region)
+	printStringConfigField("remote.digitalocean.size", cfg.Remote.DigitalOcean.Size)
+	printStringConfigField("remote.digitalocean.image", cfg.Remote.DigitalOcean.Image)
+	printSliceConfigField("remote.digitalocean.ssh_keys", cfg.Remote.DigitalOcean.SSHKeys)
+	printSliceConfigField("remote.digitalocean.tags", cfg.Remote.DigitalOcean.Tags)
+	printStringConfigField("remote.digitalocean.vpc_uuid", cfg.Remote.DigitalOcean.VPCUUID)
 	printSliceConfigField("exclude", cfg.Exclude)
 	printSliceConfigField("copy_as", cfg.CopyAs)
 
@@ -522,11 +576,38 @@ func saveGlobalConfig(cfg Config) error {
 		if cfg.Remote.BackendToken != "" {
 			lines = append(lines, fmt.Sprintf("backend_token = %q", cfg.Remote.BackendToken))
 		}
+		if cfg.Remote.Provider != "" {
+			lines = append(lines, fmt.Sprintf("provider = %q", strings.ToLower(cfg.Remote.Provider)))
+		}
 		if cfg.Remote.SSHUser != "" {
 			lines = append(lines, fmt.Sprintf("ssh_user = %q", cfg.Remote.SSHUser))
 		}
 		if len(cfg.Remote.Setup) > 0 {
 			lines = append(lines, fmt.Sprintf("setup = %s", formatTomlStringSlice(cfg.Remote.Setup)))
+		}
+		if hasRemoteDigitalOceanConfig(cfg.Remote.DigitalOcean) {
+			lines = append(lines, "", "[remote.digitalocean]")
+			if cfg.Remote.DigitalOcean.Token != "" {
+				lines = append(lines, fmt.Sprintf("token = %q", cfg.Remote.DigitalOcean.Token))
+			}
+			if cfg.Remote.DigitalOcean.Region != "" {
+				lines = append(lines, fmt.Sprintf("region = %q", cfg.Remote.DigitalOcean.Region))
+			}
+			if cfg.Remote.DigitalOcean.Size != "" {
+				lines = append(lines, fmt.Sprintf("size = %q", cfg.Remote.DigitalOcean.Size))
+			}
+			if cfg.Remote.DigitalOcean.Image != "" {
+				lines = append(lines, fmt.Sprintf("image = %q", cfg.Remote.DigitalOcean.Image))
+			}
+			if len(cfg.Remote.DigitalOcean.SSHKeys) > 0 {
+				lines = append(lines, fmt.Sprintf("ssh_keys = %s", formatTomlStringSlice(cfg.Remote.DigitalOcean.SSHKeys)))
+			}
+			if len(cfg.Remote.DigitalOcean.Tags) > 0 {
+				lines = append(lines, fmt.Sprintf("tags = %s", formatTomlStringSlice(cfg.Remote.DigitalOcean.Tags)))
+			}
+			if cfg.Remote.DigitalOcean.VPCUUID != "" {
+				lines = append(lines, fmt.Sprintf("vpc_uuid = %q", cfg.Remote.DigitalOcean.VPCUUID))
+			}
 		}
 	}
 
@@ -546,8 +627,33 @@ func hasRemoteConfig(remote RemoteConfig) bool {
 	def := defaultConfig().Remote
 	return remote.BackendURL != "" ||
 		remote.BackendToken != "" ||
+		remote.Provider != "" ||
 		(remote.SSHUser != "" && remote.SSHUser != def.SSHUser) ||
-		len(remote.Setup) > 0
+		len(remote.Setup) > 0 ||
+		hasRemoteDigitalOceanConfig(remote.DigitalOcean)
+}
+
+func hasRemoteDigitalOceanConfig(cfg RemoteDigitalOceanConfig) bool {
+	def := defaultConfig().Remote.DigitalOcean
+	return cfg.Token != "" ||
+		(cfg.Region != "" && cfg.Region != def.Region) ||
+		(cfg.Size != "" && cfg.Size != def.Size) ||
+		(cfg.Image != "" && cfg.Image != def.Image) ||
+		len(cfg.SSHKeys) > 0 ||
+		!sameStringSlice(cfg.Tags, def.Tags) ||
+		cfg.VPCUUID != ""
+}
+
+func sameStringSlice(a []string, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func redactConfigSecret(value string) string {

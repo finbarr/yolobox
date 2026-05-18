@@ -106,6 +106,12 @@ type remoteProvisionOptions struct {
 	Workspace  string
 	SSHUser    string
 	BackendURL string
+	Provider   string
+	Region     string
+	Size       string
+	Image      string
+	SSHKeys    []string
+	Tags       []string
 }
 
 type remoteRef struct {
@@ -138,6 +144,8 @@ func runRemote(args []string, projectDir string) error {
 		return runRemoteStatus(args[1:], projectDir)
 	case "destroy":
 		return runRemoteDestroy(args[1:], projectDir)
+	case "backend":
+		return runRemoteBackend(args[1:], projectDir)
 	default:
 		return runRemoteCreate(args, projectDir)
 	}
@@ -155,6 +163,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                              List locally registered remote machines")
 	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>[/<workspace>]]          Show local and backend state")
 	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force             Release/delete remote and local registry entry")
+	fmt.Fprintln(os.Stderr, "  yolobox remote backend serve --provider digitalocean Start a machine-management backend")
 	fmt.Fprintln(os.Stderr, "  Omit [<env>[/<workspace>]] only when remote_name is configured.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
@@ -162,6 +171,12 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  --workspace <name> Remote workspace name")
 	fmt.Fprintln(os.Stderr, "  --ssh-user <user>  SSH user for the remote host")
 	fmt.Fprintln(os.Stderr, "  --backend-url <url> Remote backend API URL")
+	fmt.Fprintln(os.Stderr, "  --provider <name>  Direct provider adapter when not using a backend")
+	fmt.Fprintln(os.Stderr, "  --region <slug>    Provider region, for example nyc3")
+	fmt.Fprintln(os.Stderr, "  --size <slug>      Provider size, for example s-2vcpu-4gb")
+	fmt.Fprintln(os.Stderr, "  --image <slug>     Provider image, for example ubuntu-24-04-x64")
+	fmt.Fprintln(os.Stderr, "  --ssh-key <key>    Provider SSH key id or fingerprint; may repeat")
+	fmt.Fprintln(os.Stderr, "  --tag <tag>        Provider tag; may repeat")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
@@ -188,7 +203,7 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, remoteDefaultCommand(cfg))
+	return attachRemoteWorkspace(cfg, machine, workspace, remoteDefaultSessionName, remoteDefaultCommand(cfg))
 }
 
 func runRemoteCreate(args []string, projectDir string) error {
@@ -223,7 +238,7 @@ func runRemoteCreate(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, commandArgs)
+	return attachRemoteWorkspace(cfg, machine, workspace, remoteDefaultSessionName, commandArgs)
 }
 
 func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, []string, error) {
@@ -236,11 +251,29 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 		Workspace:  effectiveRemoteWorkspace(cfg.RemoteWorkspace),
 		SSHUser:    cfg.Remote.SSHUser,
 		BackendURL: cfg.Remote.BackendURL,
+		Provider:   cfg.Remote.Provider,
+		Region:     cfg.Remote.DigitalOcean.Region,
+		Size:       cfg.Remote.DigitalOcean.Size,
+		Image:      cfg.Remote.DigitalOcean.Image,
+		SSHKeys:    append([]string{}, cfg.Remote.DigitalOcean.SSHKeys...),
+		Tags:       append([]string{}, cfg.Remote.DigitalOcean.Tags...),
 	}
 	fs.StringVar(&opts.Name, "name", opts.Name, "remote machine name")
 	fs.StringVar(&opts.Workspace, "workspace", opts.Workspace, "remote workspace name")
 	fs.StringVar(&opts.SSHUser, "ssh-user", opts.SSHUser, "remote SSH user")
 	fs.StringVar(&opts.BackendURL, "backend-url", opts.BackendURL, "remote backend API URL")
+	fs.StringVar(&opts.Provider, "provider", opts.Provider, "direct provider adapter")
+	fs.StringVar(&opts.Region, "region", opts.Region, "provider region")
+	fs.StringVar(&opts.Size, "size", opts.Size, "provider size")
+	fs.StringVar(&opts.Image, "image", opts.Image, "provider image")
+	fs.Func("ssh-key", "provider SSH key id or fingerprint", func(value string) error {
+		opts.SSHKeys = append(opts.SSHKeys, strings.TrimSpace(value))
+		return nil
+	})
+	fs.Func("tag", "provider tag", func(value string) error {
+		opts.Tags = append(opts.Tags, strings.TrimSpace(value))
+		return nil
+	})
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -254,6 +287,12 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 	opts.Workspace = strings.ToLower(strings.TrimSpace(opts.Workspace))
 	opts.SSHUser = strings.TrimSpace(opts.SSHUser)
 	opts.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
+	opts.Provider = strings.ToLower(strings.TrimSpace(opts.Provider))
+	opts.Region = strings.TrimSpace(opts.Region)
+	opts.Size = strings.TrimSpace(opts.Size)
+	opts.Image = strings.TrimSpace(opts.Image)
+	opts.SSHKeys = uniqueStrings(opts.SSHKeys)
+	opts.Tags = uniqueStrings(opts.Tags)
 	return opts, fs.Args(), nil
 }
 
@@ -273,7 +312,7 @@ func runRemoteResume(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, commandArgs)
+	return attachRemoteWorkspace(cfg, machine, workspace, remoteDefaultSessionName, commandArgs)
 }
 
 func runRemoteSync(args []string, projectDir string) error {
@@ -398,7 +437,8 @@ func runRemoteStatus(args []string, projectDir string) error {
 	}
 
 	backendStatus := "(not checked)"
-	if machine.Provider == remoteProviderBackend && remoteBackendURL(cfg, machine) != "" {
+	switch {
+	case machine.Provider == remoteProviderBackend && remoteBackendURL(cfg, machine) != "":
 		if refreshed, status, err := getRemoteBackendMachine(cfg, machine); err == nil {
 			backendStatus = status
 			if refreshed.PublicIPv4 != "" {
@@ -413,6 +453,22 @@ func runRemoteStatus(args []string, projectDir string) error {
 			}
 		} else {
 			backendStatus = "error: " + err.Error()
+		}
+	case machine.Provider != "" && machine.Provider != remoteProviderBackend:
+		if refreshed, status, err := getRemoteProviderMachine(cfg, machine); err == nil {
+			backendStatus = status
+			if refreshed.PublicIPv4 != "" {
+				machine.PublicIPv4 = refreshed.PublicIPv4
+				machine.SSHUser = refreshed.SSHUser
+				machine.ProviderID = refreshed.ProviderID
+				machine.UpdatedAt = time.Now().UTC()
+				if reg, err := loadRemoteRegistry(); err == nil {
+					reg.Machines[machine.Name] = machine
+					_ = saveRemoteRegistry(reg)
+				}
+			}
+		} else {
+			backendStatus = "provider error: " + err.Error()
 		}
 	}
 
@@ -471,7 +527,9 @@ func runRemoteDestroy(args []string, projectDir string) error {
 			return err
 		}
 	} else if machine.Provider != "" {
-		info("Remote %s uses legacy provider %q; removing local registry state only", name, machine.Provider)
+		if err := releaseRemoteProviderMachine(cfg, machine); err != nil {
+			return err
+		}
 	}
 	reg, err := loadRemoteRegistry()
 	if err != nil {
@@ -533,6 +591,9 @@ func runRemoteStop(args []string, projectDir string) error {
 	if err == nil {
 		delete(reg.Sessions, sessionID)
 		_ = saveRemoteRegistry(reg)
+	}
+	if err := deleteRemoteBackendSession(cfg, machine, sessionID); err != nil {
+		warn("Could not update remote backend session state: %v", err)
 	}
 	success("Stopped remote session %s", sessionID)
 	return nil
@@ -761,9 +822,6 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	if machine, ok := reg.Machines[opts.Name]; ok {
-		if machine.Provider != remoteProviderBackend {
-			return remoteMachine{}, fmt.Errorf("remote %s uses legacy provider %q; create it through a configured backend", opts.Name, machine.Provider)
-		}
 		if machine.Provider == remoteProviderBackend && machine.BackendURL == "" {
 			machine.BackendURL = strings.TrimSpace(cfg.Remote.BackendURL)
 		}
@@ -774,12 +832,17 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if opts.BackendURL != "" {
 		cfg.Remote.BackendURL = opts.BackendURL
 	}
-	if !remoteBackendConfigured(cfg) {
-		return remoteMachine{}, fmt.Errorf("remote mode requires remote.backend_url or --backend-url")
+	var machine remoteMachine
+	var provisionErr error
+	if remoteBackendConfigured(cfg) {
+		machine, provisionErr = ensureRemoteBackendMachine(cfg, projectDir, opts)
+	} else if remoteDirectProviderConfigured(cfg, opts) {
+		machine, provisionErr = ensureRemoteProviderMachine(cfg, projectDir, opts)
+	} else {
+		return remoteMachine{}, fmt.Errorf("remote mode requires remote.backend_url, --backend-url, remote.provider, or --provider")
 	}
-	machine, err := ensureRemoteBackendMachine(cfg, projectDir, opts)
-	if err != nil {
-		return remoteMachine{}, err
+	if provisionErr != nil {
+		return remoteMachine{}, provisionErr
 	}
 	reg.Machines[machine.Name] = machine
 	if err := saveRemoteRegistry(reg); err != nil {
@@ -891,6 +954,9 @@ func applyRemoteDefaults(cfg Config, opts remoteProvisionOptions) remoteProvisio
 	if opts.SSHUser == "" {
 		opts.SSHUser = cfg.Remote.SSHUser
 	}
+	if opts.Provider == "" {
+		opts.Provider = cfg.Remote.Provider
+	}
 	return opts
 }
 
@@ -904,11 +970,16 @@ func validateRemoteDefaults(cfg Config) error {
 	if err := validateRemoteName(effectiveRemoteWorkspace(cfg.RemoteWorkspace)); err != nil {
 		return fmt.Errorf("invalid remote_workspace: %w", err)
 	}
-	if !remoteBackendConfigured(cfg) {
-		return fmt.Errorf("remote mode requires remote.backend_url")
-	}
-	if remoteBackendToken(cfg) == "" {
+	if remoteBackendConfigured(cfg) && remoteBackendToken(cfg) == "" {
 		return fmt.Errorf("remote backend token is required; set remote.backend_token or %s", remoteBackendTokenEnv)
+	}
+	if !remoteBackendConfigured(cfg) {
+		if !remoteDirectProviderConfigured(cfg, remoteProvisionOptions{}) {
+			return fmt.Errorf("remote mode requires remote.backend_url or remote.provider")
+		}
+		if _, err := newRemoteMachineProvider(cfg, remoteProvisionOptions{}); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1140,11 +1211,11 @@ func buildRemoteSetupScript(workspace remoteWorkspace, setup []string) string {
 	return b.String()
 }
 
-func attachRemoteMachine(machine remoteMachine, commandArgs []string) error {
-	return attachRemoteWorkspace(machine, defaultWorkspaceFromMachine(machine), remoteDefaultSessionName, commandArgs)
+func attachRemoteMachine(cfg Config, machine remoteMachine, commandArgs []string) error {
+	return attachRemoteWorkspace(cfg, machine, defaultWorkspaceFromMachine(machine), remoteDefaultSessionName, commandArgs)
 }
 
-func attachRemoteWorkspace(machine remoteMachine, workspace remoteWorkspace, sessionName string, commandArgs []string) error {
+func attachRemoteWorkspace(cfg Config, machine remoteMachine, workspace remoteWorkspace, sessionName string, commandArgs []string) error {
 	if machine.PublicIPv4 == "" {
 		return fmt.Errorf("remote %s has no public IPv4 in registry; run yolobox remote status %s", machine.Name, machine.Name)
 	}
@@ -1199,6 +1270,9 @@ func attachRemoteWorkspace(machine remoteMachine, workspace remoteWorkspace, ses
 				session.CreatedAt = existing.CreatedAt
 			}
 			reg.Sessions[sessionID] = session
+			if err := putRemoteBackendSession(cfg, machine, session); err != nil {
+				warn("Could not update remote backend session state: %v", err)
+			}
 		}
 		machine.LastCommand = commandArgs
 		machine.UpdatedAt = now
@@ -1325,9 +1399,6 @@ func loadRemoteTarget(ref remoteRef) (remoteMachine, remoteWorkspace, error) {
 	machine, ok := reg.Machines[ref.Machine]
 	if !ok {
 		return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote %s is not registered", ref.Machine)
-	}
-	if machine.Provider != remoteProviderBackend {
-		return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote %s uses legacy provider %q; create it through a configured backend", ref.Machine, machine.Provider)
 	}
 	workspaceID := remoteWorkspaceID(ref.Machine, ref.Workspace)
 	workspace, ok := reg.Workspaces[workspaceID]
