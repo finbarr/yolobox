@@ -11,14 +11,17 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
 
 const (
 	remoteProviderDigitalOcean = "digitalocean"
-	remoteRegistryVersion      = 1
+	remoteRegistryVersion      = 2
+	remoteDefaultWorkspace     = "default"
 	remoteDefaultSession       = "yolobox"
+	remoteDefaultSessionName   = "main"
 )
 
 type remoteMachine struct {
@@ -43,19 +46,72 @@ type remoteMachine struct {
 	BootstrapComplete bool      `json:"bootstrap_complete,omitempty"`
 }
 
+type remoteWorkspace struct {
+	ID             string    `json:"id"`
+	Name           string    `json:"name"`
+	Machine        string    `json:"machine"`
+	SourcePath     string    `json:"source_path,omitempty"`
+	ProjectPath    string    `json:"project_path,omitempty"`
+	RepoURL        string    `json:"repo_url,omitempty"`
+	Branch         string    `json:"branch,omitempty"`
+	ComposeProject string    `json:"compose_project,omitempty"`
+	ContainerName  string    `json:"container_name,omitempty"`
+	HomeVolume     string    `json:"home_volume,omitempty"`
+	CacheVolume    string    `json:"cache_volume,omitempty"`
+	OutputVolume   string    `json:"output_volume,omitempty"`
+	NetworkName    string    `json:"network_name,omitempty"`
+	CreatedAt      time.Time `json:"created_at"`
+	UpdatedAt      time.Time `json:"updated_at"`
+	LastSyncedAt   time.Time `json:"last_synced_at,omitempty"`
+}
+
+type remoteSession struct {
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Machine     string    `json:"machine"`
+	Workspace   string    `json:"workspace"`
+	TmuxSession string    `json:"tmux_session"`
+	LastCommand []string  `json:"last_command,omitempty"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type remoteExposure struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	Machine    string    `json:"machine"`
+	Workspace  string    `json:"workspace"`
+	Kind       string    `json:"kind"`
+	LocalPort  int       `json:"local_port,omitempty"`
+	RemotePort int       `json:"remote_port,omitempty"`
+	TargetHost string    `json:"target_host,omitempty"`
+	Visibility string    `json:"visibility,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+}
+
 type remoteRegistry struct {
-	Version  int                      `json:"version"`
-	Machines map[string]remoteMachine `json:"machines"`
+	Version    int                        `json:"version"`
+	Machines   map[string]remoteMachine   `json:"machines"`
+	Workspaces map[string]remoteWorkspace `json:"workspaces,omitempty"`
+	Sessions   map[string]remoteSession   `json:"sessions,omitempty"`
+	Exposures  map[string]remoteExposure  `json:"exposures,omitempty"`
 }
 
 type remoteProvisionOptions struct {
-	Name     string
-	Provider string
-	Region   string
-	Size     string
-	Image    string
-	SSHKey   string
-	SSHUser  string
+	Name      string
+	Workspace string
+	Provider  string
+	Region    string
+	Size      string
+	Image     string
+	SSHKey    string
+	SSHUser   string
+}
+
+type remoteRef struct {
+	Machine   string
+	Workspace string
 }
 
 type dropletInfo struct {
@@ -72,14 +128,22 @@ func runRemote(args []string, projectDir string) error {
 	}
 
 	switch args[0] {
+	case "attach":
+		return runRemoteResume(args[1:], projectDir)
 	case "resume":
 		return runRemoteResume(args[1:], projectDir)
 	case "sync":
 		return runRemoteSync(args[1:], projectDir)
+	case "stop":
+		return runRemoteStop(args[1:], projectDir)
+	case "forward":
+		return runRemoteForward(args[1:], projectDir)
+	case "expose":
+		return runRemoteExpose(args[1:], projectDir)
 	case "list":
 		return runRemoteList(args[1:])
 	case "status":
-		return runRemoteStatus(args[1:])
+		return runRemoteStatus(args[1:], projectDir)
 	case "destroy":
 		return runRemoteDestroy(args[1:])
 	default:
@@ -89,15 +153,21 @@ func runRemote(args []string, projectDir string) error {
 
 func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]       Create or reuse a named remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote resume <env> [cmd...]       Reattach to a remote tmux session")
-	fmt.Fprintln(os.Stderr, "  yolobox remote sync <env>                  Copy the current folder to the remote host")
-	fmt.Fprintln(os.Stderr, "  yolobox remote list                        List locally registered remote machines")
-	fmt.Fprintln(os.Stderr, "  yolobox remote status <env>                Show local and provider state")
-	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force       Delete the Droplet and local registry entry")
+	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]            Create or reuse a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote resume [<env>[/<workspace>]] [cmd...] Reattach to a remote tmux session")
+	fmt.Fprintln(os.Stderr, "  yolobox remote attach [<env>[/<workspace>]] [cmd...] Alias for resume")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync [up] [<env>[/<workspace>]]       Copy the current folder to the remote workspace")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync down [<env>[/<workspace>]] --force Copy the remote workspace back locally")
+	fmt.Fprintln(os.Stderr, "  yolobox remote forward [<env>[/<workspace>]] <port>  Forward a remote preview port to localhost")
+	fmt.Fprintln(os.Stderr, "  yolobox remote stop [<env>[/<workspace>]]            Stop the remote tmux session")
+	fmt.Fprintln(os.Stderr, "  yolobox remote list                              List locally registered remote machines")
+	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>[/<workspace>]]          Show local and provider state")
+	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force             Delete the Droplet and local registry entry")
+	fmt.Fprintln(os.Stderr, "  Omit [<env>[/<workspace>]] only when remote_name is configured.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
 	fmt.Fprintln(os.Stderr, "  --name <env>       Remote machine name")
+	fmt.Fprintln(os.Stderr, "  --workspace <name> Remote workspace name")
 	fmt.Fprintln(os.Stderr, "  --provider <name>  Remote provider (MVP: digitalocean)")
 	fmt.Fprintln(os.Stderr, "  --region <slug>    DigitalOcean region")
 	fmt.Fprintln(os.Stderr, "  --size <slug>      DigitalOcean Droplet size")
@@ -107,8 +177,9 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
-	fmt.Fprintln(os.Stderr, "  yolobox remote resume foo codex")
-	fmt.Fprintln(os.Stderr, "  yolobox remote sync foo")
+	fmt.Fprintln(os.Stderr, "  yolobox remote resume foo/default codex")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo/default")
+	fmt.Fprintln(os.Stderr, "  yolobox remote forward foo/default 3000")
 }
 
 func runRemoteDefault(cfg Config, projectDir string) error {
@@ -119,11 +190,17 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 	if err := validateRemoteName(name); err != nil {
 		return err
 	}
+	workspaceName := effectiveRemoteWorkspace(cfg.RemoteWorkspace)
+	machineExisted := remoteMachineExists(name)
 	machine, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{Name: name})
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(machine, remoteDefaultCommand(cfg))
+	workspace, err := ensureRemoteWorkspace(machine, cfg, projectDir, workspaceName, !machineExisted)
+	if err != nil {
+		return err
+	}
+	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, remoteDefaultCommand(cfg))
 }
 
 func runRemoteCreate(args []string, projectDir string) error {
@@ -142,6 +219,10 @@ func runRemoteCreate(args []string, projectDir string) error {
 	if err := validateRemoteName(opts.Name); err != nil {
 		return err
 	}
+	opts.Workspace = effectiveRemoteWorkspace(opts.Workspace)
+	if err := validateRemoteName(opts.Workspace); err != nil {
+		return fmt.Errorf("invalid remote workspace: %w", err)
+	}
 	if len(commandArgs) == 0 {
 		commandArgs = remoteDefaultCommand(cfg)
 	}
@@ -150,7 +231,11 @@ func runRemoteCreate(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(machine, commandArgs)
+	workspace, err := ensureRemoteWorkspace(machine, cfg, projectDir, opts.Workspace, true)
+	if err != nil {
+		return err
+	}
+	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, commandArgs)
 }
 
 func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, []string, error) {
@@ -159,15 +244,17 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 	fs.Usage = printRemoteUsage
 
 	opts := remoteProvisionOptions{
-		Name:     strings.TrimSpace(cfg.RemoteName),
-		Provider: cfg.Remote.Provider,
-		Region:   cfg.Remote.Region,
-		Size:     cfg.Remote.Size,
-		Image:    cfg.Remote.Image,
-		SSHKey:   cfg.Remote.SSHKey,
-		SSHUser:  cfg.Remote.SSHUser,
+		Name:      strings.TrimSpace(cfg.RemoteName),
+		Workspace: effectiveRemoteWorkspace(cfg.RemoteWorkspace),
+		Provider:  cfg.Remote.Provider,
+		Region:    cfg.Remote.Region,
+		Size:      cfg.Remote.Size,
+		Image:     cfg.Remote.Image,
+		SSHKey:    cfg.Remote.SSHKey,
+		SSHUser:   cfg.Remote.SSHUser,
 	}
 	fs.StringVar(&opts.Name, "name", opts.Name, "remote machine name")
+	fs.StringVar(&opts.Workspace, "workspace", opts.Workspace, "remote workspace name")
 	fs.StringVar(&opts.Provider, "provider", opts.Provider, "remote provider")
 	fs.StringVar(&opts.Region, "region", opts.Region, "DigitalOcean region")
 	fs.StringVar(&opts.Size, "size", opts.Size, "DigitalOcean Droplet size")
@@ -184,6 +271,7 @@ func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, 
 	}
 
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
+	opts.Workspace = strings.ToLower(strings.TrimSpace(opts.Workspace))
 	opts.Provider = strings.ToLower(strings.TrimSpace(opts.Provider))
 	opts.Region = strings.TrimSpace(opts.Region)
 	opts.Size = strings.TrimSpace(opts.Size)
@@ -198,18 +286,18 @@ func runRemoteResume(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	name, commandArgs, err := parseRemoteNameAndCommand("resume", args, cfg)
+	ref, commandArgs, err := parseRemoteRefAndCommand("resume", args, cfg)
 	if err != nil {
 		return err
 	}
 	if len(commandArgs) == 0 {
 		commandArgs = remoteDefaultCommand(cfg)
 	}
-	machine, err := loadRemoteMachine(name)
+	machine, workspace, err := loadRemoteTarget(ref)
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(machine, commandArgs)
+	return attachRemoteWorkspace(machine, workspace, remoteDefaultSessionName, commandArgs)
 }
 
 func runRemoteSync(args []string, projectDir string) error {
@@ -217,29 +305,60 @@ func runRemoteSync(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	name, rest, err := parseRemoteNameAndCommand("sync", args, cfg)
+
+	direction := "up"
+	if len(args) > 0 && (args[0] == "up" || args[0] == "down") {
+		direction = args[0]
+		args = args[1:]
+	}
+	force := false
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--force" {
+			force = true
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+
+	ref, rest, err := parseRemoteRefAndCommand("sync", filtered, cfg)
 	if err != nil {
 		return err
 	}
 	if len(rest) != 0 {
 		return fmt.Errorf("unexpected remote sync args: %v", rest)
 	}
-	machine, err := loadRemoteMachine(name)
+	machine, workspace, err := loadRemoteTarget(ref)
 	if err != nil {
 		return err
 	}
-	if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
-		return err
+
+	switch direction {
+	case "up":
+		if err := syncRemoteWorkspace(machine, &workspace, cfg, projectDir); err != nil {
+			return err
+		}
+	case "down":
+		if !force {
+			return fmt.Errorf("remote sync down overwrites the local folder; pass --force to continue")
+		}
+		if err := syncRemoteWorkspaceDown(machine, workspace, projectDir); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("unknown remote sync direction %q", direction)
 	}
+
 	reg, err := loadRemoteRegistry()
 	if err != nil {
 		return err
 	}
 	reg.Machines[machine.Name] = machine
+	reg.Workspaces[workspace.ID] = workspace
 	if err := saveRemoteRegistry(reg); err != nil {
 		return err
 	}
-	success("Synced remote %s", machine.Name)
+	success("Synced remote %s/%s %s", machine.Name, workspace.Name, direction)
 	return nil
 }
 
@@ -264,27 +383,40 @@ func runRemoteList(args []string) error {
 	}
 	sort.Strings(names)
 
-	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", "NAME", "PROVIDER", "IP", "REGION", "PROJECT"); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-16s %s\n", "NAME", "PROVIDER", "IP", "REGION", "WORKSPACE", "PROJECT"); err != nil {
 		return err
 	}
 	for _, name := range names {
 		m := reg.Machines[name]
-		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", m.Name, m.Provider, m.PublicIPv4, m.Region, m.ProjectPath); err != nil {
-			return err
+		workspaces := workspacesForMachine(reg, m.Name)
+		if len(workspaces) == 0 {
+			if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-16s %s\n", m.Name, m.Provider, m.PublicIPv4, m.Region, "-", m.ProjectPath); err != nil {
+				return err
+			}
+			continue
+		}
+		for _, workspace := range workspaces {
+			if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-16s %s\n", m.Name, m.Provider, m.PublicIPv4, m.Region, workspace.Name, workspace.ProjectPath); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func runRemoteStatus(args []string) error {
-	if len(args) == 0 {
-		return fmt.Errorf("yolobox remote status requires a remote name")
+func runRemoteStatus(args []string, projectDir string) error {
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		return err
 	}
-	if len(args) > 1 {
-		return fmt.Errorf("unexpected remote status args: %v", args[1:])
+	ref, rest, err := parseRemoteRefAndCommand("status", args, cfg)
+	if err != nil {
+		return err
 	}
-	name := strings.ToLower(strings.TrimSpace(args[0]))
-	machine, err := loadRemoteMachine(name)
+	if len(rest) != 0 {
+		return fmt.Errorf("unexpected remote status args: %v", rest)
+	}
+	machine, workspace, err := loadRemoteTarget(ref)
 	if err != nil {
 		return err
 	}
@@ -313,9 +445,13 @@ func runRemoteStatus(args []string) error {
 	fmt.Printf("%spublic_ipv4:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PublicIPv4))
 	fmt.Printf("%sssh_user:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SSHUser))
 	fmt.Printf("%ssource_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SourcePath))
-	fmt.Printf("%srepo:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.RepoURL))
-	fmt.Printf("%sbranch:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Branch))
-	fmt.Printf("%sproject_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProjectPath))
+	fmt.Printf("%srepo:%s %s\n", colorBold, colorReset, configValueOrNotSet(workspace.RepoURL))
+	fmt.Printf("%sbranch:%s %s\n", colorBold, colorReset, configValueOrNotSet(workspace.Branch))
+	fmt.Printf("%sworkspace:%s %s\n", colorBold, colorReset, workspace.Name)
+	fmt.Printf("%sworkspace_id:%s %s\n", colorBold, colorReset, workspace.ID)
+	fmt.Printf("%sproject_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(workspace.ProjectPath))
+	fmt.Printf("%scompose_project:%s %s\n", colorBold, colorReset, configValueOrNotSet(workspace.ComposeProject))
+	fmt.Printf("%slast_synced_at:%s %s\n", colorBold, colorReset, displayTime(workspace.LastSyncedAt))
 	fmt.Printf("%sbootstrap_complete:%s %t\n", colorBold, colorReset, machine.BootstrapComplete)
 	return nil
 }
@@ -363,11 +499,117 @@ func runRemoteDestroy(args []string) error {
 		return err
 	}
 	delete(reg.Machines, name)
+	for id, workspace := range reg.Workspaces {
+		if workspace.Machine == name {
+			delete(reg.Workspaces, id)
+		}
+	}
+	for id, session := range reg.Sessions {
+		if session.Machine == name {
+			delete(reg.Sessions, id)
+		}
+	}
+	for id, exposure := range reg.Exposures {
+		if exposure.Machine == name {
+			delete(reg.Exposures, id)
+		}
+	}
 	if err := saveRemoteRegistry(reg); err != nil {
 		return err
 	}
 	success("Destroyed remote %s", name)
 	return nil
+}
+
+func runRemoteStop(args []string, projectDir string) error {
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		return err
+	}
+	ref, rest, err := parseRemoteRefAndCommand("stop", args, cfg)
+	if err != nil {
+		return err
+	}
+	sessionName := remoteDefaultSessionName
+	if len(rest) > 1 {
+		return fmt.Errorf("unexpected remote stop args: %v", rest[1:])
+	}
+	if len(rest) == 1 {
+		sessionName = strings.ToLower(strings.TrimSpace(rest[0]))
+		if err := validateRemoteName(sessionName); err != nil {
+			return fmt.Errorf("invalid remote session: %w", err)
+		}
+	}
+	machine, workspace, err := loadRemoteTarget(ref)
+	if err != nil {
+		return err
+	}
+	sessionID := remoteSessionID(workspace.ID, sessionName)
+	tmuxSession := remoteTmuxSessionName(workspace, sessionName)
+	script := "tmux has-session -t " + shellQuote(tmuxSession) + " 2>/dev/null && tmux kill-session -t " + shellQuote(tmuxSession) + " || true"
+	if err := runSSHCommand(machine, script, false, false); err != nil {
+		return err
+	}
+	reg, err := loadRemoteRegistry()
+	if err == nil {
+		delete(reg.Sessions, sessionID)
+		_ = saveRemoteRegistry(reg)
+	}
+	success("Stopped remote session %s", sessionID)
+	return nil
+}
+
+func runRemoteForward(args []string, projectDir string) error {
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		return err
+	}
+	ref, localPort, remotePort, err := parseRemoteForwardArgs(args, cfg)
+	if err != nil {
+		return err
+	}
+	machine, workspace, err := loadRemoteTarget(ref)
+	if err != nil {
+		return err
+	}
+	exposure := remoteExposure{
+		ID:         remoteExposureID(workspace.ID, "p"+strconv.Itoa(remotePort)),
+		Name:       "p" + strconv.Itoa(remotePort),
+		Machine:    machine.Name,
+		Workspace:  workspace.ID,
+		Kind:       "ssh-forward",
+		LocalPort:  localPort,
+		RemotePort: remotePort,
+		TargetHost: "127.0.0.1",
+		Visibility: "local",
+		CreatedAt:  time.Now().UTC(),
+		UpdatedAt:  time.Now().UTC(),
+	}
+	reg, err := loadRemoteRegistry()
+	if err == nil {
+		if existing, ok := reg.Exposures[exposure.ID]; ok {
+			exposure.CreatedAt = existing.CreatedAt
+		}
+		reg.Exposures[exposure.ID] = exposure
+		_ = saveRemoteRegistry(reg)
+	}
+	info("Forwarding http://127.0.0.1:%d to %s/%s port %d. Press Ctrl+C to stop.", localPort, machine.Name, workspace.Name, remotePort)
+	return runSSHForward(machine, localPort, remotePort)
+}
+
+func runRemoteExpose(args []string, projectDir string) error {
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		return err
+	}
+	ref, port, err := parseRemoteExposeArgs(args, cfg)
+	if err != nil {
+		return err
+	}
+	if _, _, err := loadRemoteTarget(ref); err != nil {
+		return err
+	}
+	return fmt.Errorf("managed preview exposure is not available in the open-source MVP yet; use `yolobox remote forward %s %s` for local SSH forwarding", ref.String(), port)
 }
 
 func parseRemoteNameAndCommand(command string, args []string, cfg Config) (string, []string, error) {
@@ -383,6 +625,150 @@ func parseRemoteNameAndCommand(command string, args []string, cfg Config) (strin
 		return "", nil, err
 	}
 	return name, args[1:], nil
+}
+
+func parseRemoteRefAndCommand(command string, args []string, cfg Config) (remoteRef, []string, error) {
+	if len(args) == 0 {
+		name := strings.TrimSpace(cfg.RemoteName)
+		if name == "" {
+			return remoteRef{}, nil, fmt.Errorf("yolobox remote %s requires a remote name", command)
+		}
+		ref, err := parseRemoteRef(name, effectiveRemoteWorkspace(cfg.RemoteWorkspace))
+		return ref, nil, err
+	}
+	ref, err := parseRemoteRef(args[0], effectiveRemoteWorkspace(cfg.RemoteWorkspace))
+	if err != nil {
+		return remoteRef{}, nil, err
+	}
+	return ref, args[1:], nil
+}
+
+func parseRemoteRef(value string, defaultWorkspace string) (remoteRef, error) {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return remoteRef{}, fmt.Errorf("remote name is required")
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) > 2 {
+		return remoteRef{}, fmt.Errorf("remote ref %q should be <machine> or <machine>/<workspace>", value)
+	}
+	ref := remoteRef{
+		Machine:   parts[0],
+		Workspace: effectiveRemoteWorkspace(defaultWorkspace),
+	}
+	if len(parts) == 2 && strings.TrimSpace(parts[1]) != "" {
+		ref.Workspace = strings.TrimSpace(parts[1])
+	}
+	if err := validateRemoteName(ref.Machine); err != nil {
+		return remoteRef{}, err
+	}
+	if err := validateRemoteName(ref.Workspace); err != nil {
+		return remoteRef{}, fmt.Errorf("invalid remote workspace: %w", err)
+	}
+	return ref, nil
+}
+
+func (r remoteRef) String() string {
+	if r.Workspace == "" || r.Workspace == remoteDefaultWorkspace {
+		return r.Machine
+	}
+	return r.Machine + "/" + r.Workspace
+}
+
+func effectiveRemoteWorkspace(workspace string) string {
+	workspace = strings.ToLower(strings.TrimSpace(workspace))
+	if workspace == "" {
+		return remoteDefaultWorkspace
+	}
+	return workspace
+}
+
+func parseRemoteForwardArgs(args []string, cfg Config) (remoteRef, int, int, error) {
+	localPort := 0
+	positionals := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--local-port":
+			if i+1 >= len(args) {
+				return remoteRef{}, 0, 0, fmt.Errorf("--local-port requires a value")
+			}
+			port, _, err := parsePort(args[i+1])
+			if err != nil {
+				return remoteRef{}, 0, 0, fmt.Errorf("invalid local port: %w", err)
+			}
+			localPort = port
+			i++
+		default:
+			positionals = append(positionals, args[i])
+		}
+	}
+
+	if len(positionals) == 1 && strings.TrimSpace(cfg.RemoteName) != "" {
+		if remotePort, _, err := parsePort(positionals[0]); err == nil {
+			ref, err := parseRemoteRef(cfg.RemoteName, effectiveRemoteWorkspace(cfg.RemoteWorkspace))
+			if err != nil {
+				return remoteRef{}, 0, 0, err
+			}
+			if localPort == 0 {
+				localPort = remotePort
+			}
+			return ref, localPort, remotePort, nil
+		}
+	}
+
+	ref, rest, err := parseRemoteRefAndCommand("forward", positionals, cfg)
+	if err != nil {
+		return remoteRef{}, 0, 0, err
+	}
+	if len(rest) == 0 {
+		return remoteRef{}, 0, 0, fmt.Errorf("yolobox remote forward requires a remote port")
+	}
+	if len(rest) > 1 {
+		return remoteRef{}, 0, 0, fmt.Errorf("unexpected remote forward args: %v", rest[1:])
+	}
+	remotePort, _, err := parsePort(rest[0])
+	if err != nil {
+		return remoteRef{}, 0, 0, err
+	}
+	if localPort == 0 {
+		localPort = remotePort
+	}
+	return ref, localPort, remotePort, nil
+}
+
+func parseRemoteExposeArgs(args []string, cfg Config) (remoteRef, string, error) {
+	if len(args) == 1 && strings.TrimSpace(cfg.RemoteName) != "" {
+		if _, _, err := parsePort(args[0]); err == nil {
+			ref, err := parseRemoteRef(cfg.RemoteName, effectiveRemoteWorkspace(cfg.RemoteWorkspace))
+			if err != nil {
+				return remoteRef{}, "", err
+			}
+			return ref, args[0], nil
+		}
+	}
+	ref, rest, err := parseRemoteRefAndCommand("expose", args, cfg)
+	if err != nil {
+		return remoteRef{}, "", err
+	}
+	if len(rest) == 0 {
+		return remoteRef{}, "", fmt.Errorf("yolobox remote expose requires a port")
+	}
+	if len(rest) > 1 {
+		return remoteRef{}, "", fmt.Errorf("unexpected remote expose args: %v", rest[1:])
+	}
+	if _, _, err := parsePort(rest[0]); err != nil {
+		return remoteRef{}, "", err
+	}
+	return ref, rest[0], nil
+}
+
+func parsePort(value string) (int, string, error) {
+	value = strings.TrimSpace(value)
+	port, err := strconv.Atoi(value)
+	if err != nil || port < 1 || port > 65535 {
+		return 0, value, fmt.Errorf("invalid port %q", value)
+	}
+	return port, value, nil
 }
 
 func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
@@ -421,7 +807,7 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	repo := currentGitRepo(sourcePath)
-	projectPath := "/root/yolobox-projects/" + slugify(filepath.Base(sourcePath), "project")
+	projectPath := remoteWorkspaceProjectPath(opts.Name, effectiveRemoteWorkspace(opts.Workspace), sourcePath)
 	now := time.Now().UTC()
 
 	info("Creating DigitalOcean Droplet %s...", dropletName)
@@ -461,17 +847,95 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	}
 	machine.BootstrapComplete = true
 	machine.UpdatedAt = time.Now().UTC()
-	if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
-		reg.Machines[machine.Name] = machine
-		_ = saveRemoteRegistry(reg)
-		return machine, err
-	}
 	reg.Machines[machine.Name] = machine
 	if err := saveRemoteRegistry(reg); err != nil {
 		return machine, err
 	}
 	success("Remote %s is ready at %s", machine.Name, machine.PublicIPv4)
 	return machine, nil
+}
+
+func ensureRemoteWorkspace(machine remoteMachine, cfg Config, projectDir string, workspaceName string, syncProject bool) (remoteWorkspace, error) {
+	workspaceName = effectiveRemoteWorkspace(workspaceName)
+	if err := validateRemoteName(workspaceName); err != nil {
+		return remoteWorkspace{}, fmt.Errorf("invalid remote workspace: %w", err)
+	}
+	reg, err := loadRemoteRegistry()
+	if err != nil {
+		return remoteWorkspace{}, err
+	}
+	sourcePath, err := normalizedProjectPath(projectDir)
+	if err != nil {
+		return remoteWorkspace{}, err
+	}
+	repo := currentGitRepo(sourcePath)
+	id := remoteWorkspaceID(machine.Name, workspaceName)
+	now := time.Now().UTC()
+	workspace, ok := reg.Workspaces[id]
+	if !ok {
+		projectPath := remoteWorkspaceProjectPath(machine.Name, workspaceName, sourcePath)
+		workspace = remoteWorkspace{
+			ID:             id,
+			Name:           workspaceName,
+			Machine:        machine.Name,
+			ProjectPath:    projectPath,
+			ComposeProject: composeProjectName(projectPath, id),
+			ContainerName:  remoteResourceName("workspace", id),
+			HomeVolume:     remoteResourceName("home", id),
+			CacheVolume:    remoteResourceName("cache", id),
+			OutputVolume:   remoteResourceName("output", id),
+			NetworkName:    remoteResourceName("net", id),
+			CreatedAt:      now,
+			UpdatedAt:      now,
+		}
+	}
+	workspace.SourcePath = sourcePath
+	workspace.RepoURL = repo.URL
+	workspace.Branch = repo.Branch
+	if workspace.ProjectPath == "" {
+		workspace.ProjectPath = remoteWorkspaceProjectPath(machine.Name, workspaceName, sourcePath)
+	}
+	if workspace.ComposeProject == "" {
+		workspace.ComposeProject = composeProjectName(workspace.ProjectPath, id)
+	}
+	if workspace.ContainerName == "" {
+		workspace.ContainerName = remoteResourceName("workspace", id)
+	}
+	if workspace.HomeVolume == "" {
+		workspace.HomeVolume = remoteResourceName("home", id)
+	}
+	if workspace.CacheVolume == "" {
+		workspace.CacheVolume = remoteResourceName("cache", id)
+	}
+	if workspace.OutputVolume == "" {
+		workspace.OutputVolume = remoteResourceName("output", id)
+	}
+	if workspace.NetworkName == "" {
+		workspace.NetworkName = remoteResourceName("net", id)
+	}
+	workspace.UpdatedAt = now
+
+	if syncProject {
+		if err := syncRemoteWorkspace(machine, &workspace, cfg, projectDir); err != nil {
+			reg.Workspaces[id] = workspace
+			reg.Machines[machine.Name] = machine
+			_ = saveRemoteRegistry(reg)
+			return workspace, err
+		}
+	}
+	reg.Workspaces[id] = workspace
+	machine.SourcePath = workspace.SourcePath
+	machine.ProjectPath = workspace.ProjectPath
+	machine.RepoURL = workspace.RepoURL
+	machine.Branch = workspace.Branch
+	machine.ComposeProject = workspace.ComposeProject
+	machine.LastSyncedAt = workspace.LastSyncedAt
+	machine.UpdatedAt = time.Now().UTC()
+	reg.Machines[machine.Name] = machine
+	if err := saveRemoteRegistry(reg); err != nil {
+		return workspace, err
+	}
+	return workspace, nil
 }
 
 func applyRemoteDefaults(cfg Config, opts remoteProvisionOptions) remoteProvisionOptions {
@@ -530,6 +994,9 @@ func validateRemoteDefaults(cfg Config) error {
 	}
 	if err := validateRemoteName(cfg.RemoteName); err != nil {
 		return err
+	}
+	if err := validateRemoteName(effectiveRemoteWorkspace(cfg.RemoteWorkspace)); err != nil {
+		return fmt.Errorf("invalid remote_workspace: %w", err)
 	}
 	opts := applyRemoteDefaults(cfg, remoteProvisionOptions{Name: cfg.RemoteName})
 	return validateRemoteProvisionOptions(opts)
@@ -632,7 +1099,7 @@ if ! command -v yolobox >/dev/null 2>&1; then
   curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 fi
 docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /root/yolobox-projects
+mkdir -p /root/yolobox-workspaces /root/yolobox-projects
 `
 	if _, err := file.WriteString(script); err != nil {
 		return "", err
@@ -730,12 +1197,30 @@ if ! command -v yolobox >/dev/null 2>&1; then
   curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 fi
 docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /root/yolobox-projects
+mkdir -p /root/yolobox-workspaces /root/yolobox-projects
 `
 	return runRemoteScript(machine, script, false)
 }
 
 func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) error {
+	workspace, err := ensureRemoteWorkspace(*machine, cfg, projectDir, remoteDefaultWorkspace, false)
+	if err != nil {
+		return err
+	}
+	if err := syncRemoteWorkspace(*machine, &workspace, cfg, projectDir); err != nil {
+		return err
+	}
+	machine.SourcePath = workspace.SourcePath
+	machine.ProjectPath = workspace.ProjectPath
+	machine.RepoURL = workspace.RepoURL
+	machine.Branch = workspace.Branch
+	machine.ComposeProject = workspace.ComposeProject
+	machine.LastSyncedAt = workspace.LastSyncedAt
+	machine.UpdatedAt = workspace.UpdatedAt
+	return nil
+}
+
+func syncRemoteWorkspace(machine remoteMachine, workspace *remoteWorkspace, cfg Config, projectDir string) error {
 	if err := requireRemoteClientTools("ssh", "rsync"); err != nil {
 		return err
 	}
@@ -744,30 +1229,45 @@ func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) er
 		return err
 	}
 	repo := currentGitRepo(sourcePath)
-	machine.RepoURL = repo.URL
-	machine.Branch = repo.Branch
-	machine.SourcePath = sourcePath
-	if machine.ProjectPath == "" {
-		machine.ProjectPath = "/root/yolobox-projects/" + slugify(filepath.Base(sourcePath), "project")
+	workspace.RepoURL = repo.URL
+	workspace.Branch = repo.Branch
+	workspace.SourcePath = sourcePath
+	if workspace.ProjectPath == "" {
+		workspace.ProjectPath = remoteWorkspaceProjectPath(machine.Name, workspace.Name, sourcePath)
 	}
-	if machine.ComposeProject == "" {
-		machine.ComposeProject = composeProjectName(machine.ProjectPath, machine.Name)
+	if workspace.ComposeProject == "" {
+		workspace.ComposeProject = composeProjectName(workspace.ProjectPath, workspace.ID)
 	}
 
-	info("Copying %s to %s:%s...", sourcePath, machine.Name, machine.ProjectPath)
-	if err := ensureRemoteProjectPath(*machine); err != nil {
+	info("Copying %s to %s/%s:%s...", sourcePath, machine.Name, workspace.Name, workspace.ProjectPath)
+	if err := ensureRemoteWorkspacePath(machine, *workspace); err != nil {
 		return err
 	}
-	if err := rsyncProjectToRemote(*machine, sourcePath); err != nil {
+	if err := rsyncPathToRemote(machine, workspace.ProjectPath, sourcePath); err != nil {
 		return err
 	}
 	if len(cfg.Remote.Setup) > 0 {
-		if err := runRemoteScript(*machine, buildRemoteSetupScript(*machine, cfg.Remote.Setup), false); err != nil {
+		if err := runRemoteScript(machine, buildRemoteSetupScript(*workspace, cfg.Remote.Setup), false); err != nil {
 			return err
 		}
 	}
-	machine.LastSyncedAt = time.Now().UTC()
-	machine.UpdatedAt = machine.LastSyncedAt
+	workspace.LastSyncedAt = time.Now().UTC()
+	workspace.UpdatedAt = workspace.LastSyncedAt
+	return nil
+}
+
+func syncRemoteWorkspaceDown(machine remoteMachine, workspace remoteWorkspace, projectDir string) error {
+	if err := requireRemoteClientTools("ssh", "rsync"); err != nil {
+		return err
+	}
+	sourcePath, err := normalizedProjectPath(projectDir)
+	if err != nil {
+		return err
+	}
+	info("Copying %s/%s:%s back to %s...", machine.Name, workspace.Name, workspace.ProjectPath, sourcePath)
+	if err := rsyncPathFromRemote(machine, workspace.ProjectPath, sourcePath); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -783,19 +1283,32 @@ func normalizedProjectPath(projectDir string) (string, error) {
 }
 
 func ensureRemoteProjectPath(machine remoteMachine) error {
-	parent := path.Dir(machine.ProjectPath)
+	workspace := defaultWorkspaceFromMachine(machine)
+	return ensureRemoteWorkspacePath(machine, workspace)
+}
+
+func ensureRemoteWorkspacePath(machine remoteMachine, workspace remoteWorkspace) error {
+	parent := path.Dir(workspace.ProjectPath)
 	script := "set -euo pipefail\n" +
 		"if ! command -v rsync >/dev/null 2>&1; then\n" +
 		"  apt-get update\n" +
 		"  apt-get install -y rsync\n" +
 		"fi\n" +
-		"mkdir -p " + shellQuote(parent) + " " + shellQuote(machine.ProjectPath) + "\n"
+		"mkdir -p " + shellQuote(parent) + " " + shellQuote(workspace.ProjectPath) + "\n"
 	return runRemoteScript(machine, script, false)
 }
 
 func rsyncProjectToRemote(machine remoteMachine, sourcePath string) error {
+	projectPath := machine.ProjectPath
+	if projectPath == "" {
+		projectPath = defaultWorkspaceFromMachine(machine).ProjectPath
+	}
+	return rsyncPathToRemote(machine, projectPath, sourcePath)
+}
+
+func rsyncPathToRemote(machine remoteMachine, projectPath string, sourcePath string) error {
 	source := sourcePath + string(os.PathSeparator)
-	target := machine.sshTarget() + ":" + machine.ProjectPath + "/"
+	target := machine.sshTarget() + ":" + projectPath + "/"
 	args := []string{
 		"-az",
 		"--delete",
@@ -812,10 +1325,29 @@ func rsyncProjectToRemote(machine remoteMachine, sourcePath string) error {
 	return cmd.Run()
 }
 
-func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
+func rsyncPathFromRemote(machine remoteMachine, projectPath string, destinationPath string) error {
+	source := machine.sshTarget() + ":" + projectPath + "/"
+	target := destinationPath + string(os.PathSeparator)
+	args := []string{
+		"-az",
+		"--delete",
+		"--human-readable",
+		"--info=stats1",
+		"-e", remoteSSHCommand(false),
+		source,
+		target,
+	}
+	cmd := exec.Command("rsync", args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func buildRemoteSetupScript(workspace remoteWorkspace, setup []string) string {
 	var b strings.Builder
 	b.WriteString("set -euo pipefail\n")
-	b.WriteString("cd " + shellQuote(machine.ProjectPath) + "\n")
+	b.WriteString("cd " + shellQuote(workspace.ProjectPath) + "\n")
 	for _, command := range setup {
 		command = strings.TrimSpace(command)
 		if command == "" {
@@ -827,24 +1359,46 @@ func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
 }
 
 func attachRemoteMachine(machine remoteMachine, commandArgs []string) error {
+	return attachRemoteWorkspace(machine, defaultWorkspaceFromMachine(machine), remoteDefaultSessionName, commandArgs)
+}
+
+func attachRemoteWorkspace(machine remoteMachine, workspace remoteWorkspace, sessionName string, commandArgs []string) error {
 	if machine.PublicIPv4 == "" {
 		return fmt.Errorf("remote %s has no public IPv4 in registry; run yolobox remote status %s", machine.Name, machine.Name)
 	}
 	if len(commandArgs) == 0 {
 		commandArgs = []string{"shell"}
 	}
-	sessionName := remoteTmuxSessionName(machine.Name)
-	remoteCommand := remoteTmuxCommand(machine, sessionName, append([]string{"yolobox"}, commandArgs...))
-	info("Attaching to remote %s (%s)", machine.Name, machine.PublicIPv4)
+	tmuxSession := remoteTmuxSessionName(workspace, sessionName)
+	remoteCommand := remoteTmuxCommand(workspace, tmuxSession, append([]string{"yolobox"}, commandArgs...))
+	info("Attaching to remote %s/%s (%s)", machine.Name, workspace.Name, machine.PublicIPv4)
 	if err := runSSHCommand(machine, remoteCommand, true, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
 		return err
 	}
 
 	reg, err := loadRemoteRegistry()
 	if err == nil {
+		now := time.Now().UTC()
+		sessionID := remoteSessionID(workspace.ID, sessionName)
+		session := remoteSession{
+			ID:          sessionID,
+			Name:        sessionName,
+			Machine:     machine.Name,
+			Workspace:   workspace.ID,
+			TmuxSession: tmuxSession,
+			LastCommand: commandArgs,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+		}
+		if existing, ok := reg.Sessions[sessionID]; ok {
+			session.CreatedAt = existing.CreatedAt
+		}
+		reg.Sessions[sessionID] = session
 		machine.LastCommand = commandArgs
-		machine.UpdatedAt = time.Now().UTC()
+		machine.UpdatedAt = now
 		reg.Machines[machine.Name] = machine
+		workspace.UpdatedAt = now
+		reg.Workspaces[workspace.ID] = workspace
 		_ = saveRemoteRegistry(reg)
 	}
 	return nil
@@ -857,12 +1411,12 @@ func remoteDefaultCommand(cfg Config) []string {
 	return []string{"shell"}
 }
 
-func remoteTmuxSessionName(name string) string {
-	return remoteDefaultSession + "-" + name
+func remoteTmuxSessionName(workspace remoteWorkspace, sessionName string) string {
+	return remoteDefaultSession + "-" + sanitizeRemoteResourceID(workspace.ID) + "-" + sessionName
 }
 
-func remoteTmuxCommand(machine remoteMachine, sessionName string, command []string) string {
-	return "tmux new-session -A -s " + shellQuote(sessionName) + " -c " + shellQuote(machine.ProjectPath) + " " + shellQuote(shellJoin(command))
+func remoteTmuxCommand(workspace remoteWorkspace, sessionName string, command []string) string {
+	return "tmux new-session -A -s " + shellQuote(sessionName) + " -c " + shellQuote(workspace.ProjectPath) + " " + shellQuote(shellJoin(command))
 }
 
 func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) error {
@@ -884,6 +1438,19 @@ func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwar
 	} else {
 		cmd.Stdin = os.Stdin
 	}
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func runSSHForward(machine remoteMachine, localPort int, remotePort int) error {
+	if err := requireRemoteClientTools("ssh"); err != nil {
+		return err
+	}
+	forwardSpec := fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%d", localPort, remotePort)
+	args := append(remoteSSHOptions(false), "-N", "-L", forwardSpec, machine.sshTarget())
+	cmd := exec.Command("ssh", args...)
+	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
@@ -916,6 +1483,124 @@ func (m remoteMachine) sshTarget() string {
 func shouldForwardSSHAgent(repoURL string) bool {
 	repoURL = strings.TrimSpace(repoURL)
 	return strings.HasPrefix(repoURL, "git@") || strings.HasPrefix(repoURL, "ssh://")
+}
+
+func loadRemoteTarget(ref remoteRef) (remoteMachine, remoteWorkspace, error) {
+	reg, err := loadRemoteRegistry()
+	if err != nil {
+		return remoteMachine{}, remoteWorkspace{}, err
+	}
+	machine, ok := reg.Machines[ref.Machine]
+	if !ok {
+		return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote %s is not registered", ref.Machine)
+	}
+	workspaceID := remoteWorkspaceID(ref.Machine, ref.Workspace)
+	workspace, ok := reg.Workspaces[workspaceID]
+	if !ok {
+		if ref.Workspace == remoteDefaultWorkspace && machine.ProjectPath != "" {
+			workspace = defaultWorkspaceFromMachine(machine)
+		} else {
+			return remoteMachine{}, remoteWorkspace{}, fmt.Errorf("remote workspace %s is not registered", workspaceID)
+		}
+	}
+	return machine, workspace, nil
+}
+
+func workspacesForMachine(reg remoteRegistry, machineName string) []remoteWorkspace {
+	workspaces := make([]remoteWorkspace, 0)
+	for _, workspace := range reg.Workspaces {
+		if workspace.Machine == machineName {
+			workspaces = append(workspaces, workspace)
+		}
+	}
+	sort.Slice(workspaces, func(i, j int) bool {
+		return workspaces[i].Name < workspaces[j].Name
+	})
+	return workspaces
+}
+
+func defaultWorkspaceFromMachine(machine remoteMachine) remoteWorkspace {
+	id := remoteWorkspaceID(machine.Name, remoteDefaultWorkspace)
+	projectPath := machine.ProjectPath
+	if projectPath == "" {
+		projectPath = "/root/yolobox-workspaces/" + sanitizeRemoteResourceID(id) + "/project"
+	}
+	workspace := remoteWorkspace{
+		ID:             id,
+		Name:           remoteDefaultWorkspace,
+		Machine:        machine.Name,
+		SourcePath:     machine.SourcePath,
+		ProjectPath:    projectPath,
+		RepoURL:        machine.RepoURL,
+		Branch:         machine.Branch,
+		ComposeProject: machine.ComposeProject,
+		CreatedAt:      machine.CreatedAt,
+		UpdatedAt:      machine.UpdatedAt,
+		LastSyncedAt:   machine.LastSyncedAt,
+	}
+	if workspace.ComposeProject == "" {
+		workspace.ComposeProject = composeProjectName(workspace.ProjectPath, id)
+	}
+	workspace.ContainerName = remoteResourceName("workspace", id)
+	workspace.HomeVolume = remoteResourceName("home", id)
+	workspace.CacheVolume = remoteResourceName("cache", id)
+	workspace.OutputVolume = remoteResourceName("output", id)
+	workspace.NetworkName = remoteResourceName("net", id)
+	return workspace
+}
+
+func remoteWorkspaceID(machineName string, workspaceName string) string {
+	return strings.ToLower(strings.TrimSpace(machineName)) + "/" + effectiveRemoteWorkspace(workspaceName)
+}
+
+func remoteSessionID(workspaceID string, sessionName string) string {
+	return workspaceID + "/" + strings.ToLower(strings.TrimSpace(sessionName))
+}
+
+func remoteExposureID(workspaceID string, name string) string {
+	return workspaceID + "/" + strings.ToLower(strings.TrimSpace(name))
+}
+
+func remoteWorkspaceProjectPath(machineName string, workspaceName string, sourcePath string) string {
+	workspaceID := remoteWorkspaceID(machineName, workspaceName)
+	return "/root/yolobox-workspaces/" + sanitizeRemoteResourceID(workspaceID) + "/" + slugify(filepath.Base(sourcePath), "project")
+}
+
+func remoteResourceName(kind string, id string) string {
+	name := "yolobox-" + kind + "-" + sanitizeRemoteResourceID(id)
+	if len(name) > 63 {
+		return name[:63]
+	}
+	return name
+}
+
+func sanitizeRemoteResourceID(id string) string {
+	id = strings.ToLower(strings.TrimSpace(id))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range id {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	value := strings.Trim(b.String(), "-")
+	if value == "" {
+		return "default"
+	}
+	return value
+}
+
+func displayTime(value time.Time) string {
+	if value.IsZero() {
+		return "(not set)"
+	}
+	return value.Format(time.RFC3339)
 }
 
 func shellJoin(args []string) string {
@@ -980,14 +1665,26 @@ func loadRemoteMachine(name string) (remoteMachine, error) {
 	return machine, nil
 }
 
+func remoteMachineExists(name string) bool {
+	reg, err := loadRemoteRegistry()
+	if err != nil {
+		return false
+	}
+	_, ok := reg.Machines[strings.ToLower(strings.TrimSpace(name))]
+	return ok
+}
+
 func loadRemoteRegistry() (remoteRegistry, error) {
 	path, err := remoteRegistryPath()
 	if err != nil {
 		return remoteRegistry{}, err
 	}
 	reg := remoteRegistry{
-		Version:  remoteRegistryVersion,
-		Machines: map[string]remoteMachine{},
+		Version:    remoteRegistryVersion,
+		Machines:   map[string]remoteMachine{},
+		Workspaces: map[string]remoteWorkspace{},
+		Sessions:   map[string]remoteSession{},
+		Exposures:  map[string]remoteExposure{},
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1005,9 +1702,19 @@ func loadRemoteRegistry() (remoteRegistry, error) {
 	if reg.Machines == nil {
 		reg.Machines = map[string]remoteMachine{}
 	}
+	if reg.Workspaces == nil {
+		reg.Workspaces = map[string]remoteWorkspace{}
+	}
+	if reg.Sessions == nil {
+		reg.Sessions = map[string]remoteSession{}
+	}
+	if reg.Exposures == nil {
+		reg.Exposures = map[string]remoteExposure{}
+	}
 	if reg.Version == 0 {
 		reg.Version = remoteRegistryVersion
 	}
+	migrateRemoteRegistry(&reg)
 	return reg, nil
 }
 
@@ -1023,6 +1730,15 @@ func saveRemoteRegistry(reg remoteRegistry) error {
 	if reg.Machines == nil {
 		reg.Machines = map[string]remoteMachine{}
 	}
+	if reg.Workspaces == nil {
+		reg.Workspaces = map[string]remoteWorkspace{}
+	}
+	if reg.Sessions == nil {
+		reg.Sessions = map[string]remoteSession{}
+	}
+	if reg.Exposures == nil {
+		reg.Exposures = map[string]remoteExposure{}
+	}
 	data, err := json.MarshalIndent(reg, "", "  ")
 	if err != nil {
 		return err
@@ -1032,4 +1748,17 @@ func saveRemoteRegistry(reg remoteRegistry) error {
 		return fmt.Errorf("failed to write remote registry: %w", err)
 	}
 	return nil
+}
+
+func migrateRemoteRegistry(reg *remoteRegistry) {
+	for name, machine := range reg.Machines {
+		if machine.ProjectPath == "" {
+			continue
+		}
+		id := remoteWorkspaceID(name, remoteDefaultWorkspace)
+		if _, ok := reg.Workspaces[id]; ok {
+			continue
+		}
+		reg.Workspaces[id] = defaultWorkspaceFromMachine(machine)
+	}
 }

@@ -14,14 +14,14 @@ Do not use it for questions about the current environment from inside a running 
 1. Start from the user's intent, then choose the smallest `yolobox` command or flag set that accomplishes it.
 2. Check `yolobox config` when defaults, merged config, or flag precedence matter.
    - If `default_harness` is set, bare `yolobox` launches that shortcut; use `yolobox shell` for an explicit shell.
-   - If `mode = "remote"` and `remote_name` are set, bare `yolobox` attaches to `yolobox remote resume <name> <default_harness>`.
+   - If `mode = "remote"` and `remote_name` are set, bare `yolobox` attaches to `yolobox remote resume <name>/<remote_workspace> <default_harness>`, with `remote_workspace` defaulting to `default`.
 3. Prefer explicit isolation and safety flags:
    - `--scratch` for disposable or concurrent sessions that must not share `/home/yolo`.
    - `--readonly-project` when the agent only needs read access to the project tree.
    - `--no-env-passthrough` when host API/token environment variables should not enter the box automatically.
    - `--open-bridge` only when the agent needs to open HTTP(S) URLs in the host browser.
    - `--docker` only when the agent needs Docker access or sibling containers.
-4. Use `yolobox remote --name <env> <cmd...>` when the user wants a named remote machine that keeps running after the local machine disconnects. The MVP requires local `doctl` authentication, `ssh`, `rsync`, and a DigitalOcean SSH key in config or `--ssh-key`; sync mirrors the whole current folder to the VM.
+4. Use `yolobox remote --name <env> --workspace <name> <cmd...>` when the user wants a named remote machine and workspace that keep running after the local machine disconnects. The MVP requires local `doctl` authentication, `ssh`, `rsync`, and a DigitalOcean SSH key in config or `--ssh-key`; `sync up` mirrors the whole current folder to the VM, `sync down` requires `--force`, and `remote forward` is the supported local preview path.
 5. When you need exact command patterns or edge-case reminders, read [references/commands.md](references/commands.md).
 6. If you launch a box for another agent, point it at `yolobox` and `YOLOBOX_CONTEXT_FILE` for inside-the-box introspection.
 7. When discussing concurrency, distinguish isolated per-run manifests from shared persistent state: manifests are per-run, but `/home/yolo` and `/var/cache` are shared unless `--scratch` is used.

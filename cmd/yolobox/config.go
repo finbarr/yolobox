@@ -39,6 +39,7 @@ type Config struct {
 	ContainerName         string   `toml:"container_name"`
 	DefaultHarness        string   `toml:"default_harness"`
 	RemoteName            string   `toml:"remote_name"`
+	RemoteWorkspace       string   `toml:"remote_workspace"`
 	Mounts                []string `toml:"mounts"`
 	Env                   []string `toml:"env"`
 	Exclude               []string `toml:"exclude"`
@@ -184,6 +185,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.RemoteName != "" {
 		dst.RemoteName = strings.ToLower(strings.TrimSpace(src.RemoteName))
 	}
+	if src.RemoteWorkspace != "" {
+		dst.RemoteWorkspace = strings.ToLower(strings.TrimSpace(src.RemoteWorkspace))
+	}
 	if len(src.Mounts) > 0 {
 		dst.Mounts = append([]string{}, src.Mounts...)
 	}
@@ -328,6 +332,7 @@ func printConfig(cfg Config) error {
 	printStringConfigField("container_name", cfg.ContainerName)
 	fmt.Printf("%sdefault_harness:%s %s\n", colorBold, colorReset, displayDefaultHarness(cfg.DefaultHarness))
 	fmt.Printf("%sremote_name:%s %s\n", colorBold, colorReset, configValueOrNotSet(cfg.RemoteName))
+	fmt.Printf("%sremote_workspace:%s %s\n", colorBold, colorReset, configValueOrNotSet(effectiveRemoteWorkspace(cfg.RemoteWorkspace)))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
 	fmt.Printf("%sreadonly_project:%s %t\n", colorBold, colorReset, cfg.ReadonlyProject)
@@ -431,6 +436,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if name := strings.TrimSpace(cfg.RemoteName); name != "" {
 		lines = append(lines, fmt.Sprintf("remote_name = %q", strings.ToLower(name)))
+	}
+	if workspace := strings.TrimSpace(cfg.RemoteWorkspace); workspace != "" && workspace != remoteDefaultWorkspace {
+		lines = append(lines, fmt.Sprintf("remote_workspace = %q", strings.ToLower(workspace)))
 	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")

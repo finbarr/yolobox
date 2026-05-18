@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Expanded remote mode around explicit machine, workspace, session, and exposure metadata.
+- Added named remote workspaces, directional `remote sync up` / `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
+- Added `remote_workspace` config and setup support for the default remote workspace.
+
 ### Changed
 
 - Scoped npm package release-age gating to yolobox's own base-image build installs; runtime npm/npx commands and CLI self-updates are unrestricted by default.
@@ -25,6 +31,7 @@ there is no `v0.6.0` tag in this repository.
 
 - GitHub releases now use the curated `CHANGELOG.md` section for the release body so CLI update prompts can show human-written notes.
 - Documented that releases must be tagged only from a clean, up-to-date `master` branch and pushed with the specific release tag.
+- Updated remote mode docs to describe the SSH-first open-source model, workspace sync behavior, local registry state, preview forwarding, security boundaries, and hosted roadmap.
 
 ## v0.17.1 - 2026-05-17
 

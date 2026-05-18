@@ -303,7 +303,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               Start interactive shell in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> <cmd>  Run on a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [--workspace <name>] <cmd>  Run on a named remote workspace")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
@@ -364,6 +364,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
 	fmt.Fprintln(os.Stderr, "  mode = \"remote\"            # make bare yolobox use remote mode")
 	fmt.Fprintln(os.Stderr, "  remote_name = \"foo\"        # default remote machine")
+	fmt.Fprintln(os.Stderr, "  remote_workspace = \"app\"   # default remote workspace")
 	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
@@ -377,7 +378,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex  # Remote named machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo --workspace app codex  # Remote workspace")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
@@ -952,6 +953,7 @@ func runSetup() (Config, error) {
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	containerName := cfg.ContainerName
 	remoteName := cfg.RemoteName
+	remoteWorkspace := effectiveRemoteWorkspace(cfg.RemoteWorkspace)
 	remoteProvider := cfg.Remote.Provider
 	remoteRegion := cfg.Remote.Region
 	remoteSize := cfg.Remote.Size
@@ -1060,6 +1062,11 @@ func runSetup() (Config, error) {
 				Description("Used when mode is remote").
 				Placeholder("foo").
 				Value(&remoteName),
+			huh.NewInput().
+				Title("Default remote workspace").
+				Description("Used when mode is remote").
+				Placeholder(remoteDefaultWorkspace).
+				Value(&remoteWorkspace),
 			huh.NewInput().
 				Title("Remote provider").
 				Description("MVP supports digitalocean").
@@ -1187,6 +1194,7 @@ func runSetup() (Config, error) {
 	cfg.Mode = mode
 	cfg.DefaultHarness = defaultHarness
 	cfg.RemoteName = strings.TrimSpace(remoteName)
+	cfg.RemoteWorkspace = strings.TrimSpace(remoteWorkspace)
 	cfg.Remote.Provider = strings.TrimSpace(remoteProvider)
 	cfg.Remote.Region = strings.TrimSpace(remoteRegion)
 	cfg.Remote.Size = strings.TrimSpace(remoteSize)

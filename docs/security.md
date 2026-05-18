@@ -62,9 +62,11 @@ These are useful, but they are explicit trust decisions.
 
 ## Remote mode
 
-`yolobox remote` provisions and controls a VM through your local DigitalOcean CLI credentials. That VM is outside the local container trust boundary. Anyone with SSH access to the remote host can inspect the synced project folder, running containers, tmux sessions, and any files or secrets you place there.
+`yolobox remote` provisions and controls a VM through your local DigitalOcean CLI credentials. That VM is outside the local container trust boundary. Anyone with SSH access to the remote host can inspect synced workspace folders, running containers, tmux sessions, forwarded preview traffic, and any files or secrets you place there.
 
-The MVP mirrors the entire current folder with `rsync`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop.
+The MVP mirrors the entire current folder with `rsync` on `remote sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop. `remote sync down ... --force` copies remote files back into the local folder and can overwrite local changes.
+
+Remote preview access is explicit. The open-source MVP supports local SSH forwarding with `remote forward`; it does not create public preview URLs. Stop the forwarding process when you are done.
 
 ## Hardening options
 

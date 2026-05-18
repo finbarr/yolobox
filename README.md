@@ -182,7 +182,7 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
-yolobox remote --name <env> <cmd...> # Run on a named DigitalOcean remote machine
+yolobox remote --name <env> [--workspace <name>] <cmd...> # Run on a named remote workspace
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -213,18 +213,26 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 
 ## Remote Mode
 
-Remote mode is the first step toward named yolobox machines that keep running after your laptop disconnects. The MVP uses your local `doctl` authentication to create DigitalOcean Droplets directly, stores machine metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to the VM with `rsync`, and attaches to a persistent `tmux` session over SSH.
+Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The open-source path is SSH-first: the local CLI provisions or reuses a DigitalOcean Droplet through your `doctl` authentication, stores local registry metadata in `~/.local/state/yolobox/remotes.json`, mirrors a named workspace with `rsync`, and attaches to a persistent `tmux` session over SSH.
 
 ```bash
 yolobox remote --name foo codex
-yolobox remote resume foo codex
-yolobox remote sync foo
+yolobox remote --name foo --workspace app codex
+yolobox remote resume foo/app codex
+yolobox remote sync up foo/app
+yolobox remote sync down foo/app --force
+yolobox remote forward foo/app 3000
+yolobox remote stop foo/app
 yolobox remote list
-yolobox remote status foo
+yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-Remote sync copies the entire current folder into `/root/yolobox-projects/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after the copy finishes.
+Remote support is modeled as machines, workspaces, sessions, and exposures. A machine is the VM. A workspace is a durable project copy on that machine. A session is the persistent `tmux` process running the harness. An exposure is explicit port access; the open-source MVP supports local SSH forwarding with `remote forward`, while managed preview URLs remain a later hosted feature.
+
+When `remote_name` is configured, commands that take a remote target can omit `foo/app`; `remote_workspace` selects the workspace, defaulting to `default`.
+
+Remote sync copies the entire current folder into `/root/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
 See [Remote Mode](docs/remote.md) for the MVP spec and roadmap.
 
@@ -237,6 +245,7 @@ Settings are saved to `~/.config/yolobox/config.toml`:
 ```toml
 # mode = "remote"
 # remote_name = "foo"
+# remote_workspace = "default"
 default_harness = "codex" # or claude, gemini, opencode, copilot, none
 git_config = true
 opencode_config = true

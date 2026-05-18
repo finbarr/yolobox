@@ -15,6 +15,7 @@ Applies to all projects:
 ```toml
 # mode = "remote"
 # remote_name = "foo"
+# remote_workspace = "default"
 default_harness = "codex"
 git_config = true
 opencode_config = true
@@ -84,11 +85,12 @@ Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`.
 
 ## Remote defaults
 
-Set `mode = "remote"` and `remote_name` when bare `yolobox` should attach to a named remote machine instead of starting a local container:
+Set `mode = "remote"` and `remote_name` when bare `yolobox` should attach to a named remote machine instead of starting a local container. `remote_workspace` selects the named workspace on that machine and defaults to `default`.
 
 ```toml
 mode = "remote"
 remote_name = "foo"
+remote_workspace = "app"
 default_harness = "codex"
 
 [remote]
@@ -101,11 +103,11 @@ ssh_user = "root"
 setup = ["docker compose pull"]
 ```
 
-With that config, bare `yolobox` behaves like `yolobox remote resume foo codex`.
+With that config, bare `yolobox` behaves like `yolobox remote resume foo/app codex`.
 
-Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to the VM with `rsync`, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
+Remote mode currently provisions DigitalOcean Droplets through the local `doctl` CLI. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command inside a persistent tmux session. The DigitalOcean SSH key is required so yolobox can connect over SSH after provisioning.
 
-Remote sync copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
+Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote workspace back to the local folder and requires `--force` because it can overwrite local files.
 
 ## Project file filtering
 

@@ -1,37 +1,43 @@
 # Remote Mode
 
-Remote mode is the roadmap for named yolobox machines that run away from your laptop. It should feel like fork mode in the sense that each name owns an isolated working environment, but the unit of isolation is a remote VM instead of a copied local folder.
+Remote mode gives yolobox a machine that keeps running after your laptop disconnects. It is designed for Claude, Codex, and other terminal agents that benefit from real Linux compute, persistent sessions, and preview ports without turning yolobox into a hosted IDE.
 
-## MVP
+The open-source path deliberately starts without a hosted control plane. The local CLI uses your DigitalOcean CLI credentials, connects over SSH, stores registry metadata locally, and keeps the core workflow usable for bring-your-own infrastructure. Managed machines, public preview URLs, team auth, billing, and dashboards belong to a later hosted layer.
 
-The first implementation deliberately avoids a hosted control plane. The local CLI manages DigitalOcean Droplets through `doctl`, stores machine metadata in a local registry, and connects over SSH.
+## Mental model
 
-Target commands:
+Remote support has four separate concepts:
+
+- **Machine:** the remote compute target, currently a DigitalOcean Droplet created through `doctl`.
+- **Workspace:** a durable project copy on a machine. A machine can host more than one named workspace.
+- **Session:** a persistent `tmux` session inside a workspace. Closing the local terminal does not stop it.
+- **Exposure:** explicit port access. The MVP supports local SSH forwarding; managed public URLs are not part of the open-source MVP.
+
+Keeping these separate matters. A machine can outlive a project, a workspace can outlive an attached terminal, and preview access should be opt-in rather than implied by starting a web server.
+
+## Commands
 
 ```bash
 yolobox remote --name foo codex
-yolobox remote resume foo codex
-yolobox remote sync foo
+yolobox remote --name foo --workspace app codex
+yolobox remote resume foo/app codex
+yolobox remote attach foo/app codex
+yolobox remote sync up foo/app
+yolobox remote sync down foo/app --force
+yolobox remote forward foo/app 3000
+yolobox remote stop foo/app
 yolobox remote list
-yolobox remote status foo
+yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-The MVP should:
+`foo` is the machine name. `app` is the workspace name. If you omit the workspace, yolobox uses `default`, so `foo` and `foo/default` refer to the same default workspace.
 
-- create or reuse a named DigitalOcean Droplet
-- install Docker, tmux, git, rsync, and yolobox on the remote host
-- mirror the current folder into the remote host with `rsync`
-- refresh that full folder mirror on `remote sync`
-- run the requested harness inside a persistent tmux session
-- let the user reattach after closing their laptop
-- keep enough local registry state to list, resume, sync, and destroy machines later
-
-The MVP does not include team sharing, hosted DNS, a dashboard, automatic billing, or a remote clipboard/open bridge. Those belong to later phases.
+If `remote_name` is configured, commands that take a remote target can omit `foo/app`; `remote_workspace` selects the workspace, defaulting to `default`.
 
 ## Prerequisites
 
-Install and authenticate the DigitalOcean CLI before using the MVP:
+Install and authenticate the DigitalOcean CLI before provisioning:
 
 ```bash
 doctl auth init
@@ -39,15 +45,16 @@ doctl auth init
 
 Remote provisioning also requires a DigitalOcean SSH key ID or fingerprint. Configure it with `remote.ssh_key` or pass `--ssh-key`.
 
-The local machine also needs `ssh` and `rsync`. yolobox checks for those before creating a Droplet so a missing sync tool does not leave a half-provisioned VM behind.
+The local machine must have `ssh` and `rsync`. yolobox checks for `doctl`, `ssh`, and `rsync` before creating a Droplet so a missing sync tool does not leave a half-provisioned machine behind.
 
 ## Configuration
 
-Remote defaults live in the normal yolobox config files:
+Remote defaults live in normal yolobox config:
 
 ```toml
 mode = "remote"
 remote_name = "foo"
+remote_workspace = "app"
 default_harness = "codex"
 
 [remote]
@@ -57,41 +64,116 @@ size = "s-2vcpu-4gb"
 image = "ubuntu-24-04-x64"
 ssh_key = "your-digitalocean-ssh-key-id-or-fingerprint"
 ssh_user = "root"
-```
-
-With that config, bare `yolobox` should resolve to:
-
-```bash
-yolobox remote resume foo codex
-```
-
-Project config can add setup commands that run after the folder is copied or updated:
-
-```toml
-[remote]
 setup = [
   "docker compose pull",
   "docker compose up -d db redis"
 ]
 ```
 
-## Sync Model
+With that config, bare `yolobox` behaves like:
 
-The MVP mirrors the whole current folder with `rsync -az --delete`. The remote project path is `/root/yolobox-projects/<folder>`, and the registry records the last local source path, Git remote, and branch when those are available.
+```bash
+yolobox remote resume foo/app codex
+```
 
-This is intentionally closer to fork mode than a Git checkout: `.git`, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches are all copied if they live under the current folder. That makes the remote feel like the local workspace, but it also means secrets in the project folder leave your laptop. Remove or relocate anything you do not want on the VM before syncing.
+`remote.setup` commands run after `sync up` finishes. They are useful for pulling images, starting databases, or refreshing dependencies on the remote machine.
 
-## Local Registry
+## Provisioning
 
-The local registry records the user-visible remote name, provider, Droplet ID, public IP, repo URL, branch, remote project path, SSH user, and timestamps. It is local state, not the source of truth for the cloud provider. If the registry drifts, `yolobox remote status` should refresh from the provider where possible.
+The first `yolobox remote --name foo ...` call creates a Droplet named `yolobox-foo`, waits for SSH, installs Docker, `tmux`, `git`, `rsync`, and yolobox, pulls the base image, creates the requested workspace, syncs the project, and attaches to the session.
 
-## Later Phases
+Later calls reuse the registered machine and workspace. `yolobox remote status foo/app` refreshes the Droplet IP from DigitalOcean when possible.
 
-Future hosted mode can replace the local-only control flow with a managed control plane while preserving the same CLI contract.
+## Sync
 
-- Hosted control plane for account login, teams, DNS, TLS, lifecycle management, idle cleanup, and billing.
-- Provider abstraction for Hetzner, AWS, existing SSH hosts, and other VM backends.
-- Team sharing with owner, collaborator, and viewer roles.
-- Authenticated app URLs such as `web.foo.hosted.yolobox.dev`.
-- Remote clipboard and URL-open bridge routed through an attached local CLI or browser session.
-- Dashboard for team machines, owners, exposed ports, costs, and activity.
+`sync up` mirrors the current local folder to the remote workspace with `rsync -az --delete`:
+
+```bash
+yolobox remote sync up foo/app
+```
+
+The remote project path is:
+
+```text
+/root/yolobox-workspaces/<machine>-<workspace>/<folder>
+```
+
+The sync is intentionally closer to fork mode than a Git checkout. `.git`, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches are copied if they live under the current folder. That makes the remote feel like the local workspace, but it also means secrets in the project folder leave your laptop.
+
+`sync down` copies the remote workspace back into the current local folder and requires `--force`:
+
+```bash
+yolobox remote sync down foo/app --force
+```
+
+Use `sync down` only when the remote copy should overwrite local files. For Git projects, committing changes in the remote session and pushing a branch is usually a cleaner handoff.
+
+## Sessions
+
+Remote sessions use `tmux`. The default session name is `main`, and the underlying tmux session is namespaced by machine and workspace. Reattach with:
+
+```bash
+yolobox remote resume foo/app codex
+```
+
+Stop the default session with:
+
+```bash
+yolobox remote stop foo/app
+```
+
+The open-source MVP runs the requested harness through the remote yolobox CLI inside the synced workspace. It does not yet run a managed long-lived workspace container with per-workspace volumes; the registry already records workspace container and volume names so the implementation can grow in that direction without changing the CLI contract.
+
+## Preview ports
+
+Remote mode does not expose public ports by default. For local preview access, forward a remote port over SSH:
+
+```bash
+yolobox remote forward foo/app 3000
+yolobox remote forward foo/app 3000 --local-port 13000
+```
+
+The first command opens `http://127.0.0.1:3000` on your laptop and forwards it to `127.0.0.1:3000` on the remote machine. Press `Ctrl+C` to stop forwarding.
+
+Managed URLs such as `*.yolobox.dev`, team-private previews, and public links are intentionally separate from terminal attach and are not part of the open-source MVP.
+
+## Local registry
+
+The local registry lives at:
+
+```text
+~/.local/state/yolobox/remotes.json
+```
+
+It records machines, workspaces, sessions, and exposures. It is local state, not the source of truth for the cloud provider. If the registry drifts, `remote status` refreshes what it can from DigitalOcean.
+
+## Security
+
+Treat a remote machine like another trusted development machine:
+
+- Anyone with SSH access to the VM can inspect synced files, tmux sessions, running containers, and forwarded preview traffic.
+- `sync up` copies project-local secrets if they are in the folder.
+- `sync down --force` can overwrite local files.
+- Public preview URLs are not created by the MVP.
+- If a future hosted mode allows Docker socket access, the machine should be dedicated to one user or workspace because Docker access is effectively host-level access.
+
+## Roadmap
+
+The current CLI contract is intended to survive future hosted work.
+
+Planned open-source improvements:
+
+- remote agent subcommands for workspace management over SSH
+- long-lived workspace containers with per-workspace home, cache, output volumes, and networks
+- explicit secret/config staging for Claude, Codex, Git, and GitHub auth
+- better dirty-state checks before `sync up` and `sync down`
+- local port-forward lifecycle listing and cleanup
+- bring-your-own SSH host support beyond DigitalOcean provisioning
+
+Hosted or team features:
+
+- managed machines and warm pools
+- managed preview URLs with TLS and auth
+- team sharing roles for viewer, commenter, controller, and owner
+- audit logs for attaches, commands, syncs, and exposures
+- snapshots, clone, restore, idle shutdown, budget controls, and policy controls

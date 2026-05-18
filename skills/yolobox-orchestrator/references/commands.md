@@ -35,10 +35,10 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
-If `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"` are set, bare `yolobox` attaches to:
+If `mode = "remote"`, `remote_name = "foo"`, `remote_workspace = "app"`, and `default_harness = "codex"` are set, bare `yolobox` attaches to:
 
 ```bash
-yolobox remote resume foo codex
+yolobox remote resume foo/app codex
 ```
 
 ## Remote machines
@@ -47,29 +47,43 @@ Create or reuse a named DigitalOcean remote machine:
 
 ```bash
 yolobox remote --name foo codex
+yolobox remote --name foo --workspace app codex
 ```
 
 Reattach later:
 
 ```bash
-yolobox remote resume foo codex
+yolobox remote resume foo/app codex
 ```
 
-Sync the current folder to the remote host:
+Sync the current folder to the remote workspace:
 
 ```bash
-yolobox remote sync foo
+yolobox remote sync up foo/app
+```
+
+Copy the remote workspace back to the local folder, overwriting local files:
+
+```bash
+yolobox remote sync down foo/app --force
+```
+
+Forward a remote preview port to localhost:
+
+```bash
+yolobox remote forward foo/app 3000
+yolobox remote forward 3000 # uses configured remote_name and remote_workspace
 ```
 
 Inspect and clean up local registry state plus the DigitalOcean Droplet:
 
 ```bash
 yolobox remote list
-yolobox remote status foo
+yolobox remote status foo/app
 yolobox remote destroy foo --force
 ```
 
-The MVP depends on local `doctl` auth, `ssh`, `rsync`, a configured DigitalOcean SSH key, and SSH access to the Droplet. Sync mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches.
+The MVP depends on local `doctl` auth, `ssh`, `rsync`, a configured DigitalOcean SSH key, and SSH access to the Droplet. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 
