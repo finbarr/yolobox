@@ -32,6 +32,7 @@ there is no `v0.6.0` tag in this repository.
 - GitHub releases now use the curated `CHANGELOG.md` section for the release body so CLI update prompts can show human-written notes.
 - Documented that releases must be tagged only from a clean, up-to-date `master` branch and pushed with the specific release tag.
 - Updated remote mode docs to describe the SSH-first open-source model, workspace sync behavior, local registry state, preview forwarding, security boundaries, and hosted roadmap.
+- Remote workspaces now sync under `/opt/yolobox-workspaces` and non-interactive remote commands run directly over SSH instead of requiring a terminal-backed tmux attach.
 
 ## v0.17.1 - 2026-05-17
 

@@ -95,7 +95,7 @@ yolobox remote sync up foo/app
 The remote project path is:
 
 ```text
-/root/yolobox-workspaces/<machine>-<workspace>/<folder>
+/opt/yolobox-workspaces/<machine>-<workspace>/<folder>
 ```
 
 The sync is intentionally closer to fork mode than a Git checkout. `.git`, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches are copied if they live under the current folder. That makes the remote feel like the local workspace, but it also means secrets in the project folder leave your laptop.

@@ -25,6 +25,26 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 				CreatedAt:   now,
 				UpdatedAt:   now,
 			},
+			"legacy": {
+				Name:        "legacy",
+				Provider:    remoteProviderDigitalOcean,
+				DropletID:   "456",
+				PublicIPv4:  "203.0.113.11",
+				SSHUser:     "root",
+				ProjectPath: "/root/yolobox-projects/legacy",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			},
+		},
+		Workspaces: map[string]remoteWorkspace{
+			remoteWorkspaceID("foo", "app"): {
+				ID:          remoteWorkspaceID("foo", "app"),
+				Name:        "app",
+				Machine:     "foo",
+				ProjectPath: "/root/yolobox-workspaces/foo-app/app",
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			},
 		},
 	}
 	if err := saveRemoteRegistry(reg); err != nil {
@@ -42,12 +62,22 @@ func TestRemoteRegistryRoundTrip(t *testing.T) {
 	if machine.DropletID != "123" || machine.PublicIPv4 != "203.0.113.10" {
 		t.Fatalf("unexpected registry machine: %+v", machine)
 	}
-	workspace, ok := loaded.Workspaces[remoteWorkspaceID("foo", remoteDefaultWorkspace)]
+	if _, ok := loaded.Workspaces[remoteWorkspaceID("foo", remoteDefaultWorkspace)]; ok {
+		t.Fatal("did not expect default workspace when named workspace already exists")
+	}
+	workspace, ok := loaded.Workspaces[remoteWorkspaceID("legacy", remoteDefaultWorkspace)]
 	if !ok {
 		t.Fatal("expected legacy machine project to migrate to default workspace")
 	}
-	if workspace.ProjectPath != "/root/yolobox-projects/app" {
+	if workspace.ProjectPath != "/root/yolobox-projects/legacy" {
 		t.Fatalf("unexpected migrated workspace: %+v", workspace)
+	}
+	appWorkspace, ok := loaded.Workspaces[remoteWorkspaceID("foo", "app")]
+	if !ok {
+		t.Fatal("expected app workspace in remote registry")
+	}
+	if appWorkspace.ProjectPath != "/opt/yolobox-workspaces/foo-app/app" {
+		t.Fatalf("expected legacy workspace root migration, got %+v", appWorkspace)
 	}
 }
 
@@ -223,9 +253,11 @@ exit 1
 
 func TestRemoteTmuxCommand(t *testing.T) {
 	workspace := remoteWorkspace{ProjectPath: "/root/yolobox-projects/my app"}
-	command := remoteTmuxCommand(workspace, "yolobox-foo-default-main", []string{"yolobox", "codex", "--resume"})
+	command := remoteTmuxCommand(workspace, "yolobox-foo-default-main", []string{"yolobox", "codex", "--resume"}, true)
 
 	for _, want := range []string{
+		`export PATH="/root/.local/bin:$PATH"`,
+		"cd '/root/yolobox-projects/my app'",
 		"tmux new-session -A -s 'yolobox-foo-default-main'",
 		"-c '/root/yolobox-projects/my app'",
 		"yolobox",
@@ -234,6 +266,55 @@ func TestRemoteTmuxCommand(t *testing.T) {
 	} {
 		if !strings.Contains(command, want) {
 			t.Fatalf("expected tmux command to contain %q, got %q", want, command)
+		}
+	}
+}
+
+func TestRemoteDetachedTmuxCommand(t *testing.T) {
+	workspace := remoteWorkspace{ProjectPath: "/root/yolobox-projects/my app"}
+	command := remoteTmuxCommand(workspace, "yolobox-foo-default-main", []string{"yolobox", "codex"}, false)
+
+	for _, want := range []string{
+		"tmux has-session -t 'yolobox-foo-default-main'",
+		"tmux new-session -d -s 'yolobox-foo-default-main'",
+		"yolobox",
+		"codex",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("expected detached tmux command to contain %q, got %q", want, command)
+		}
+	}
+}
+
+func TestRemoteDirectCommand(t *testing.T) {
+	workspace := remoteWorkspace{ProjectPath: "/root/yolobox-projects/my app"}
+	command := remoteDirectCommand(workspace, []string{"yolobox", "run", "echo", "ok"})
+
+	for _, want := range []string{
+		`export PATH="/root/.local/bin:$PATH"`,
+		"cd '/root/yolobox-projects/my app'",
+		"exec 'yolobox' 'run' 'echo' 'ok'",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("expected direct command to contain %q, got %q", want, command)
+		}
+	}
+}
+
+func TestRemoteCommandNeedsTTY(t *testing.T) {
+	tests := []struct {
+		command []string
+		want    bool
+	}{
+		{[]string{"codex"}, true},
+		{[]string{"claude", "-p", "hello"}, false},
+		{[]string{"shell"}, true},
+		{[]string{"run", "echo", "ok"}, false},
+		{[]string{"run", "bash"}, true},
+	}
+	for _, tt := range tests {
+		if got := remoteCommandNeedsTTY(tt.command); got != tt.want {
+			t.Fatalf("remoteCommandNeedsTTY(%v) = %t, want %t", tt.command, got, tt.want)
 		}
 	}
 }
@@ -392,7 +473,8 @@ exit 0
 	for _, want := range []string{
 		"-A\n",
 		"root@203.0.113.10\n",
-		"tmux new-session -A -s 'yolobox-foo-default-main'",
+		"tmux has-session -t 'yolobox-foo-default-main'",
+		"tmux new-session -d -s 'yolobox-foo-default-main'",
 		"yolobox",
 		"codex",
 	} {
@@ -472,7 +554,7 @@ func TestRemoteStatusUsesConfiguredTarget(t *testing.T) {
 		ID:          remoteWorkspaceID("foo", "app"),
 		Name:        "app",
 		Machine:     "foo",
-		ProjectPath: "/root/yolobox-workspaces/foo-app/project",
+		ProjectPath: "/opt/yolobox-workspaces/foo-app/project",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}
@@ -510,7 +592,7 @@ func TestRemoteSyncDownRequiresForce(t *testing.T) {
 		ID:          remoteWorkspaceID("foo", remoteDefaultWorkspace),
 		Name:        remoteDefaultWorkspace,
 		Machine:     "foo",
-		ProjectPath: "/root/yolobox-workspaces/foo-default/project",
+		ProjectPath: "/opt/yolobox-workspaces/foo-default/project",
 		CreatedAt:   now,
 		UpdatedAt:   now,
 	}

@@ -14,14 +14,18 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 )
 
 const (
 	remoteProviderDigitalOcean = "digitalocean"
-	remoteRegistryVersion      = 2
+	remoteRegistryVersion      = 3
 	remoteDefaultWorkspace     = "default"
 	remoteDefaultSession       = "yolobox"
 	remoteDefaultSessionName   = "main"
+	remoteWorkspaceRoot        = "/opt/yolobox-workspaces"
+	remoteLegacyWorkspaceRoot  = "/root/yolobox-workspaces"
 )
 
 type remoteMachine struct {
@@ -1099,7 +1103,8 @@ if ! command -v yolobox >/dev/null 2>&1; then
   curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 fi
 docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /root/yolobox-workspaces /root/yolobox-projects
+mkdir -p /opt/yolobox-workspaces /root/yolobox-projects
+chmod 755 /opt /opt/yolobox-workspaces
 `
 	if _, err := file.WriteString(script); err != nil {
 		return "", err
@@ -1197,7 +1202,8 @@ if ! command -v yolobox >/dev/null 2>&1; then
   curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 fi
 docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /root/yolobox-workspaces /root/yolobox-projects
+mkdir -p /opt/yolobox-workspaces /root/yolobox-projects
+chmod 755 /opt /opt/yolobox-workspaces
 `
 	return runRemoteScript(machine, script, false)
 }
@@ -1369,31 +1375,55 @@ func attachRemoteWorkspace(machine remoteMachine, workspace remoteWorkspace, ses
 	if len(commandArgs) == 0 {
 		commandArgs = []string{"shell"}
 	}
-	tmuxSession := remoteTmuxSessionName(workspace, sessionName)
-	remoteCommand := remoteTmuxCommand(workspace, tmuxSession, append([]string{"yolobox"}, commandArgs...))
-	info("Attaching to remote %s/%s (%s)", machine.Name, workspace.Name, machine.PublicIPv4)
-	if err := runSSHCommand(machine, remoteCommand, true, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
+
+	stdinTTY := term.IsTerminal(int(os.Stdin.Fd()))
+	stdoutTTY := term.IsTerminal(int(os.Stdout.Fd()))
+	interactive := remoteCommandNeedsTTY(commandArgs)
+	sshTTY := false
+	recordSession := false
+	var tmuxSession string
+	var remoteCommand string
+
+	if interactive {
+		tmuxSession = remoteTmuxSessionName(workspace, sessionName)
+		recordSession = true
+		if stdinTTY && stdoutTTY {
+			remoteCommand = remoteTmuxCommand(workspace, tmuxSession, append([]string{"yolobox"}, commandArgs...), true)
+			sshTTY = true
+			info("Attaching to remote %s/%s (%s)", machine.Name, workspace.Name, machine.PublicIPv4)
+		} else {
+			remoteCommand = remoteTmuxCommand(workspace, tmuxSession, append([]string{"yolobox"}, commandArgs...), false)
+			info("Starting detached remote session %s/%s (%s); run from a terminal to attach", machine.Name, workspace.Name, machine.PublicIPv4)
+		}
+	} else {
+		remoteCommand = remoteDirectCommand(workspace, append([]string{"yolobox"}, commandArgs...))
+		info("Running on remote %s/%s (%s)", machine.Name, workspace.Name, machine.PublicIPv4)
+	}
+
+	if err := runSSHCommand(machine, remoteCommand, sshTTY, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
 		return err
 	}
 
 	reg, err := loadRemoteRegistry()
 	if err == nil {
 		now := time.Now().UTC()
-		sessionID := remoteSessionID(workspace.ID, sessionName)
-		session := remoteSession{
-			ID:          sessionID,
-			Name:        sessionName,
-			Machine:     machine.Name,
-			Workspace:   workspace.ID,
-			TmuxSession: tmuxSession,
-			LastCommand: commandArgs,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+		if recordSession {
+			sessionID := remoteSessionID(workspace.ID, sessionName)
+			session := remoteSession{
+				ID:          sessionID,
+				Name:        sessionName,
+				Machine:     machine.Name,
+				Workspace:   workspace.ID,
+				TmuxSession: tmuxSession,
+				LastCommand: commandArgs,
+				CreatedAt:   now,
+				UpdatedAt:   now,
+			}
+			if existing, ok := reg.Sessions[sessionID]; ok {
+				session.CreatedAt = existing.CreatedAt
+			}
+			reg.Sessions[sessionID] = session
 		}
-		if existing, ok := reg.Sessions[sessionID]; ok {
-			session.CreatedAt = existing.CreatedAt
-		}
-		reg.Sessions[sessionID] = session
 		machine.LastCommand = commandArgs
 		machine.UpdatedAt = now
 		reg.Machines[machine.Name] = machine
@@ -1415,8 +1445,34 @@ func remoteTmuxSessionName(workspace remoteWorkspace, sessionName string) string
 	return remoteDefaultSession + "-" + sanitizeRemoteResourceID(workspace.ID) + "-" + sessionName
 }
 
-func remoteTmuxCommand(workspace remoteWorkspace, sessionName string, command []string) string {
-	return "tmux new-session -A -s " + shellQuote(sessionName) + " -c " + shellQuote(workspace.ProjectPath) + " " + shellQuote(shellJoin(command))
+func remoteCommandNeedsTTY(command []string) bool {
+	if len(command) == 0 {
+		return true
+	}
+	cmd := filepath.Base(command[0])
+	switch cmd {
+	case "shell":
+		return true
+	case "run":
+		return shouldAttachTTY(command[1:], false, true, true)
+	default:
+		return shouldAttachTTY(command, false, true, true)
+	}
+}
+
+func remoteCommandPrefix(workspace remoteWorkspace) string {
+	return "export PATH=\"/root/.local/bin:$PATH\"; cd " + shellQuote(workspace.ProjectPath) + "; "
+}
+
+func remoteDirectCommand(workspace remoteWorkspace, command []string) string {
+	return remoteCommandPrefix(workspace) + "exec " + shellJoin(command)
+}
+
+func remoteTmuxCommand(workspace remoteWorkspace, sessionName string, command []string, attach bool) string {
+	if attach {
+		return remoteCommandPrefix(workspace) + "tmux new-session -A -s " + shellQuote(sessionName) + " -c " + shellQuote(workspace.ProjectPath) + " " + shellQuote(shellJoin(command))
+	}
+	return remoteCommandPrefix(workspace) + "tmux has-session -t " + shellQuote(sessionName) + " 2>/dev/null || tmux new-session -d -s " + shellQuote(sessionName) + " -c " + shellQuote(workspace.ProjectPath) + " " + shellQuote(shellJoin(command))
 }
 
 func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) error {
@@ -1523,7 +1579,7 @@ func defaultWorkspaceFromMachine(machine remoteMachine) remoteWorkspace {
 	id := remoteWorkspaceID(machine.Name, remoteDefaultWorkspace)
 	projectPath := machine.ProjectPath
 	if projectPath == "" {
-		projectPath = "/root/yolobox-workspaces/" + sanitizeRemoteResourceID(id) + "/project"
+		projectPath = remoteWorkspaceRoot + "/" + sanitizeRemoteResourceID(id) + "/project"
 	}
 	workspace := remoteWorkspace{
 		ID:             id,
@@ -1563,7 +1619,7 @@ func remoteExposureID(workspaceID string, name string) string {
 
 func remoteWorkspaceProjectPath(machineName string, workspaceName string, sourcePath string) string {
 	workspaceID := remoteWorkspaceID(machineName, workspaceName)
-	return "/root/yolobox-workspaces/" + sanitizeRemoteResourceID(workspaceID) + "/" + slugify(filepath.Base(sourcePath), "project")
+	return remoteWorkspaceRoot + "/" + sanitizeRemoteResourceID(workspaceID) + "/" + slugify(filepath.Base(sourcePath), "project")
 }
 
 func remoteResourceName(kind string, id string) string {
@@ -1755,10 +1811,56 @@ func migrateRemoteRegistry(reg *remoteRegistry) {
 		if machine.ProjectPath == "" {
 			continue
 		}
+		if remoteRegistryHasWorkspaceForMachine(reg, name) {
+			continue
+		}
 		id := remoteWorkspaceID(name, remoteDefaultWorkspace)
 		if _, ok := reg.Workspaces[id]; ok {
 			continue
 		}
 		reg.Workspaces[id] = defaultWorkspaceFromMachine(machine)
+	}
+	for id, workspace := range reg.Workspaces {
+		if strings.HasPrefix(workspace.ProjectPath, remoteLegacyWorkspaceRoot+"/") {
+			workspace.ProjectPath = remoteWorkspaceRoot + strings.TrimPrefix(workspace.ProjectPath, remoteLegacyWorkspaceRoot)
+			workspace.ComposeProject = composeProjectName(workspace.ProjectPath, id)
+			workspace.UpdatedAt = time.Now().UTC()
+			reg.Workspaces[id] = workspace
+		}
+	}
+	for name, machine := range reg.Machines {
+		if strings.HasPrefix(machine.ProjectPath, remoteLegacyWorkspaceRoot+"/") {
+			machine.ProjectPath = remoteWorkspaceRoot + strings.TrimPrefix(machine.ProjectPath, remoteLegacyWorkspaceRoot)
+			machine.ComposeProject = composeProjectName(machine.ProjectPath, name)
+			machine.UpdatedAt = time.Now().UTC()
+			reg.Machines[name] = machine
+		}
+	}
+	removeDuplicateDefaultWorkspaces(reg)
+}
+
+func remoteRegistryHasWorkspaceForMachine(reg *remoteRegistry, machineName string) bool {
+	for _, workspace := range reg.Workspaces {
+		if workspace.Machine == machineName {
+			return true
+		}
+	}
+	return false
+}
+
+func removeDuplicateDefaultWorkspaces(reg *remoteRegistry) {
+	for id, workspace := range reg.Workspaces {
+		if workspace.Name != remoteDefaultWorkspace {
+			continue
+		}
+		for otherID, other := range reg.Workspaces {
+			if otherID == id || other.Machine != workspace.Machine || other.Name == remoteDefaultWorkspace {
+				continue
+			}
+			if other.ProjectPath != "" && other.ProjectPath == workspace.ProjectPath {
+				delete(reg.Workspaces, id)
+				break
+			}
+		}
 	}
 }

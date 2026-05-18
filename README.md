@@ -232,7 +232,7 @@ Remote support is modeled as machines, workspaces, sessions, and exposures. A ma
 
 When `remote_name` is configured, commands that take a remote target can omit `foo/app`; `remote_workspace` selects the workspace, defaulting to `default`.
 
-Remote sync copies the entire current folder into `/root/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
+Remote sync copies the entire current folder into `/opt/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
 See [Remote Mode](docs/remote.md) for the MVP spec and roadmap.
 
