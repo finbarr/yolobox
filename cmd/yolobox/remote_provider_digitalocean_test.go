@@ -12,7 +12,9 @@ import (
 )
 
 func TestDigitalOceanProviderCreatesDropletWithDefaultPublicKey(t *testing.T) {
+	t.Setenv(digitalOceanAccessTokenEnv, "")
 	t.Setenv(digitalOceanTokenEnv, "do-token")
+	t.Setenv(digitalOceanFallbackTokenEnv, "")
 	home := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(home, ".ssh"), 0700); err != nil {
 		t.Fatal(err)
@@ -88,7 +90,9 @@ func TestDigitalOceanProviderCreatesDropletWithDefaultPublicKey(t *testing.T) {
 }
 
 func TestDigitalOceanProviderUsesConfiguredSSHKeys(t *testing.T) {
+	t.Setenv(digitalOceanAccessTokenEnv, "")
 	t.Setenv(digitalOceanTokenEnv, "do-token")
+	t.Setenv(digitalOceanFallbackTokenEnv, "")
 	var sawAccountKeys bool
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -123,6 +127,18 @@ func TestDigitalOceanProviderUsesConfiguredSSHKeys(t *testing.T) {
 	}
 	if sawAccountKeys {
 		t.Fatal("configured ssh keys should not require account key lookup")
+	}
+}
+
+func TestRemoteDigitalOceanTokenUsesAccessTokenEnv(t *testing.T) {
+	cfg := defaultConfig()
+	cfg.Remote.DigitalOcean.Token = ""
+	t.Setenv(digitalOceanAccessTokenEnv, "access-token")
+	t.Setenv(digitalOceanTokenEnv, "legacy-token")
+	t.Setenv(digitalOceanFallbackTokenEnv, "fallback-token")
+
+	if got := remoteDigitalOceanToken(cfg); got != "access-token" {
+		t.Fatalf("expected access token env to win, got %q", got)
 	}
 }
 

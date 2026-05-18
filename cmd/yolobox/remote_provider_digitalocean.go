@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -21,6 +22,7 @@ const (
 	remoteProviderDigitalOcean     = "digitalocean"
 	digitalOceanAPIBaseURL         = "https://api.digitalocean.com"
 	digitalOceanAPIURLEnv          = "YOLOBOX_DIGITALOCEAN_API_URL"
+	digitalOceanAccessTokenEnv     = "DIGITALOCEAN_ACCESS_TOKEN"
 	digitalOceanTokenEnv           = "DIGITALOCEAN_TOKEN"
 	digitalOceanFallbackTokenEnv   = "DO_API_TOKEN"
 	remoteSSHPublicKeyEnv          = "YOLOBOX_REMOTE_SSH_PUBLIC_KEY"
@@ -122,7 +124,7 @@ func newDigitalOceanProvider(cfg Config, opts remoteProvisionOptions) (*digitalO
 	}
 	token := remoteDigitalOceanToken(cfg)
 	if token == "" {
-		return nil, fmt.Errorf("DigitalOcean provider requires remote.digitalocean.token, %s, or %s", digitalOceanTokenEnv, digitalOceanFallbackTokenEnv)
+		return nil, fmt.Errorf("DigitalOcean provider requires remote.digitalocean.token, %s, %s, or %s", digitalOceanAccessTokenEnv, digitalOceanTokenEnv, digitalOceanFallbackTokenEnv)
 	}
 	region := firstNonEmpty(do.Region, defaultConfig().Remote.DigitalOcean.Region)
 	size := firstNonEmpty(do.Size, defaultConfig().Remote.DigitalOcean.Size)
@@ -149,6 +151,9 @@ func newDigitalOceanProvider(cfg Config, opts remoteProvisionOptions) (*digitalO
 
 func remoteDigitalOceanToken(cfg Config) string {
 	if token := strings.TrimSpace(cfg.Remote.DigitalOcean.Token); token != "" {
+		return token
+	}
+	if token := strings.TrimSpace(os.Getenv(digitalOceanAccessTokenEnv)); token != "" {
 		return token
 	}
 	if token := strings.TrimSpace(os.Getenv(digitalOceanTokenEnv)); token != "" {
@@ -397,7 +402,30 @@ func defaultRemotePublicKey() (string, error) {
 			return strings.TrimSpace(string(data)), nil
 		}
 	}
-	return "", fmt.Errorf("DigitalOcean provider needs an SSH key; set remote.digitalocean.ssh_keys or %s, or create ~/.ssh/id_ed25519.pub", remoteSSHPublicKeyEnv)
+	if key, err := defaultRemotePublicKeyFromAgent(); err == nil && key != "" {
+		return key, nil
+	}
+	return "", fmt.Errorf("DigitalOcean provider needs an SSH key; set remote.digitalocean.ssh_keys or %s, forward an SSH agent with identities, or create ~/.ssh/id_ed25519.pub", remoteSSHPublicKeyEnv)
+}
+
+func defaultRemotePublicKeyFromAgent() (string, error) {
+	if strings.TrimSpace(os.Getenv("SSH_AUTH_SOCK")) == "" {
+		return "", nil
+	}
+	out, err := exec.Command("ssh-add", "-L").Output()
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "The agent has no identities") {
+			continue
+		}
+		if strings.HasPrefix(line, "ssh-") || strings.HasPrefix(line, "ecdsa-") || strings.HasPrefix(line, "sk-") {
+			return line, nil
+		}
+	}
+	return "", nil
 }
 
 func digitalOceanMachineName(machineName string) string {

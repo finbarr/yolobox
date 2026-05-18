@@ -124,7 +124,7 @@ provider = "digitalocean"
 ssh_user = "root"
 
 [remote.digitalocean]
-# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+# Prefer DIGITALOCEAN_ACCESS_TOKEN instead of committing this.
 token = "dop_v1_example"
 region = "nyc3"
 size = "s-2vcpu-4gb"
@@ -137,7 +137,7 @@ tags = ["yolobox"]
 The equivalent one-off command is:
 
 ```bash
-DIGITALOCEAN_TOKEN=... yolobox remote --provider digitalocean --name foo codex
+DIGITALOCEAN_ACCESS_TOKEN=... yolobox remote --provider digitalocean --name foo codex
 ```
 
 `ssh_user` defaults to `root` and is used when the backend response does not include `ssh_user`.
@@ -156,7 +156,7 @@ The backend is the control plane. It owns allocation and release of hosts. It ma
 
 ```bash
 YOLOBOX_BACKEND_TOKEN=change-me \
-DIGITALOCEAN_TOKEN=dop_v1_example \
+DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
 ```
 
@@ -377,12 +377,12 @@ Provider adapters implement host leasing, status refresh, and release. The direc
 
 The DigitalOcean adapter:
 
-- reads credentials from `remote.digitalocean.token`, `DIGITALOCEAN_TOKEN`, or `DO_API_TOKEN`
+- reads credentials from `remote.digitalocean.token`, `DIGITALOCEAN_ACCESS_TOKEN`, `DIGITALOCEAN_TOKEN`, or `DO_API_TOKEN`
 - creates Droplets through the DigitalOcean API, not `doctl`
 - uses `remote.digitalocean.region`, `size`, `image`, `ssh_keys`, `tags`, and `vpc_uuid`
 - tags created Droplets with `yolobox` and `yolobox-machine-<name>`
 - reuses a matching tagged Droplet for idempotent `ensure`
-- uploads the user's default public SSH key when no `ssh_keys` are configured
+- uploads the user's default public SSH key, or a forwarded SSH agent public key from `ssh-add -L`, when no `ssh_keys` are configured
 - deletes the Droplet on release
 
 ## Machine Lifecycle

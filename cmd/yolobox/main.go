@@ -1106,7 +1106,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("DigitalOcean token").
-				Description("Optional; leave blank to use DIGITALOCEAN_TOKEN").
+				Description("Optional; leave blank to use DIGITALOCEAN_ACCESS_TOKEN").
 				Value(&remoteDOToken),
 			huh.NewInput().
 				Title("DigitalOcean region").

@@ -130,7 +130,7 @@ yolobox remote forward 3000 # uses configured remote_name and remote_workspace
 yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
 ```
 
-Remote mode requires a configured backend URL and token, or a direct provider such as `--provider digitalocean` with `DIGITALOCEAN_TOKEN`. The backend or direct provider leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
+Remote mode requires a configured backend URL and token, or a direct provider such as `--provider digitalocean` with `DIGITALOCEAN_ACCESS_TOKEN`. The backend or direct provider leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

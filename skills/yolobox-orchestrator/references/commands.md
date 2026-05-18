@@ -54,7 +54,7 @@ yolobox remote --provider digitalocean --name foo codex
 Run the built-in backend for a shared machine pool:
 
 ```bash
-YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_TOKEN=... \
+YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_ACCESS_TOKEN=... \
   yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
 ```
 

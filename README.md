@@ -235,7 +235,7 @@ When `remote_name` is configured, commands that take a remote target can omit `f
 
 Remote sync copies the entire current folder into `/opt/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
-Backends expose a small HTTP API for leasing and releasing SSH hosts and storing shared session metadata. A hosted or self-hosted backend can put static pools, warm pools, billing, provider-specific provisioning, snapshots, and policy controls behind the same client workflow. To try remote mode without running a backend, set `remote.provider = "digitalocean"` or pass `--provider digitalocean` with `DIGITALOCEAN_TOKEN` in the environment.
+Backends expose a small HTTP API for leasing and releasing SSH hosts and storing shared session metadata. A hosted or self-hosted backend can put static pools, warm pools, billing, provider-specific provisioning, snapshots, and policy controls behind the same client workflow. To try remote mode without running a backend, set `remote.provider = "digitalocean"` or pass `--provider digitalocean` with `DIGITALOCEAN_ACCESS_TOKEN` in the environment.
 
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
@@ -276,7 +276,7 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 ssh_user = "root"
 
 [remote.digitalocean]
-# token = "prefer-DIGITALOCEAN_TOKEN"
+# token = "prefer-DIGITALOCEAN_ACCESS_TOKEN"
 region = "nyc3"
 size = "s-2vcpu-4gb"
 image = "ubuntu-24-04-x64"

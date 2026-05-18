@@ -44,7 +44,7 @@ backend_token = "your-backend-token"
 ssh_user = "root"
 
 [remote.digitalocean]
-# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+# Prefer DIGITALOCEAN_ACCESS_TOKEN instead of committing this.
 # token = "dop_v1_example"
 region = "nyc3"
 size = "s-2vcpu-4gb"
@@ -109,7 +109,7 @@ ssh_user = "root"
 setup = ["docker compose pull"]
 
 [remote.digitalocean]
-# Prefer DIGITALOCEAN_TOKEN instead of committing this.
+# Prefer DIGITALOCEAN_ACCESS_TOKEN instead of committing this.
 # token = "dop_v1_example"
 region = "nyc3"
 size = "s-2vcpu-4gb"

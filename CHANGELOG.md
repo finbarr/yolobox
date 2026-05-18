@@ -15,6 +15,7 @@ there is no `v0.6.0` tag in this repository.
 - Added `remote_workspace` config and setup support for the default remote workspace.
 - Added token-authenticated remote backend client support for `remote.backend_url` and a documented backend API contract.
 - Added a shared remote machine provider interface, a DigitalOcean provider adapter, direct local `--provider digitalocean` provisioning, and a deployable `yolobox remote backend serve` control plane with machine and session state.
+- Added `DIGITALOCEAN_ACCESS_TOKEN` support and SSH-agent public-key discovery for DigitalOcean remote provisioning.
 
 ### Changed
 
