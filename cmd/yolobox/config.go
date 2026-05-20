@@ -25,6 +25,7 @@ type ForkConfig struct {
 type Config struct {
 	Runtime               string   `toml:"runtime"`
 	Image                 string   `toml:"image"`
+	ContainerName         string   `toml:"container_name"`
 	DefaultHarness        string   `toml:"default_harness"`
 	Mounts                []string `toml:"mounts"`
 	Env                   []string `toml:"env"`
@@ -151,6 +152,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Image != "" {
 		dst.Image = src.Image
 	}
+	if src.ContainerName != "" {
+		dst.ContainerName = src.ContainerName
+	}
 	if src.DefaultHarness != "" {
 		dst.DefaultHarness = strings.ToLower(strings.TrimSpace(src.DefaultHarness))
 	}
@@ -269,6 +273,7 @@ func printConfig(cfg Config) error {
 	}
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
+	printStringConfigField("container_name", cfg.ContainerName)
 	fmt.Printf("%sdefault_harness:%s %s\n", colorBold, colorReset, displayDefaultHarness(cfg.DefaultHarness))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
 	fmt.Printf("%sssh_agent:%s %t\n", colorBold, colorReset, cfg.SSHAgent)
@@ -357,6 +362,9 @@ func saveGlobalConfig(cfg Config) error {
 	var lines []string
 	if harness := normalizeDefaultHarness(cfg.DefaultHarness); harness != "" {
 		lines = append(lines, fmt.Sprintf("default_harness = %q", harness))
+	}
+	if cfg.ContainerName != "" {
+		lines = append(lines, fmt.Sprintf("container_name = %q", cfg.ContainerName))
 	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")

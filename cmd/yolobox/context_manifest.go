@@ -56,6 +56,7 @@ type contextFork struct {
 type contextConfigManifest struct {
 	Runtime               string                         `json:"runtime"`
 	Image                 string                         `json:"image"`
+	ContainerName         string                         `json:"container_name"`
 	DefaultHarness        string                         `json:"default_harness"`
 	Mounts                []string                       `json:"mounts"`
 	EnvKeys               []string                       `json:"env_keys"`
@@ -161,6 +162,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		Config: contextConfigManifest{
 			Runtime:               resolvedRuntimeName(cfg.Runtime),
 			Image:                 cfg.Image,
+			ContainerName:         cfg.ContainerName,
 			DefaultHarness:        displayDefaultHarness(cfg.DefaultHarness),
 			Mounts:                append([]string{}, cfg.Mounts...),
 			EnvKeys:               envKeys(cfg.Env),

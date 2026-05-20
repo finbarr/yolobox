@@ -83,6 +83,7 @@ const noDefaultHarness = "none"
 
 var sizePattern = regexp.MustCompile(`^\d+(?:\.\d+)?(?:[kKmMgGtTpP](?:i?[bB]?)?|[bB])?$`)
 var packageNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9.+\-:]*$`)
+var containerNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]*$`)
 var versionPattern = regexp.MustCompile(`^v?\d+\.\d+\.\d+`)
 
 type stringSliceFlag []string
@@ -310,6 +311,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker, podman, or container")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
+	fmt.Fprintln(os.Stderr, "  --name <name>         Assign a runtime container name")
 	fmt.Fprintln(os.Stderr, "  --pod <name>          Join existing Podman pod (shares its network)")
 	fmt.Fprintln(os.Stderr, "  --setup               Run interactive setup before starting")
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
@@ -387,6 +389,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	var (
 		runtimeFlag           string
 		imageFlag             string
+		containerName         string
 		podFlag               string
 		networkFlag           string
 		sshAgent              bool
@@ -430,6 +433,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
+	fs.StringVar(&containerName, "name", "", "runtime container name")
 	fs.StringVar(&podFlag, "pod", "", "join existing podman pod")
 	fs.StringVar(&networkFlag, "network", "", "container network to join")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
@@ -483,6 +487,9 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	}
 	if imageFlag != "" {
 		cfg.Image = imageFlag
+	}
+	if containerName != "" {
+		cfg.ContainerName = containerName
 	}
 	if podFlag != "" {
 		cfg.Pod = podFlag
@@ -698,6 +705,9 @@ func validateRuntimeOptions(cfg Config) error {
 		if strings.TrimSpace(arg) == "" {
 			return fmt.Errorf("--runtime-arg entries cannot be blank")
 		}
+	}
+	if cfg.ContainerName != "" && !containerNamePattern.MatchString(cfg.ContainerName) {
+		return fmt.Errorf("invalid --name value %q: expected letters, numbers, dots, underscores, or dashes, starting with a letter or number", cfg.ContainerName)
 	}
 
 	return nil
@@ -924,6 +934,7 @@ func runSetup() (Config, error) {
 	// Form fields
 	var selectedOptions []string
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
+	containerName := cfg.ContainerName
 	podName := cfg.Pod
 	cpuLimit := cfg.CPUs
 	memoryLimit := cfg.Memory
@@ -1036,6 +1047,11 @@ func runSetup() (Config, error) {
 		),
 		huh.NewGroup(
 			huh.NewInput().
+				Title("Default container name (--name)").
+				Description("Optional; fixed names cannot run concurrently").
+				Placeholder("e.g. yolobox-dev").
+				Value(&containerName),
+			huh.NewInput().
 				Title("Podman pod (optional)").
 				Description("Join an existing Podman pod by name (shares its network)").
 				Placeholder("e.g. mypod").
@@ -1116,6 +1132,7 @@ func runSetup() (Config, error) {
 	cfg.NoNetwork = contains(selectedOptions, "no_network")
 	cfg.NoEnvPassthrough = contains(selectedOptions, "no_env_passthrough")
 	cfg.NoYolo = contains(selectedOptions, "no_yolo")
+	cfg.ContainerName = strings.TrimSpace(containerName)
 	cfg.Pod = strings.TrimSpace(podName)
 	cfg.CPUs = strings.TrimSpace(cpuLimit)
 	cfg.Memory = strings.TrimSpace(memoryLimit)
@@ -1191,7 +1208,7 @@ func isToolShortcut(cmd string) bool {
 // failing because --resume is not a known yolobox flag.
 func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
-		"runtime": true, "image": true, "network": true, "pod": true,
+		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
 		"codex-config": true, "gemini-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
@@ -1205,7 +1222,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	}
 
 	flagsWithValues := map[string]bool{
-		"runtime": true, "image": true, "network": true, "pod": true,
+		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"mount": true, "exclude": true, "copy-as": true, "env": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
@@ -1294,6 +1311,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	rootlessPodman := isRootlessPodman(cfg.Runtime)
 
 	args := []string{"run", "--rm"}
+	args = appendRunFlag(args, "name", cfg.ContainerName)
 
 	// Rootless Podman: map the host user to container UID 1000 (yolo) so
 	// bind-mounted files are accessible. Without this, the host user maps to

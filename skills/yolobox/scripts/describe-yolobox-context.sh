@@ -97,6 +97,7 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             (if .fork != null then "Fork copied folder: " + .fork.copy else empty end),
             (if .fork != null then "Compose project: " + .fork.compose_project else empty end),
             "Runtime: configured=" + .runtime.configured + " selected=" + .runtime.selected,
+            (if .config.container_name != null and .config.container_name != "" then "Container name: " + .config.container_name else empty end),
             "Default harness: " + ((.config.default_harness // "none") | tostring),
             "Interactive: " + (.launch.interactive | tostring),
             "Readonly project mode: " + (.config.readonly_project | tostring),

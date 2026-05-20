@@ -118,6 +118,7 @@ func TestMergeConfig(t *testing.T) {
 	src := Config{
 		DefaultHarness:   "codex",
 		Image:            "new-image",
+		ContainerName:    "dev-box",
 		SSHAgent:         true,
 		NoNetwork:        true,
 		NoEnvPassthrough: true,
@@ -140,6 +141,9 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if dst.DefaultHarness != "codex" {
 		t.Errorf("expected default harness to be codex, got %s", dst.DefaultHarness)
+	}
+	if dst.ContainerName != "dev-box" {
+		t.Errorf("expected container name to be dev-box, got %s", dst.ContainerName)
 	}
 	if !dst.SSHAgent {
 		t.Error("expected SSHAgent to be true")
@@ -409,6 +413,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 		OpencodeConfig: true,
 		PiConfig:       true,
 		RTK:            true,
+		ContainerName:  "dev-box",
 	}
 	if err := saveGlobalConfig(cfg); err != nil {
 		t.Fatalf("saveGlobalConfig failed: %v", err)
@@ -427,6 +432,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 		"opencode_config = true",
 		"pi_config = true",
 		"rtk = true",
+		"container_name = \"dev-box\"",
 	} {
 		if !strings.Contains(content, want) {
 			t.Fatalf("expected saved config to contain %q, got:\n%s", want, content)
@@ -662,9 +668,10 @@ func TestResolvedRuntimeName(t *testing.T) {
 
 func TestBuildRunArgs(t *testing.T) {
 	cfg := Config{
-		Image:  "test-image",
-		Env:    []string{"FOO=bar"},
-		Mounts: []string{},
+		Image:         "test-image",
+		ContainerName: "dev-box",
+		Env:           []string{"FOO=bar"},
+		Mounts:        []string{},
 	}
 
 	args, cleanupPaths, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, true)
@@ -677,6 +684,9 @@ func TestBuildRunArgs(t *testing.T) {
 	// Check essential flags are present
 	if !strings.Contains(argsStr, "-it") {
 		t.Error("expected -it flag for interactive mode")
+	}
+	if !strings.Contains(argsStr, "--name dev-box") {
+		t.Error("expected --name dev-box")
 	}
 	if !strings.Contains(argsStr, "-w /test/project") {
 		t.Error("expected -w /test/project (workdir should be actual project path)")
@@ -903,6 +913,7 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 
 	cfg := Config{
 		Image:              "test-image",
+		ContainerName:      "dev-box",
 		Env:                []string{"FOO=bar", "SUPER_SECRET=do-not-leak", "DEBUG"},
 		ReadonlyProject:    true,
 		NoYolo:             true,
@@ -1001,6 +1012,9 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	if manifest.Config.Network != "devnet" {
 		t.Fatalf("expected network devnet, got %s", manifest.Config.Network)
 	}
+	if manifest.Config.ContainerName != "dev-box" {
+		t.Fatalf("expected container name dev-box, got %s", manifest.Config.ContainerName)
+	}
 	if !manifest.Config.ClaudeConfig {
 		t.Fatal("expected claude_config in manifest config")
 	}
@@ -1096,7 +1110,7 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 
 	projectDir := t.TempDir()
 	contextDir := t.TempDir()
-	manifest := buildContextManifest(Config{Image: "test-image"}, projectDir, []string{"codex"}, false, nil, false)
+	manifest := buildContextManifest(Config{Image: "test-image", ContainerName: "dev-box"}, projectDir, []string{"codex"}, false, nil, false)
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatalf("failed to encode manifest: %v", err)
@@ -1118,6 +1132,7 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 	for _, want := range []string{
 		"Source: manifest",
 		"Automatic project mount: true",
+		"Container name: dev-box",
 		"Readonly project mode: false",
 		"Project writable now: true",
 	} {
@@ -2028,6 +2043,30 @@ func TestParseFlagsScratch(t *testing.T) {
 	}
 }
 
+func TestParseFlagsContainerName(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--name", "dev-box_1", "echo", "hello"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if cfg.ContainerName != "dev-box_1" {
+		t.Fatalf("expected container name dev-box_1, got %q", cfg.ContainerName)
+	}
+	if len(rest) != 2 || rest[0] != "echo" || rest[1] != "hello" {
+		t.Errorf("expected remaining args [echo hello], got %v", rest)
+	}
+}
+
+func TestParseFlagsContainerNameInvalid(t *testing.T) {
+	_, _, err := parseBaseFlags("run", []string{"--name", "../bad", "echo", "hello"}, t.TempDir())
+	if err == nil {
+		t.Fatal("expected invalid container name error")
+	}
+	if !strings.Contains(err.Error(), "invalid --name value") {
+		t.Fatalf("expected invalid --name error, got %v", err)
+	}
+}
+
 func TestParseFlagsCustomize(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg, rest, err := parseBaseFlags("run", []string{
@@ -2888,6 +2927,12 @@ func TestSplitToolArgs(t *testing.T) {
 			name:        "yolobox pod flag with value then tool flag",
 			args:        []string{"--pod", "mypod", "--resume"},
 			wantYolobox: []string{"--pod", "mypod"},
+			wantTool:    []string{"--resume"},
+		},
+		{
+			name:        "yolobox name flag with value then tool flag",
+			args:        []string{"--name", "dev-box", "--resume"},
+			wantYolobox: []string{"--name", "dev-box"},
 			wantTool:    []string{"--resume"},
 		},
 		{

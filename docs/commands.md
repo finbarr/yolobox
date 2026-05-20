@@ -77,6 +77,12 @@ yolobox codex --rtk
 yolobox run --no-network --no-env-passthrough --readonly-project python3 untrusted_script.py
 ```
 
+### Name the runtime container
+
+```bash
+yolobox run --name yolobox-dev sleep 60
+```
+
 ### Run parallel agents on one project
 
 ```bash

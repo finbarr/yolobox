@@ -45,6 +45,7 @@ default_harness = "none"
 mounts = ["../shared-libs:/libs:ro"]
 env = ["DEBUG=1"]
 readonly_project = true
+container_name = "project-yolobox"
 exclude = [".env*", "secrets/**"]
 copy_as = [".env.sandbox:.env"]
 no_network = true
@@ -58,6 +59,8 @@ packages = ["default-jdk", "maven"]
 ### Precedence
 
 CLI flags > project config > global config > defaults
+
+Use `container_name` or `--name` only when you need a stable runtime container name for inspection or integration. Fixed names cannot run concurrently; Docker, Podman, or Apple container will reject a second live container with the same name.
 
 ## Default harness
 

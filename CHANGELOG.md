@@ -11,6 +11,7 @@ there is no `v0.6.0` tag in this repository.
 ### Changed
 
 - Scoped npm package release-age gating to yolobox's own base-image build installs; runtime npm/npx commands and CLI self-updates are unrestricted by default.
+- Added `--name` / `container_name` support for assigning a runtime container name.
 
 ## v0.18.0 - 2026-05-18
 
