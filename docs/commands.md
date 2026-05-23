@@ -43,8 +43,8 @@ yolobox run <cmd...>        # Run a single command in the sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox fork resume <env> [cmd...] # Reopen an existing copied folder
 yolobox fork discard <env> --force # Delete a copied folder
-yolobox login [--backend-url <url>] --email <email> # Sign in to remote backend
-yolobox login --signup [--backend-url <url>] --email <email> # Create an account
+yolobox login [--backend-url <url>] # Open browser login for remote backend
+yolobox login [--backend-url <url>] --no-open # Print browser URL without opening it
 yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
 yolobox remote connect [<env>] [cmd...] # Connect to a backend-known machine
@@ -123,7 +123,7 @@ See [Recipes](/recipes) for common fork workflows, including webapp routing.
 ### Work on a remote machine
 
 ```bash
-yolobox login --email you@example.com
+yolobox login
 yolobox remote --name foo codex
 yolobox remote connect foo codex
 yolobox remote resume foo codex
@@ -133,7 +133,7 @@ yolobox remote forward foo 3000
 yolobox remote forward 3000 # uses configured remote_name
 ```
 
-Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, then starts the requested command over SSH. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote connect foo` bootstraps and attaches to an existing machine without syncing the current folder. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
+Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. Plain `yolobox login` prints a browser URL, tries to open it, and waits while the web app grants CLI access; use `--no-open` on SSH/headless hosts. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, then starts the requested command over SSH. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote connect foo` bootstraps and attaches to an existing machine without syncing the current folder. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

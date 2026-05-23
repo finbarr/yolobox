@@ -58,7 +58,7 @@ Use `yolobox shell` when you want a shell. Use `yolobox run ...` when you want o
 
 You can also set a default harness in config, such as `default_harness = "codex"`, so bare `yolobox` launches that AI shortcut. Set it to `none` or leave it unset to keep bare `yolobox` as the shell shortcut.
 
-For remote work, `yolobox login --email you@example.com` signs in and stores backend auth, then `yolobox remote --name foo codex` creates or reuses a named machine from the hosted or self-hosted backend. It mirrors the current folder to `/opt/yolobox/project` and attaches to a persistent session. Use `yolobox remote forward foo 3000` for a local preview port. See [Remote Mode](/remote) for the workflow.
+For remote work, `yolobox login` opens a browser approval flow and stores backend auth, then `yolobox remote --name foo codex` creates or reuses a named machine from the hosted or self-hosted backend. It mirrors the current folder to `/opt/yolobox/project` and attaches to a persistent session. Use `yolobox remote forward foo 3000` for a local preview port. See [Remote Mode](/remote) for the workflow.
 
 ## Runtime support
 

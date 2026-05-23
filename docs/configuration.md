@@ -37,7 +37,7 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
 backend_url = "https://api.yolobox.dev"
-# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+# Browser-granted Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
 token = "your-session-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
@@ -93,7 +93,7 @@ default_harness = "codex"
 [remote]
 # Defaults to https://api.yolobox.dev when omitted.
 backend_url = "https://remote.example.com"
-# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+# Browser-granted Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
 token = "your-session-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
@@ -101,7 +101,7 @@ setup = ["docker compose pull"]
 
 With that config, bare `yolobox` behaves like `yolobox remote --name foo codex`.
 
-Remote mode requires a Better Auth session from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. The CLI asks the hosted or self-hosted backend for an SSH host owned by the authenticated user, mirrors the current folder to `/opt/yolobox/project` with `rsync`, and runs the requested command through SSH. The backend is the source of truth for machine state; the CLI stores auth/config only and asks the backend for list, status, create, destroy, and connect metadata. The hosted browser app is intended to run at `https://app.yolobox.dev` against `https://api.yolobox.dev`.
+Remote mode requires a Better Auth session from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. Plain `yolobox login` opens a browser approval flow, prints the URL for copy/paste, and stores the granted session token. The CLI asks the hosted or self-hosted backend for an SSH host owned by the authenticated user, mirrors the current folder to `/opt/yolobox/project` with `rsync`, and runs the requested command through SSH. The backend is the source of truth for machine state; the CLI stores auth/config only and asks the backend for list, status, create, destroy, and connect metadata. The hosted browser app is intended to run at `https://app.yolobox.dev` against `https://api.yolobox.dev`.
 
 Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote project back to the local folder and requires `--force` because it can overwrite local files.
 

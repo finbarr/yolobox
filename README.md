@@ -182,7 +182,7 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
-yolobox login               # Sign in and store remote backend auth
+yolobox login               # Open browser login and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> <cmd...> # Run on a named remote machine
 yolobox remote connect <env> <cmd...> # Attach to a backend-known machine
@@ -219,8 +219,8 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always talks to a hosted or self-hosted backend, and the backend is the source of truth for machine state.
 
 ```bash
-yolobox login --email you@example.com
-yolobox login --signup --email you@example.com
+yolobox login
+yolobox login --backend-url https://remote.example.com
 yolobox remote --name foo codex
 yolobox remote connect foo codex
 yolobox remote resume foo codex
@@ -234,6 +234,11 @@ yolobox remote destroy foo --force
 ```
 
 Remote support is intentionally one machine, one project path, and one tmux session. A named remote maps to one VM with the project at `/opt/yolobox/project` and the session named `yolobox`. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
+
+`yolobox login` starts a browser approval flow, prints the URL to copy/paste,
+tries to open it, and then waits for approval from the web app. Use
+`--no-open` when you only want the printed URL, or `--token` for noninteractive
+automation with an existing session token.
 
 The CLI does not keep a local machine registry. It stores only auth/config, asks
 the backend for the account's machines, and connects to any machine the backend
@@ -293,7 +298,7 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
 # backend_url = "https://api.yolobox.dev" # hosted backend by default
-# token = "session-written-by-yolobox-login"
+# token = "browser-granted-session-written-by-yolobox-login"
 ssh_user = "root"
 setup = ["docker compose pull"]
 ```

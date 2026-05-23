@@ -21,11 +21,17 @@ const statePath = process.env.YOLOBOX_BACKEND_STATE || join(homedir(), ".local",
 const store = new StateStore(statePath, provider.name);
 const { host, port } = parseListen(listen);
 const defaultAppDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "dist-app");
+const publicHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
+const authBaseURL = process.env.BETTER_AUTH_URL || `http://${publicHost}:${port}/v1/auth`;
+const defaultPublicURL = publicOrigin(authBaseURL) || `http://${host}:${port}`;
+const apiPublicURL = trimURL(process.env.YOLOBOX_API_URL) || defaultPublicURL;
+const appPublicURL = trimURL(process.env.YOLOBOX_APP_URL) || defaultPublicURL;
 const authOptions = {
-  baseURL: process.env.BETTER_AUTH_URL || `http://${host}:${port}/v1/auth`,
+  baseURL: authBaseURL,
   databasePath: process.env.YOLOBOX_BACKEND_AUTH_DB || join(homedir(), ".local", "state", "yolobox", "auth.sqlite"),
   secret: authSecret,
   trustedOrigins: splitList(process.env.BETTER_AUTH_TRUSTED_ORIGINS),
+  deviceVerificationURL: `${appPublicURL}/device`,
 };
 await migrateBackendAuth(authOptions);
 const auth = createBackendAuth(authOptions);
@@ -34,8 +40,8 @@ const app = createBackend({
   provider,
   store,
   appDir: process.env.YOLOBOX_BACKEND_APP_DIR || defaultAppDir,
-  apiPublicURL: process.env.YOLOBOX_API_URL || "https://api.yolobox.dev",
-  appPublicURL: process.env.YOLOBOX_APP_URL || "https://app.yolobox.dev",
+  apiPublicURL,
+  appPublicURL,
   corsOrigins: splitList(process.env.YOLOBOX_BACKEND_CORS_ORIGINS || process.env.BETTER_AUTH_TRUSTED_ORIGINS),
 });
 
@@ -53,4 +59,17 @@ function parseListen(value: string): { host: string; port: number } {
 
 function splitList(value: string | undefined): string[] {
   return (value || "").split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function publicOrigin(value: string): string {
+  try {
+    const url = new URL(value);
+    return url.origin;
+  } catch {
+    return "";
+  }
+}
+
+function trimURL(value: string | undefined): string {
+  return (value || "").trim().replace(/\/+$/, "");
 }

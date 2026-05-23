@@ -43,11 +43,11 @@ yolobox remote --name foo codex
 
 ## Remote machines
 
-Log in, then create or reuse a named remote machine. The hosted or self-hosted backend leases the SSH host:
+Log in through the browser, then create or reuse a named remote machine. The hosted or self-hosted backend leases the SSH host:
 
 ```bash
-yolobox login --email you@example.com
-yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
+yolobox login
+yolobox login --backend-url http://127.0.0.1:8787
 yolobox remote --name foo codex
 ```
 

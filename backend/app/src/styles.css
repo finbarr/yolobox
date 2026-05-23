@@ -292,6 +292,81 @@ button:disabled {
   font-size: 13px;
 }
 
+.hint {
+  margin: 0;
+  color: #bae6fd;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.hint code {
+  color: #86efac;
+}
+
+.grant-layout {
+  align-items: center;
+}
+
+.grant-panel {
+  align-content: start;
+}
+
+.grant-icon {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border: 1px solid rgba(134, 239, 172, 0.35);
+  border-radius: 8px;
+  color: #86efac;
+  background: rgba(20, 184, 166, 0.14);
+}
+
+.eyebrow {
+  color: #67e8f9;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.grant-panel h1 {
+  margin: 6px 0 8px;
+  font-size: 34px;
+  line-height: 1.05;
+}
+
+.grant-panel p {
+  margin: 0;
+  color: #bddbd3;
+  line-height: 1.5;
+}
+
+.code-chip {
+  display: grid;
+  place-items: center;
+  min-height: 64px;
+  border: 1px solid rgba(34, 211, 238, 0.24);
+  border-radius: 8px;
+  color: #86efac;
+  background: rgba(2, 6, 23, 0.5);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 28px;
+  letter-spacing: 0;
+}
+
+.success-text {
+  color: #bbf7d0;
+}
+
+.grant-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.grant-actions .primary-button:only-child {
+  grid-column: 1 / -1;
+}
+
 .dashboard {
   grid-template-columns: 280px minmax(340px, 0.85fr) minmax(420px, 1.15fr);
 }

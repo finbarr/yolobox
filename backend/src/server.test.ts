@@ -200,6 +200,62 @@ test("backend login and logout are handled by Better Auth", async () => {
   assert.equal(afterLogout.statusCode, 401);
 });
 
+test("backend supports browser-approved CLI device login", async () => {
+  const { app, token } = await createTestBackend("cli@example.com");
+
+  const code = await app.inject({
+    method: "POST",
+    url: "/v1/auth/device/code",
+    payload: {
+      client_id: "yolobox-cli",
+      scope: "remote",
+    },
+  });
+  assert.equal(code.statusCode, 200, code.body);
+  const device = code.json();
+  assert.equal(typeof device.device_code, "string");
+  assert.equal(typeof device.user_code, "string");
+  assert.match(device.verification_uri_complete, /\/device\?user_code=/);
+
+  const headers = { authorization: `Bearer ${token}` };
+  const verified = await app.inject({
+    method: "GET",
+    url: `/v1/auth/device?user_code=${encodeURIComponent(device.user_code)}`,
+    headers,
+  });
+  assert.equal(verified.statusCode, 200, verified.body);
+  assert.equal(verified.json().status, "pending");
+
+  const approved = await app.inject({
+    method: "POST",
+    url: "/v1/auth/device/approve",
+    headers,
+    payload: { userCode: device.user_code },
+  });
+  assert.equal(approved.statusCode, 200, approved.body);
+  assert.equal(approved.json().success, true);
+
+  const exchanged = await app.inject({
+    method: "POST",
+    url: "/v1/auth/device/token",
+    payload: {
+      grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+      device_code: device.device_code,
+      client_id: "yolobox-cli",
+    },
+  });
+  assert.equal(exchanged.statusCode, 200, exchanged.body);
+  assert.equal(typeof exchanged.json().access_token, "string");
+
+  const whoami = await app.inject({
+    method: "GET",
+    url: "/v1/auth/whoami",
+    headers: { authorization: `Bearer ${exchanged.json().access_token}` },
+  });
+  assert.equal(whoami.statusCode, 200);
+  assert.equal(whoami.json().user.email, "cli@example.com");
+});
+
 async function createTestBackend(email = "user@example.com", password = "password123") {
   const dir = await mkdtemp(join(tmpdir(), "yolobox-backend-"));
   const provider = new FakeProvider();
@@ -208,6 +264,7 @@ async function createTestBackend(email = "user@example.com", password = "passwor
     baseURL: "http://127.0.0.1/v1/auth",
     databasePath: join(dir, "auth.sqlite"),
     secret: "test-secret-with-at-least-thirty-two-bytes",
+    deviceVerificationURL: "http://127.0.0.1/device",
   };
   await migrateBackendAuth(authOptions);
   const auth = createBackendAuth(authOptions);

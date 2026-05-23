@@ -43,11 +43,14 @@ docker compose -f docker-compose.backend.yml up --build
 The Compose service publishes `127.0.0.1:8787` by default and persists backend
 state in the `yolobox-backend-data` Docker volume. Override the host bind with
 `YOLOBOX_BACKEND_PORT`, for example `YOLOBOX_BACKEND_PORT=127.0.0.1:8877`.
+When the public URL changes, also set `BETTER_AUTH_URL`, `YOLOBOX_APP_URL`, and
+`YOLOBOX_API_URL` so browser login links point at the reachable host.
 
-Then sign up or sign in from another shell:
+Then sign up or sign in from another shell. The CLI prints a browser URL, tries
+to open it, and waits for the web app to grant access:
 
 ```bash
-yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
+yolobox login --backend-url http://127.0.0.1:8787
 ```
 
 Environment:
@@ -55,8 +58,8 @@ Environment:
 - `BETTER_AUTH_SECRET`: required signing secret for Better Auth sessions.
 - `BETTER_AUTH_URL`: public auth base URL, default `http://<listen>/v1/auth`.
 - `BETTER_AUTH_TRUSTED_ORIGINS`: comma-separated trusted browser origins.
-- `YOLOBOX_APP_URL`: public app URL, default `https://app.yolobox.dev`.
-- `YOLOBOX_API_URL`: public API URL, default `https://api.yolobox.dev`.
+- `YOLOBOX_APP_URL`: public app URL, default derived from `BETTER_AUTH_URL` in direct runs and `http://127.0.0.1:8787` in Compose.
+- `YOLOBOX_API_URL`: public API URL, default derived from `BETTER_AUTH_URL` in direct runs and `http://127.0.0.1:8787` in Compose.
 - `YOLOBOX_BACKEND_CORS_ORIGINS`: comma-separated browser origins allowed to call the API.
 - `YOLOBOX_BACKEND_AUTH_DB`: SQLite auth database path.
 - `YOLOBOX_BACKEND_LISTEN`: listen address, default `127.0.0.1:8787`.
@@ -86,6 +89,11 @@ Routes:
 - `POST /v1/auth/sign-up/email`
 - `POST /v1/auth/sign-in/email`
 - `POST /v1/auth/sign-out`
+- `POST /v1/auth/device/code`
+- `GET /v1/auth/device`
+- `POST /v1/auth/device/approve`
+- `POST /v1/auth/device/deny`
+- `POST /v1/auth/device/token`
 - `GET /v1/auth/whoami`
 - `GET /v1/providers`
 - `POST /v1/machines`

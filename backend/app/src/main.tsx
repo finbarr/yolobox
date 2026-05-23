@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createRootRoute, createRoute, createRouter, RouterProvider } from "@tanstack/react-router";
-import { Activity, Cloud, Copy, LogOut, MonitorDot, Play, Plus, RefreshCw, Server, Terminal, Trash2 } from "lucide-react";
+import { Activity, Check, Cloud, Copy, LogOut, MonitorDot, Play, Plus, RefreshCw, Server, ShieldCheck, Terminal, Trash2, XCircle } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
@@ -54,6 +54,11 @@ type ProvidersResponse = {
   providers: ProviderInfo[];
 };
 
+type DeviceStatusResponse = {
+  user_code: string;
+  status: "pending" | "approved" | "denied";
+};
+
 type ConnectResponse = MachineResponse & {
   connect: {
     ssh: string;
@@ -77,8 +82,14 @@ const indexRoute = createRoute({
   component: ConsoleRoute,
 });
 
+const deviceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/device",
+  component: ConsoleRoute,
+});
+
 const router = createRouter({
-  routeTree: rootRoute.addChildren([indexRoute]),
+  routeTree: rootRoute.addChildren([indexRoute, deviceRoute]),
 });
 
 declare module "@tanstack/react-router" {
@@ -93,6 +104,7 @@ function AppShell() {
 
 function ConsoleRoute() {
   const [token, setToken] = useState(() => localStorage.getItem(tokenKey) || "");
+  const [deviceUserCode, setDeviceUserCode] = useState(() => readDeviceUserCode());
   const session = useQuery({
     queryKey: ["session", token],
     enabled: token.length > 0,
@@ -113,6 +125,13 @@ function ConsoleRoute() {
     localStorage.removeItem(tokenKey);
     setToken("");
     queryClient.clear();
+  }
+
+  function clearDevicePrompt() {
+    setDeviceUserCode("");
+    if (window.location.pathname === "/device") {
+      window.history.replaceState(null, "", "/");
+    }
   }
 
   return (
@@ -137,15 +156,19 @@ function ConsoleRoute() {
       </header>
 
       {authenticated ? (
-        <Dashboard token={token} user={session.data?.user} />
+        deviceUserCode ? (
+          <DeviceGrantPanel token={token} user={session.data?.user} userCode={deviceUserCode} onDone={clearDevicePrompt} />
+        ) : (
+          <Dashboard token={token} user={session.data?.user} />
+        )
       ) : (
-        <AccessPanel onToken={handleToken} />
+        <AccessPanel onToken={handleToken} deviceUserCode={deviceUserCode} />
       )}
     </main>
   );
 }
 
-function AccessPanel({ onToken }: { onToken: (token: string) => void }) {
+function AccessPanel({ onToken, deviceUserCode }: { onToken: (token: string) => void; deviceUserCode?: string }) {
   const [mode, setMode] = useState<"signin" | "signup">("signup");
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
@@ -203,12 +226,81 @@ ui           account        control`}</pre>
           Password
           <input value={password} onChange={(event) => setPassword(event.target.value)} type="password" autoComplete={mode === "signup" ? "new-password" : "current-password"} required />
         </label>
+        {deviceUserCode ? <p className="hint">Sign in here to approve CLI access for code <code>{formatUserCode(deviceUserCode)}</code>.</p> : null}
         <button className="primary-button" type="submit" disabled={mutation.isPending}>
           <Play size={16} />
           {mutation.isPending ? "Working" : mode === "signup" ? "Create account" : "Open console"}
         </button>
         {mutation.error ? <p className="error">{(mutation.error as Error).message}</p> : null}
       </form>
+    </section>
+  );
+}
+
+function DeviceGrantPanel({ token, user, userCode, onDone }: {
+  token: string;
+  user?: AuthUser;
+  userCode: string;
+  onDone: () => void;
+}) {
+  const verify = useQuery({
+    queryKey: ["device-login", userCode, token],
+    retry: false,
+    queryFn: () => apiFetch<DeviceStatusResponse>(`/v1/auth/device?user_code=${encodeURIComponent(userCode)}`, token),
+  });
+  const approve = useMutation({
+    mutationFn: () => apiFetch<{ success: boolean }>("/v1/auth/device/approve", token, { method: "POST", body: { userCode } }),
+  });
+  const deny = useMutation({
+    mutationFn: () => apiFetch<{ success: boolean }>("/v1/auth/device/deny", token, { method: "POST", body: { userCode } }),
+  });
+  const finished = approve.isSuccess || deny.isSuccess;
+  const blocked = verify.isLoading || verify.isError || finished || approve.isPending || deny.isPending;
+
+  return (
+    <section className="access-layout grant-layout">
+      <div className="terminal-panel">
+        <div className="terminal-title">
+          <span />
+          <span />
+          <span />
+        </div>
+        <pre>{`$ yolobox login
+browser grant requested
+account: ${user?.email || "signed-in user"}
+code: ${formatUserCode(userCode)}`}</pre>
+      </div>
+      <div className="auth-panel grant-panel">
+        <div className="grant-icon"><ShieldCheck size={28} /></div>
+        <div>
+          <span className="eyebrow">CLI access request</span>
+          <h1>Allow yolobox CLI?</h1>
+          <p>Grant this terminal session access to your machines as <strong>{user?.email || "this account"}</strong>.</p>
+        </div>
+        <div className="code-chip">{formatUserCode(userCode)}</div>
+        {verify.error ? <p className="error">{(verify.error as Error).message}</p> : null}
+        {approve.isSuccess ? <p className="success-text">Access granted. You can return to the terminal.</p> : null}
+        {deny.isSuccess ? <p className="error">Request denied. You can return to the terminal.</p> : null}
+        <div className="grant-actions">
+          {finished ? (
+            <button className="primary-button" type="button" onClick={onDone}>
+              <Check size={16} />
+              Done
+            </button>
+          ) : (
+            <>
+              <button className="primary-button" type="button" onClick={() => approve.mutate()} disabled={blocked}>
+                <Check size={16} />
+                Allow
+              </button>
+              <button className="danger-button" type="button" onClick={() => deny.mutate()} disabled={blocked}>
+                <XCircle size={16} />
+                Deny
+              </button>
+            </>
+          )}
+        </div>
+      </div>
     </section>
   );
 }
@@ -413,7 +505,7 @@ async function apiFetch<T = unknown>(path: string, token = "", init: { method?: 
 function readError(detail: string): string {
   try {
     const parsed = JSON.parse(detail);
-    return parsed.message || detail;
+    return parsed.message || parsed.error_description || parsed.error || detail;
   } catch {
     return detail;
   }
@@ -435,6 +527,17 @@ function formatDate(value?: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function readDeviceUserCode(): string {
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("user_code") || params.get("code") || "").trim();
+}
+
+function formatUserCode(code: string): string {
+  const clean = code.trim().replace(/-/g, "");
+  if (clean.length === 8) return `${clean.slice(0, 4)}-${clean.slice(4)}`;
+  return code.trim();
 }
 
 createRoot(document.getElementById("root") as HTMLElement).render(

@@ -93,7 +93,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  --backend-url <url>  Remote backend API URL")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
-	fmt.Fprintln(os.Stderr, "  yolobox login --email you@example.com")
+	fmt.Fprintln(os.Stderr, "  yolobox login")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo")

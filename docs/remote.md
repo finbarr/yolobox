@@ -21,15 +21,15 @@ Implemented in the CLI:
 Implemented in the open-source backend package under `backend/`:
 
 - TypeScript/Fastify web service
-- Better Auth email/password signup, login, logout, and bearer sessions
+- Better Auth email/password signup, logout, bearer sessions, and browser-approved CLI device login
 - SQLite auth database plus JSON state file for leased machines
 - per-user machine ownership and isolation
 - DigitalOcean provider adapter for self-hosted provisioning
 - machine metadata updates from the CLI
+- TanStack browser console for signup, signin, machine list, create, destroy, and CLI grant approval
 
 Not implemented in this repo:
 
-- the hosted account UI
 - managed billing, quotas, team roles, and audit logs
 - yolobox-owned paid VM pools
 - public preview URLs
@@ -46,9 +46,9 @@ Port access remains explicit. The open-source CLI supports local SSH forwarding;
 ## CLI Contract
 
 ```bash
-yolobox login --email you@example.com
-yolobox login --signup --email you@example.com
-yolobox login --backend-url https://remote.example.com --email you@example.com
+yolobox login
+yolobox login --backend-url https://remote.example.com
+yolobox login --backend-url https://remote.example.com --no-open
 yolobox login --backend-url https://remote.example.com --token <existing-session-token>
 yolobox logout
 
@@ -86,7 +86,7 @@ default_harness = "codex"
 [remote]
 # Defaults to https://api.yolobox.dev when omitted.
 backend_url = "https://remote.example.com"
-# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+# Browser-granted Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
 token = "your-session-token"
 ssh_user = "root"
 setup = [
@@ -102,6 +102,13 @@ yolobox remote --name foo codex
 ```
 
 `YOLOBOX_BACKEND_URL` overrides `remote.backend_url`. `YOLOBOX_TOKEN` overrides `remote.token`.
+
+Plain `yolobox login` uses Better Auth's device authorization flow: the CLI
+creates a short-lived login request, prints the verification URL, tries to open
+it in your browser, and polls until the web app grants or denies CLI access.
+The CLI always prints the URL so SSH and headless sessions can copy/paste it;
+`--no-open` skips the automatic browser attempt. `--email`, `--password`,
+`--signup`, and `--token` remain available for scripts and local testing.
 
 ## Hosted And Self-Hosted Backends
 
@@ -120,7 +127,7 @@ npm run dev
 Then point the CLI at it:
 
 ```bash
-yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
+yolobox login --backend-url http://127.0.0.1:8787
 yolobox remote --name foo codex
 ```
 
@@ -132,8 +139,11 @@ DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 docker compose -f docker-compose.backend.yml up --build
 ```
 
-The Compose service publishes `127.0.0.1:8787` and stores auth plus machine state
-in the `yolobox-backend-data` Docker volume.
+The Compose service publishes `127.0.0.1:8787` and stores auth plus machine
+state in the `yolobox-backend-data` Docker volume.
+When you publish it on a different host or port, set `BETTER_AUTH_URL`,
+`YOLOBOX_APP_URL`, and `YOLOBOX_API_URL` to the reachable public URLs so
+browser login links are correct.
 
 The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 

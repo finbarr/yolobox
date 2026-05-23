@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) {
@@ -402,6 +403,82 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 	}
 	if cfg.Remote.Token != "" {
 		t.Fatalf("expected logout to clear token, got %+v", cfg.Remote)
+	}
+}
+
+func TestRunLoginUsesBrowserDeviceFlowByDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	oldOpenBrowserURL := openBrowserURL
+	oldRemoteAuthSleep := remoteAuthSleep
+	defer func() {
+		openBrowserURL = oldOpenBrowserURL
+		remoteAuthSleep = oldRemoteAuthSleep
+	}()
+	var openedURL string
+	openBrowserURL = func(openURL string) error {
+		openedURL = openURL
+		return nil
+	}
+	remoteAuthSleep = func(time.Duration) {}
+
+	polls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/device/code":
+			var req map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req["client_id"] != "yolobox-cli" || req["scope"] != "remote" {
+				t.Fatalf("unexpected device code request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteAuthDeviceCodeResponse{
+				DeviceCode:              "device-code",
+				UserCode:                "ABCD1234",
+				VerificationURI:         "https://app.example.com/device",
+				VerificationURIComplete: "https://app.example.com/device?user_code=ABCD1234",
+				ExpiresIn:               30,
+				Interval:                1,
+			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/device/token":
+			polls++
+			var req map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req["client_id"] != "yolobox-cli" || req["device_code"] != "device-code" || req["grant_type"] != "urn:ietf:params:oauth:grant-type:device_code" {
+				t.Fatalf("unexpected device token request: %+v", req)
+			}
+			if polls == 1 {
+				w.WriteHeader(http.StatusBadRequest)
+				_ = json.NewEncoder(w).Encode(remoteAuthEndpointError{Code: "authorization_pending", Description: "pending"})
+				return
+			}
+			_ = json.NewEncoder(w).Encode(remoteAuthDeviceTokenResponse{AccessToken: "session-token", TokenType: "Bearer"})
+		default:
+			t.Fatalf("unexpected auth request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	if err := runLogin([]string{"--backend-url", ts.URL}); err != nil {
+		t.Fatalf("runLogin failed: %v", err)
+	}
+	if openedURL != "https://app.example.com/device?user_code=ABCD1234" {
+		t.Fatalf("expected browser URL to open, got %q", openedURL)
+	}
+	if polls != 2 {
+		t.Fatalf("expected two polls, got %d", polls)
+	}
+	cfg, err := loadSetupDefaults()
+	if err != nil {
+		t.Fatalf("loadSetupDefaults failed: %v", err)
+	}
+	if cfg.Remote.BackendURL != ts.URL || cfg.Remote.Token != "session-token" {
+		t.Fatalf("unexpected login config: %+v", cfg.Remote)
 	}
 }
 
