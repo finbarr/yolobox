@@ -35,3 +35,7 @@ Thumbs.db
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
+
+# Backend
+backend/node_modules/
+backend/dist/

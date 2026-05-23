@@ -25,7 +25,7 @@ const pageSeo: Record<string, { title: string, description: string, noindex?: bo
   },
   '/remote': {
     title: 'Remote Mode',
-    description: 'Remote mode for named yolobox machines backed by a hosted or self-hosted backend, local registry state, workspace sync, and persistent tmux sessions.',
+    description: 'Remote mode for named yolobox machines backed by a hosted or self-hosted backend, one project per VM, and persistent tmux sessions.',
   },
   '/configuration': {
     title: 'Configuration Guide',

@@ -122,8 +122,8 @@ func runCmd() error {
 	args := os.Args[1:]
 	traceTiming("host: start")
 
-	// Check for updates (skip for version/help/upgrade commands)
-	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade")
+	// Check for updates (skip for version/help/upgrade/auth commands)
+	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "login" || args[0] == "logout")
 	if !skipCheck {
 		started := time.Now()
 		checkForUpdates()
@@ -205,6 +205,10 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		return runFork(args[1:], projectDir)
 	case "remote":
 		return runRemote(args[1:], projectDir)
+	case "login":
+		return runLogin(args[1:])
+	case "logout":
+		return runLogout(args[1:])
 	case "setup":
 		_, err := runSetup()
 		return err
@@ -303,7 +307,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               Start interactive shell in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [--workspace <name>] <cmd>  Run on a named remote workspace")
+	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> <cmd>  Run on a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox login               Store remote backend auth")
+	fmt.Fprintln(os.Stderr, "  yolobox logout              Clear remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
@@ -364,11 +370,10 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
 	fmt.Fprintln(os.Stderr, "  mode = \"remote\"            # make bare yolobox use remote mode")
 	fmt.Fprintln(os.Stderr, "  remote_name = \"foo\"        # default remote machine")
-	fmt.Fprintln(os.Stderr, "  remote_workspace = \"app\"   # default remote workspace")
 	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
 	fmt.Fprintln(os.Stderr, "  [remote]")
-	fmt.Fprintln(os.Stderr, "  backend_url = \"https://remote.example.com\" # hosted/self-hosted control plane")
-	fmt.Fprintln(os.Stderr, "  provider = \"digitalocean\" # optional direct local provisioning")
+	fmt.Fprintf(os.Stderr, "  backend_url = %q # defaults to hosted backend\n", defaultRemoteBackendURL)
+	fmt.Fprintln(os.Stderr, "  token = \"...\" # written by yolobox login")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -381,7 +386,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo --workspace app codex  # Remote workspace")
+	fmt.Fprintln(os.Stderr, "  yolobox login --token <token>  # Store hosted/self-hosted backend auth")
+	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex  # Remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
@@ -956,19 +962,10 @@ func runSetup() (Config, error) {
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	containerName := cfg.ContainerName
 	remoteName := cfg.RemoteName
-	remoteWorkspace := effectiveRemoteWorkspace(cfg.RemoteWorkspace)
 	remoteBackendURL := cfg.Remote.BackendURL
-	remoteBackendToken := cfg.Remote.BackendToken
-	remoteProvider := cfg.Remote.Provider
+	remoteToken := cfg.Remote.Token
 	remoteSSHUser := cfg.Remote.SSHUser
 	remoteSetup := strings.Join(cfg.Remote.Setup, "\n")
-	remoteDOToken := cfg.Remote.DigitalOcean.Token
-	remoteDORegion := cfg.Remote.DigitalOcean.Region
-	remoteDOSize := cfg.Remote.DigitalOcean.Size
-	remoteDOImage := cfg.Remote.DigitalOcean.Image
-	remoteDOSSKeys := strings.Join(cfg.Remote.DigitalOcean.SSHKeys, "\n")
-	remoteDOTags := strings.Join(cfg.Remote.DigitalOcean.Tags, "\n")
-	remoteDOVPCUUID := cfg.Remote.DigitalOcean.VPCUUID
 	podName := cfg.Pod
 	cpuLimit := cfg.CPUs
 	memoryLimit := cfg.Memory
@@ -1071,27 +1068,14 @@ func runSetup() (Config, error) {
 				Placeholder("foo").
 				Value(&remoteName),
 			huh.NewInput().
-				Title("Default remote workspace").
-				Description("Used when mode is remote").
-				Placeholder(remoteDefaultWorkspace).
-				Value(&remoteWorkspace),
-			huh.NewInput().
 				Title("Remote backend URL").
-				Description("Required for remote mode; yolobox asks this backend for hosts").
-				Placeholder("https://remote.example.com").
+				Description("Hosted backend by default; set your self-hosted backend here").
+				Placeholder(defaultRemoteBackendURL).
 				Value(&remoteBackendURL),
 			huh.NewInput().
-				Title("Remote backend token").
-				Description("Optional; leave blank to use YOLOBOX_REMOTE_TOKEN").
-				Value(&remoteBackendToken),
-			huh.NewSelect[string]().
-				Title("Remote provider").
-				Description("Use a backend when set there; choose DigitalOcean for direct local provisioning").
-				Options(
-					huh.NewOption("None / backend only", ""),
-					huh.NewOption("DigitalOcean", remoteProviderDigitalOcean),
-				).
-				Value(&remoteProvider),
+				Title("Remote auth token").
+				Description("Written by yolobox login; optional if YOLOBOX_TOKEN is set").
+				Value(&remoteToken),
 			huh.NewInput().
 				Title("Remote SSH user").
 				Placeholder("root").
@@ -1102,37 +1086,6 @@ func runSetup() (Config, error) {
 				Lines(4).
 				Placeholder("docker compose pull").
 				Value(&remoteSetup),
-		),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("DigitalOcean token").
-				Description("Optional; leave blank to use DIGITALOCEAN_ACCESS_TOKEN").
-				Value(&remoteDOToken),
-			huh.NewInput().
-				Title("DigitalOcean region").
-				Placeholder("nyc3").
-				Value(&remoteDORegion),
-			huh.NewInput().
-				Title("DigitalOcean size").
-				Placeholder("s-2vcpu-4gb").
-				Value(&remoteDOSize),
-			huh.NewInput().
-				Title("DigitalOcean image").
-				Placeholder("ubuntu-24-04-x64").
-				Value(&remoteDOImage),
-			huh.NewText().
-				Title("DigitalOcean SSH keys").
-				Description("One id or fingerprint per line; leave blank to use your default public SSH key").
-				Lines(3).
-				Value(&remoteDOSSKeys),
-			huh.NewText().
-				Title("DigitalOcean tags").
-				Description("One tag per line").
-				Lines(3).
-				Value(&remoteDOTags),
-			huh.NewInput().
-				Title("DigitalOcean VPC UUID").
-				Value(&remoteDOVPCUUID),
 		),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
@@ -1230,19 +1183,10 @@ func runSetup() (Config, error) {
 	cfg.Mode = mode
 	cfg.DefaultHarness = defaultHarness
 	cfg.RemoteName = strings.TrimSpace(remoteName)
-	cfg.RemoteWorkspace = strings.TrimSpace(remoteWorkspace)
 	cfg.Remote.BackendURL = strings.TrimRight(strings.TrimSpace(remoteBackendURL), "/")
-	cfg.Remote.BackendToken = strings.TrimSpace(remoteBackendToken)
-	cfg.Remote.Provider = strings.ToLower(strings.TrimSpace(remoteProvider))
+	cfg.Remote.Token = strings.TrimSpace(remoteToken)
 	cfg.Remote.SSHUser = strings.TrimSpace(remoteSSHUser)
 	cfg.Remote.Setup = parseMultilineInput(remoteSetup)
-	cfg.Remote.DigitalOcean.Token = strings.TrimSpace(remoteDOToken)
-	cfg.Remote.DigitalOcean.Region = strings.TrimSpace(remoteDORegion)
-	cfg.Remote.DigitalOcean.Size = strings.TrimSpace(remoteDOSize)
-	cfg.Remote.DigitalOcean.Image = strings.TrimSpace(remoteDOImage)
-	cfg.Remote.DigitalOcean.SSHKeys = parseMultilineInput(remoteDOSSKeys)
-	cfg.Remote.DigitalOcean.Tags = parseMultilineInput(remoteDOTags)
-	cfg.Remote.DigitalOcean.VPCUUID = strings.TrimSpace(remoteDOVPCUUID)
 	cfg.GitConfig = contains(selectedOptions, "git_config")
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")

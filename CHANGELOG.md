@@ -10,17 +10,15 @@ there is no `v0.6.0` tag in this repository.
 
 ### Added
 
-- Expanded remote mode around explicit machine, workspace, session, and exposure metadata.
-- Added named remote workspaces, directional `remote sync up` / `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
-- Added `remote_workspace` config and setup support for the default remote workspace.
-- Added token-authenticated remote backend client support for `remote.backend_url` and a documented backend API contract.
-- Added a shared remote machine provider interface, a DigitalOcean provider adapter, direct local `--provider digitalocean` provisioning, and a deployable `yolobox remote backend serve` control plane with machine and session state.
-- Added `DIGITALOCEAN_ACCESS_TOKEN` support and SSH-agent public-key discovery for DigitalOcean remote provisioning.
+- Added backend-first remote mode with `yolobox login`, `yolobox logout`, backend-authenticated machine leasing, `remote sync up`, `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
+- Added a default hosted backend URL at `https://api.yolobox.dev` plus `YOLOBOX_BACKEND_URL` and `YOLOBOX_TOKEN` overrides.
+- Added an open-source TypeScript backend package under `backend/` with a Fastify API, JSON machine state, and a DigitalOcean provider adapter for self-hosting.
 
 ### Changed
 
 - Scoped npm package release-age gating to yolobox's own base-image build installs; runtime npm/npx commands and CLI self-updates are unrestricted by default.
 - Added `--name` / `container_name` support for assigning a runtime container name.
+- Simplified remote mode to one VM, one project path, and one tmux session per remote machine; removed CLI-side direct provider provisioning, local remote registry state, remote workspaces, and the Go backend server.
 
 ## v0.18.0 - 2026-05-18
 

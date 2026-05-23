@@ -17,7 +17,7 @@ That is the intended path. You point the agent at a project and let it work insi
 
 If you use one tool most of the time, set `default_harness = "codex"` or another shortcut name in config. Then bare `yolobox` launches that tool. Set `default_harness = "none"` or leave it unset to keep bare `yolobox` as an interactive shell.
 
-If you set `mode = "remote"`, `remote_name = "foo"`, `remote_workspace = "app"`, and `default_harness = "codex"`, bare `yolobox` attaches to `yolobox remote resume foo/app codex`.
+If you set `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"`, bare `yolobox` runs `yolobox remote --name foo codex`.
 
 ## Command reference
 
@@ -43,17 +43,17 @@ yolobox run <cmd...>        # Run a single command in the sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox fork resume <env> [cmd...] # Reopen an existing copied folder
 yolobox fork discard <env> --force # Delete a copied folder
-yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine and default workspace
-yolobox remote --name <env> --workspace <name> [cmd...] # Use a named remote workspace
-yolobox remote resume [<env>[/<workspace>]] [cmd...] # Reattach to a remote tmux session
-yolobox remote sync up [<env>[/<workspace>]] # Copy the current folder to the remote workspace
-yolobox remote sync down [<env>[/<workspace>]] --force # Copy the remote workspace back locally
-yolobox remote forward [<env>[/<workspace>]] <port> # Forward a remote preview port to localhost
-yolobox remote stop [<env>[/<workspace>]] # Stop the remote tmux session
-yolobox remote list             # List locally registered remote machines and workspaces
-yolobox remote status [<env>[/<workspace>]] # Show local and backend state
-yolobox remote destroy <env> --force # Release the backend host and local registry entry
-yolobox remote backend serve --provider digitalocean # Run a self-hosted machine backend
+yolobox login [--backend-url <url>] --token <token> # Store remote backend auth
+yolobox logout              # Clear remote backend auth
+yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
+yolobox remote resume [<env>] [cmd...] # Reattach to the remote tmux session
+yolobox remote sync up [<env>] # Copy the current folder to the remote machine
+yolobox remote sync down [<env>] --force # Copy the remote project back locally
+yolobox remote forward [<env>] <port> # Forward a remote preview port to localhost
+yolobox remote stop [<env>] # Stop the remote tmux session
+yolobox remote list             # List backend machines
+yolobox remote status [<env>]   # Show backend machine state
+yolobox remote destroy <env> --force # Release the backend machine
 yolobox setup               # Write global defaults to ~/.config/yolobox/config.toml
 yolobox config              # Print the resolved config for the current project
 yolobox upgrade             # Update the binary and pull the latest base image
@@ -64,7 +64,7 @@ yolobox version             # Print version and platform
 yolobox help                # Show CLI help
 ```
 
-The optional remote target can be omitted only when `remote_name` is configured. If `remote_workspace` is also configured, that workspace is used; otherwise yolobox uses `default`.
+The optional remote target can be omitted only when `remote_name` is configured.
 
 ## Common examples
 
@@ -121,16 +121,16 @@ See [Recipes](/recipes) for common fork workflows, including webapp routing.
 ### Work on a remote machine
 
 ```bash
+yolobox login --token <token>
 yolobox remote --name foo codex
-yolobox remote --name foo --workspace app codex
-yolobox remote --provider digitalocean --name foo codex
-yolobox remote resume foo/app codex
-yolobox remote forward foo/app 3000
-yolobox remote forward 3000 # uses configured remote_name and remote_workspace
-yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
+yolobox remote resume foo codex
+yolobox remote sync up foo
+yolobox remote sync down foo --force
+yolobox remote forward foo 3000
+yolobox remote forward 3000 # uses configured remote_name
 ```
 
-Remote mode requires a configured backend URL and token, or a direct provider such as `--provider digitalocean` with `DIGITALOCEAN_ACCESS_TOKEN`. The backend or direct provider leases an SSH host; yolobox mirrors the current folder to a named workspace on that host with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo/app` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo/app --force` only when the remote copy should overwrite local files.
+Remote mode requires backend auth from `yolobox login` or `YOLOBOX_TOKEN`. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The backend leases an SSH host; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, then starts the requested command over SSH. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 
@@ -180,6 +180,6 @@ Use `run` when you want one exact command in the same sandbox model.
 
 Use `fork` when you want concurrent sessions on the same project folder without sharing files or the default Compose project namespace.
 
-Use `remote` when you want a named machine and workspace that can keep running after your laptop disconnects.
+Use `remote` when you want a named machine that can keep running after your laptop disconnects.
 
 Use `yolobox shell` when you are debugging or exploring manually, not as the main path.

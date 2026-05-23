@@ -5,27 +5,33 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 )
 
 const (
-	remoteProviderBackend = "backend"
-	remoteBackendTokenEnv = "YOLOBOX_REMOTE_TOKEN"
+	defaultRemoteBackendURL = "https://api.yolobox.dev"
+	remoteBackendURLEnv     = "YOLOBOX_BACKEND_URL"
+	remoteAuthTokenEnv      = "YOLOBOX_TOKEN"
 )
 
 type remoteBackendEnsureRequest struct {
-	Name      string `json:"name"`
-	Workspace string `json:"workspace,omitempty"`
-	SSHUser   string `json:"ssh_user,omitempty"`
-	RepoURL   string `json:"repo_url,omitempty"`
-	Branch    string `json:"branch,omitempty"`
+	Name       string `json:"name"`
+	SSHUser    string `json:"ssh_user,omitempty"`
+	SourcePath string `json:"source_path,omitempty"`
+	RepoURL    string `json:"repo_url,omitempty"`
+	Branch     string `json:"branch,omitempty"`
 }
 
 type remoteBackendMachineResponse struct {
 	Machine remoteMachine `json:"machine"`
 	Status  string        `json:"status,omitempty"`
+}
+
+type remoteBackendListResponse struct {
+	Machines []remoteMachine `json:"machines"`
 }
 
 func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
@@ -38,11 +44,11 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 	}
 	repo := currentGitRepo(sourcePath)
 	req := remoteBackendEnsureRequest{
-		Name:      opts.Name,
-		Workspace: effectiveRemoteWorkspace(opts.Workspace),
-		SSHUser:   firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root"),
-		RepoURL:   repo.URL,
-		Branch:    repo.Branch,
+		Name:       opts.Name,
+		SSHUser:    firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root"),
+		SourcePath: sourcePath,
+		RepoURL:    repo.URL,
+		Branch:     repo.Branch,
 	}
 	var response remoteBackendMachineResponse
 	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/ensure", req, &response); err != nil {
@@ -50,14 +56,15 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 	}
 	machine := response.Machine
 	machine.Name = opts.Name
-	machine.Provider = remoteProviderBackend
-	machine.BackendURL = remoteBackendURL(cfg, machine)
-	if machine.SSHUser == "" {
-		machine.SSHUser = firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root")
-	}
 	machine.SourcePath = sourcePath
 	machine.RepoURL = repo.URL
 	machine.Branch = repo.Branch
+	if machine.SSHUser == "" {
+		machine.SSHUser = req.SSHUser
+	}
+	if machine.ProjectPath == "" {
+		machine.ProjectPath = remoteProjectPath()
+	}
 	if machine.CreatedAt.IsZero() {
 		machine.CreatedAt = time.Now().UTC()
 	}
@@ -68,39 +75,54 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 	return machine, nil
 }
 
-func releaseRemoteBackendMachine(cfg Config, machine remoteMachine) error {
-	if cfg.Remote.BackendURL == "" {
-		cfg.Remote.BackendURL = machine.BackendURL
-	}
-	return remoteBackendMachineRequest(cfg, machine, http.MethodDelete, "/v1/machines/"+machine.Name, nil, nil)
-}
-
-func getRemoteBackendMachine(cfg Config, machine remoteMachine) (remoteMachine, string, error) {
-	if cfg.Remote.BackendURL == "" {
-		cfg.Remote.BackendURL = machine.BackendURL
-	}
+func getRemoteBackendMachine(cfg Config, name string) (remoteMachine, string, error) {
 	var response remoteBackendMachineResponse
-	if err := remoteBackendMachineRequest(cfg, machine, http.MethodGet, "/v1/machines/"+machine.Name, nil, &response); err != nil {
+	if err := remoteBackendRequest(cfg, http.MethodGet, "/v1/machines/"+url.PathEscape(name), nil, &response); err != nil {
 		return remoteMachine{}, "", err
 	}
-	if response.Machine.BackendURL == "" {
-		response.Machine.BackendURL = remoteBackendURL(cfg, machine)
+	machine := response.Machine
+	machine.Name = name
+	if machine.SSHUser == "" {
+		machine.SSHUser = firstNonEmpty(cfg.Remote.SSHUser, "root")
 	}
-	return response.Machine, response.Status, nil
+	if machine.ProjectPath == "" {
+		machine.ProjectPath = remoteProjectPath()
+	}
+	return machine, response.Status, nil
+}
+
+func listRemoteBackendMachines(cfg Config) ([]remoteMachine, error) {
+	var response remoteBackendListResponse
+	if err := remoteBackendRequest(cfg, http.MethodGet, "/v1/machines", nil, &response); err != nil {
+		return nil, err
+	}
+	for i := range response.Machines {
+		if response.Machines[i].ProjectPath == "" {
+			response.Machines[i].ProjectPath = remoteProjectPath()
+		}
+		if response.Machines[i].SSHUser == "" {
+			response.Machines[i].SSHUser = firstNonEmpty(cfg.Remote.SSHUser, "root")
+		}
+	}
+	return response.Machines, nil
+}
+
+func updateRemoteBackendMachine(cfg Config, machine remoteMachine) error {
+	return remoteBackendRequest(cfg, http.MethodPatch, "/v1/machines/"+url.PathEscape(machine.Name), machine, nil)
+}
+
+func releaseRemoteBackendMachine(cfg Config, name string) error {
+	return remoteBackendRequest(cfg, http.MethodDelete, "/v1/machines/"+url.PathEscape(name), nil, nil)
 }
 
 func remoteBackendRequest(cfg Config, method string, endpoint string, body any, out any) error {
-	return remoteBackendMachineRequest(cfg, remoteMachine{}, method, endpoint, body, out)
-}
-
-func remoteBackendMachineRequest(cfg Config, machine remoteMachine, method string, endpoint string, body any, out any) error {
-	baseURL := remoteBackendURL(cfg, machine)
+	baseURL := remoteBackendURL(cfg)
 	if baseURL == "" {
 		return fmt.Errorf("remote backend URL is not configured")
 	}
-	token := remoteBackendToken(cfg)
+	token := remoteAuthToken(cfg)
 	if token == "" {
-		return fmt.Errorf("remote backend token is not configured; set remote.backend_token or %s", remoteBackendTokenEnv)
+		return fmt.Errorf("remote auth token is not configured; run `yolobox login` or set %s", remoteAuthTokenEnv)
 	}
 	var requestBody *bytes.Reader
 	if body != nil {
@@ -141,36 +163,35 @@ func remoteBackendMachineRequest(cfg Config, machine remoteMachine, method strin
 	return json.NewDecoder(resp.Body).Decode(out)
 }
 
-func putRemoteBackendSession(cfg Config, machine remoteMachine, session remoteSession) error {
-	if machine.Provider != remoteProviderBackend || remoteBackendURL(cfg, machine) == "" {
-		return nil
+func remoteBackendURL(cfg Config) string {
+	if url := strings.TrimSpace(os.Getenv(remoteBackendURLEnv)); url != "" {
+		return strings.TrimRight(url, "/")
 	}
-	return remoteBackendMachineRequest(cfg, machine, http.MethodPut, "/v1/sessions/"+session.ID, session, nil)
-}
-
-func deleteRemoteBackendSession(cfg Config, machine remoteMachine, sessionID string) error {
-	if machine.Provider != remoteProviderBackend || remoteBackendURL(cfg, machine) == "" {
-		return nil
-	}
-	return remoteBackendMachineRequest(cfg, machine, http.MethodDelete, "/v1/sessions/"+sessionID, nil, nil)
-}
-
-func remoteBackendConfigured(cfg Config) bool {
-	return strings.TrimSpace(cfg.Remote.BackendURL) != ""
-}
-
-func remoteBackendURL(cfg Config, machine remoteMachine) string {
 	if url := strings.TrimSpace(cfg.Remote.BackendURL); url != "" {
 		return strings.TrimRight(url, "/")
 	}
-	return strings.TrimRight(machine.BackendURL, "/")
+	return defaultRemoteBackendURL
 }
 
-func remoteBackendToken(cfg Config) string {
-	if token := strings.TrimSpace(cfg.Remote.BackendToken); token != "" {
+func remoteAuthToken(cfg Config) string {
+	if token := strings.TrimSpace(os.Getenv(remoteAuthTokenEnv)); token != "" {
 		return token
 	}
-	return strings.TrimSpace(os.Getenv(remoteBackendTokenEnv))
+	return strings.TrimSpace(cfg.Remote.Token)
+}
+
+func validateRemoteBackendURL(value string) error {
+	parsed, err := url.Parse(strings.TrimSpace(value))
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" && parsed.Scheme != "http" {
+		return fmt.Errorf("expected http or https URL")
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("expected URL host")
+	}
+	return nil
 }
 
 func firstNonEmpty(values ...string) string {

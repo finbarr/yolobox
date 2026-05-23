@@ -15,7 +15,6 @@ Applies to all projects:
 ```toml
 # mode = "remote"
 # remote_name = "foo"
-# remote_workspace = "default"
 default_harness = "codex"
 git_config = true
 opencode_config = true
@@ -37,18 +36,11 @@ devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
-backend_url = "https://remote.example.com"
-# Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
-backend_token = "your-backend-token"
-# provider = "digitalocean" # direct local provisioning when no backend_url is set
+backend_url = "https://api.yolobox.dev"
+# Written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+token = "your-backend-token"
 ssh_user = "root"
-
-[remote.digitalocean]
-# Prefer DIGITALOCEAN_ACCESS_TOKEN instead of committing this.
-# token = "dop_v1_example"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
+setup = ["docker compose pull"]
 ```
 
 ### Project config
@@ -91,37 +83,27 @@ Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`.
 
 ## Remote defaults
 
-Set `mode = "remote"` and `remote_name` when bare `yolobox` should attach to a named remote machine instead of starting a local container. `remote_workspace` selects the named workspace on that machine and defaults to `default`.
+Set `mode = "remote"` and `remote_name` when bare `yolobox` should use a named remote machine instead of starting a local container.
 
 ```toml
 mode = "remote"
 remote_name = "foo"
-remote_workspace = "app"
 default_harness = "codex"
 
 [remote]
+# Defaults to https://api.yolobox.dev when omitted.
 backend_url = "https://remote.example.com"
-# Prefer YOLOBOX_REMOTE_TOKEN for local testing instead of committing this.
-backend_token = "your-backend-token"
-# Or use direct local provisioning when no backend_url is set:
-# provider = "digitalocean"
+# Written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+token = "your-backend-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
-
-[remote.digitalocean]
-# Prefer DIGITALOCEAN_ACCESS_TOKEN instead of committing this.
-# token = "dop_v1_example"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-# ssh_keys = ["123456", "aa:bb:cc:fingerprint"]
 ```
 
-With that config, bare `yolobox` behaves like `yolobox remote resume foo/app codex`.
+With that config, bare `yolobox` behaves like `yolobox remote --name foo codex`.
 
-Remote mode requires either `remote.backend_url` / `--backend-url` or `remote.provider` / `--provider`. With a backend, yolobox asks that hosted or self-hosted control plane for an SSH host. With `provider = "digitalocean"`, yolobox provisions directly through the shared DigitalOcean adapter. It stores machine, workspace, session, and exposure metadata in `~/.local/state/yolobox/remotes.json`, mirrors the current folder to a named workspace on the VM with `rsync`, and runs the requested command through SSH.
+Remote mode requires backend auth from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. The CLI asks the hosted or self-hosted backend for an SSH host, mirrors the current folder to `/opt/yolobox/project` with `rsync`, and runs the requested command through SSH. The backend is the source of truth for machine state.
 
-Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote workspace back to the local folder and requires `--force` because it can overwrite local files.
+Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote project back to the local folder and requires `--force` because it can overwrite local files.
 
 ## Project file filtering
 

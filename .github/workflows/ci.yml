@@ -8,7 +8,7 @@ on:
 
 jobs:
   test:
-    name: Test
+    name: Go Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -27,6 +27,28 @@ jobs:
         with:
           files: coverage.out
         continue-on-error: true
+
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Build backend
+        run: npm --prefix backend run build
+
+      - name: Test backend
+        run: npm --prefix backend test
 
   lint:
     name: Lint

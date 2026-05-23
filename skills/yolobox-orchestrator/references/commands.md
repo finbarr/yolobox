@@ -35,63 +35,63 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
-If `mode = "remote"`, `remote_name = "foo"`, `remote_workspace = "app"`, and `default_harness = "codex"` are set, bare `yolobox` attaches to:
+If `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"` are set, bare `yolobox` runs:
 
 ```bash
-yolobox remote resume foo/app codex
+yolobox remote --name foo codex
 ```
 
 ## Remote machines
 
-Create or reuse a named remote machine. A configured backend or direct provider leases an SSH host:
+Log in, then create or reuse a named remote machine. The hosted or self-hosted backend leases the SSH host:
 
 ```bash
+yolobox login --token <token>
+yolobox login --backend-url http://127.0.0.1:8787 --token change-me
 yolobox remote --name foo codex
-yolobox remote --name foo --workspace app codex
-yolobox remote --provider digitalocean --name foo codex
 ```
 
-Run the built-in backend for a shared machine pool:
+Run the self-hosted backend package for a shared machine pool:
 
 ```bash
-YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_ACCESS_TOKEN=... \
-  yolobox remote backend serve --provider digitalocean --listen 0.0.0.0:8787
+cd backend
+YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_ACCESS_TOKEN=... npm run dev
 ```
 
 Reattach later:
 
 ```bash
-yolobox remote resume foo/app codex
+yolobox remote resume foo codex
 ```
 
-Sync the current folder to the remote workspace:
+Sync the current folder to the remote machine:
 
 ```bash
-yolobox remote sync up foo/app
+yolobox remote sync up foo
 ```
 
-Copy the remote workspace back to the local folder, overwriting local files:
+Copy the remote project back to the local folder, overwriting local files:
 
 ```bash
-yolobox remote sync down foo/app --force
+yolobox remote sync down foo --force
 ```
 
 Forward a remote preview port to localhost:
 
 ```bash
-yolobox remote forward foo/app 3000
-yolobox remote forward 3000 # uses configured remote_name and remote_workspace
+yolobox remote forward foo 3000
+yolobox remote forward 3000 # uses configured remote_name
 ```
 
-Inspect and clean up local registry state plus the backend lease:
+Inspect and clean up backend state:
 
 ```bash
 yolobox remote list
-yolobox remote status foo/app
+yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-The remote path depends on either a backend URL/token or direct provider credentials, plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 

@@ -182,7 +182,9 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
-yolobox remote --name <env> [--workspace <name>] <cmd...> # Run on a named remote workspace
+yolobox login               # Store remote backend auth
+yolobox logout              # Clear remote backend auth
+yolobox remote --name <env> <cmd...> # Run on a named remote machine
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -213,29 +215,28 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 
 ## Remote Mode
 
-Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. Yolobox can lease that machine through a hosted or self-hosted backend, or it can provision directly through a local provider adapter. The first provider adapter is DigitalOcean; the backend and direct client path share the same provider interface.
+Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always talks to a hosted or self-hosted backend, and the backend is the source of truth for machine state.
 
 ```bash
+yolobox login --token <token>
 yolobox remote --name foo codex
-yolobox remote --name foo --workspace app codex
-yolobox remote resume foo/app codex
-yolobox remote sync up foo/app
-yolobox remote sync down foo/app --force
-yolobox remote forward foo/app 3000
-yolobox remote stop foo/app
+yolobox remote resume foo codex
+yolobox remote sync up foo
+yolobox remote sync down foo --force
+yolobox remote forward foo 3000
+yolobox remote stop foo
 yolobox remote list
-yolobox remote status foo/app
+yolobox remote status foo
 yolobox remote destroy foo --force
-yolobox remote backend serve --provider digitalocean --token "$YOLOBOX_BACKEND_TOKEN"
 ```
 
-Remote support is modeled as machines, workspaces, sessions, and exposures. A machine is the VM or host returned by the backend or local provider. A workspace is a durable project copy on that machine. A session is the persistent `tmux` process running the harness. An exposure is explicit port access; the open-source client supports local SSH forwarding with `remote forward`, while managed preview URLs belong behind a hosted backend.
+Remote support is intentionally one machine, one project path, and one tmux session. A named remote maps to one VM with the project at `/opt/yolobox/project` and the session named `yolobox`. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
 
-When `remote_name` is configured, commands that take a remote target can omit `foo/app`; `remote_workspace` selects the workspace, defaulting to `default`.
+When `remote_name` is configured, commands that take a remote target can omit `foo`.
 
-Remote sync copies the entire current folder into `/opt/yolobox-workspaces/<machine>-<workspace>/<folder>` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
+Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
-Backends expose a small HTTP API for leasing and releasing SSH hosts and storing shared session metadata. A hosted or self-hosted backend can put static pools, warm pools, billing, provider-specific provisioning, snapshots, and policy controls behind the same client workflow. To try remote mode without running a backend, set `remote.provider = "digitalocean"` or pass `--provider digitalocean` with `DIGITALOCEAN_ACCESS_TOKEN` in the environment.
+The CLI defaults to the hosted backend at `https://api.yolobox.dev`. The backend can offer free account/control-plane features, bring-your-own-infra credentials, and paid yolobox-owned VMs. The open-source self-hostable backend lives in [backend/](backend/) and currently includes a DigitalOcean provider adapter.
 
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
@@ -248,7 +249,6 @@ Settings are saved to `~/.config/yolobox/config.toml`:
 ```toml
 # mode = "remote"
 # remote_name = "foo"
-# remote_workspace = "default"
 default_harness = "codex" # or claude, gemini, opencode, copilot, none
 git_config = true
 opencode_config = true
@@ -270,17 +270,10 @@ devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
-# backend_url = "https://remote.example.com" # hosted/self-hosted backend
-# backend_token = "prefer-YOLOBOX_REMOTE_TOKEN-for-local-testing"
-# provider = "digitalocean" # direct local provisioning when no backend_url is set
+# backend_url = "https://api.yolobox.dev" # hosted backend by default
+# token = "written-by-yolobox-login"
 ssh_user = "root"
-
-[remote.digitalocean]
-# token = "prefer-DIGITALOCEAN_ACCESS_TOKEN"
-region = "nyc3"
-size = "s-2vcpu-4gb"
-image = "ubuntu-24-04-x64"
-# ssh_keys = ["123456", "aa:bb:cc:fingerprint"]
+setup = ["docker compose pull"]
 ```
 
 You can also create `.yolobox.toml` in your project for project-specific settings:
