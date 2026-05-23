@@ -55,6 +55,7 @@ Environment:
 - `DIGITALOCEAN_SSH_KEYS`: comma-separated SSH key ids or fingerprints.
 - `DIGITALOCEAN_TAGS`: comma-separated tags, default `yolobox`.
 - `DIGITALOCEAN_VPC_UUID`: optional VPC UUID.
+- `YOLOBOX_REMOTE_SSH_PUBLIC_KEY`: public key to register when no `DIGITALOCEAN_SSH_KEYS` are set.
 
 ## API
 

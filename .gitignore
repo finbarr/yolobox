@@ -29,6 +29,7 @@ go.work.sum
 Thumbs.db
 
 # Local config (user-specific)
+.env
 .yolobox.local.toml
 
 # Docs
