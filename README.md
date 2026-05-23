@@ -185,6 +185,7 @@ yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose
 yolobox login               # Sign in and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> <cmd...> # Run on a named remote machine
+yolobox remote connect <env> <cmd...> # Attach to a backend-known machine
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -221,6 +222,7 @@ Remote mode gives Claude, Codex, and other harnesses a named Linux machine that 
 yolobox login --email you@example.com
 yolobox login --signup --email you@example.com
 yolobox remote --name foo codex
+yolobox remote connect foo codex
 yolobox remote resume foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
@@ -233,11 +235,22 @@ yolobox remote destroy foo --force
 
 Remote support is intentionally one machine, one project path, and one tmux session. A named remote maps to one VM with the project at `/opt/yolobox/project` and the session named `yolobox`. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
 
+The CLI does not keep a local machine registry. It stores only auth/config, asks
+the backend for the account's machines, and connects to any machine the backend
+knows about. `yolobox remote --name foo ...` creates or reuses a backend machine;
+`yolobox remote connect foo ...` bootstraps and attaches to an existing machine
+without syncing the current folder.
+
 When `remote_name` is configured, commands that take a remote target can omit `foo`.
 
 Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes. Downward sync intentionally requires `--force` because it can overwrite local files.
 
-The CLI defaults to the hosted backend at `https://api.yolobox.dev`. The backend can offer free account/control-plane features, bring-your-own-infra credentials, and paid yolobox-owned VMs. The open-source self-hostable backend lives in [backend/](backend/) and currently includes a DigitalOcean provider adapter.
+The hosted console is intended to live at `https://app.yolobox.dev` and call the
+hosted API at `https://api.yolobox.dev`. The backend can offer free
+account/control-plane features, bring-your-own-infra credentials, and paid
+yolobox-owned VMs. The open-source self-hostable backend lives in
+[backend/](backend/) and currently includes a DigitalOcean provider adapter
+behind a generic provider interface.
 
 Self-host the backend with Docker Compose:
 

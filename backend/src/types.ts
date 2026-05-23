@@ -1,6 +1,7 @@
 export type RemoteMachine = {
   name: string;
   user_id?: string;
+  provider_label?: string;
   provider_name?: string;
   provider?: string;
   provider_id?: string;
@@ -22,6 +23,7 @@ export type RemoteMachine = {
 
 export type EnsureMachineRequest = {
   name: string;
+  provider?: string;
   provider_name?: string;
   ssh_user?: string;
   source_path?: string;
@@ -29,10 +31,24 @@ export type EnsureMachineRequest = {
   branch?: string;
 };
 
+export type ListProviderMachinesRequest = {
+  provider_name_suffix?: string;
+  ssh_user?: string;
+};
+
+export type MachineProviderInfo = {
+  name: string;
+  label: string;
+  capabilities: Array<"create" | "destroy" | "list" | "connect">;
+};
+
 export type MachineProvider = {
   name: string;
+  label?: string;
+  info?: MachineProviderInfo;
   ensureMachine(request: EnsureMachineRequest): Promise<{ machine: RemoteMachine; status?: string }>;
   getMachine(machine: RemoteMachine): Promise<{ machine: RemoteMachine; status?: string }>;
+  listMachines(request: ListProviderMachinesRequest): Promise<Array<{ machine: RemoteMachine; status?: string }>>;
   releaseMachine(machine: RemoteMachine): Promise<void>;
 };
 

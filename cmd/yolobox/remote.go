@@ -53,7 +53,7 @@ func runRemote(args []string, projectDir string) error {
 	}
 
 	switch args[0] {
-	case "attach", "resume":
+	case "attach", "connect", "resume":
 		return runRemoteResume(args[1:], projectDir)
 	case "sync":
 		return runRemoteSync(args[1:], projectDir)
@@ -75,8 +75,9 @@ func runRemote(args []string, projectDir string) error {
 func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]       Create or reuse a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect [<env>] [cmd...]    Connect to an existing backend machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote resume [<env>] [cmd...]     Reattach to the remote machine session")
-	fmt.Fprintln(os.Stderr, "  yolobox remote attach [<env>] [cmd...]     Alias for resume")
+	fmt.Fprintln(os.Stderr, "  yolobox remote attach [<env>] [cmd...]     Alias for connect")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync [up] [<env>]           Copy the current folder to the remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync down [<env>] --force   Copy the remote project back locally")
 	fmt.Fprintln(os.Stderr, "  yolobox remote forward [<env>] <port>      Forward a remote preview port to localhost")
@@ -94,7 +95,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
 	fmt.Fprintln(os.Stderr, "  yolobox login --email you@example.com")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
-	fmt.Fprintln(os.Stderr, "  yolobox remote resume foo codex")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo")
 	fmt.Fprintln(os.Stderr, "  yolobox remote forward foo 3000")
 }
@@ -196,6 +197,10 @@ func runRemoteResume(args []string, projectDir string) error {
 		commandArgs = remoteDefaultCommand(cfg)
 	}
 	machine, _, err := getRemoteBackendMachine(cfg, name)
+	if err != nil {
+		return err
+	}
+	machine, err = prepareRemoteMachineForAttach(cfg, machine)
 	if err != nil {
 		return err
 	}
@@ -508,6 +513,29 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return machine, err
 	}
 	success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
+	return machine, nil
+}
+
+func prepareRemoteMachineForAttach(cfg Config, machine remoteMachine) (remoteMachine, error) {
+	if machine.ProjectPath == "" {
+		machine.ProjectPath = remoteProjectPath()
+	}
+	if !machine.BootstrapComplete {
+		if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+			return machine, err
+		}
+		if err := bootstrapRemoteHost(machine); err != nil {
+			return machine, err
+		}
+		machine.BootstrapComplete = true
+		machine.UpdatedAt = time.Now().UTC()
+	}
+	if err := ensureRemoteProjectPath(machine); err != nil {
+		return machine, err
+	}
+	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
+		return machine, err
+	}
 	return machine, nil
 }
 

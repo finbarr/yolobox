@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -10,8 +11,10 @@ import { EnsureMachineRequest, MachineProvider, RemoteMachine } from "./types.js
 
 class FakeProvider implements MachineProvider {
   readonly name = "fake";
+  readonly label = "Fake Cloud";
   ensured: EnsureMachineRequest[] = [];
   released: string[] = [];
+  discovered: RemoteMachine[] = [];
 
   async ensureMachine(request: EnsureMachineRequest) {
     this.ensured.push(request);
@@ -36,6 +39,17 @@ class FakeProvider implements MachineProvider {
         public_ipv4: machine.public_ipv4 || "203.0.113.10",
       },
     };
+  }
+
+  async listMachines() {
+    return this.discovered.map((machine) => ({
+      status: "active",
+      machine: {
+        provider: this.name,
+        ssh_user: "root",
+        ...machine,
+      },
+    }));
   }
 
   async releaseMachine(machine: RemoteMachine) {
@@ -86,6 +100,7 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   assert.equal(listed.statusCode, 200);
   assert.equal(listed.json().machines.length, 1);
   assert.equal(listed.json().machines[0].name, "foo");
+  assert.equal(listed.json().machines[0].provider_label, "Fake Cloud");
 
   const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers });
   assert.equal(fetched.statusCode, 200);
@@ -94,6 +109,36 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   const deleted = await app.inject({ method: "DELETE", url: "/v1/machines/foo", headers });
   assert.equal(deleted.statusCode, 204);
   assert.deepEqual(provider.released, ["foo"]);
+});
+
+test("backend imports provider machines for the authenticated user", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const headers = { authorization: `Bearer ${token}` };
+  const user = await app.inject({ method: "GET", url: "/v1/auth/whoami", headers });
+  assert.equal(user.statusCode, 200);
+  const suffix = hashUserID(user.json().user.id);
+
+  provider.discovered = [{
+    name: "already-there",
+    provider_name: `already-there-${suffix}`,
+    provider: provider.name,
+    provider_id: "fake-imported",
+    public_ipv4: "203.0.113.20",
+  }];
+
+  const listed = await app.inject({ method: "GET", url: "/v1/machines", headers });
+  assert.equal(listed.statusCode, 200);
+  assert.equal(listed.json().machines.length, 1);
+  assert.equal(listed.json().machines[0].name, "already-there");
+
+  const fetched = await app.inject({ method: "GET", url: "/v1/machines/already-there", headers });
+  assert.equal(fetched.statusCode, 200);
+  assert.equal(fetched.json().machine.public_ipv4, "203.0.113.20");
+
+  const connect = await app.inject({ method: "GET", url: "/v1/machines/already-there/connect", headers });
+  assert.equal(connect.statusCode, 200);
+  assert.equal(connect.json().connect.ssh, "ssh root@203.0.113.20");
+  assert.equal(connect.json().connect.cli, "yolobox remote connect already-there");
 });
 
 test("backend auth supports multiple users with isolated machine names", async () => {
@@ -185,4 +230,8 @@ async function signUp(app: ReturnType<typeof createBackend>, email: string, pass
   const body = response.json();
   assert.equal(typeof body.token, "string");
   return body.token;
+}
+
+function hashUserID(userID: string): string {
+  return createHash("sha256").update(userID).digest("hex").slice(0, 10);
 }

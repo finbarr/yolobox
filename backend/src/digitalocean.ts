@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { EnsureMachineRequest, MachineProvider, RemoteMachine } from "./types.js";
+import { EnsureMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
 
 const apiBaseURL = "https://api.digitalocean.com";
 
@@ -30,6 +30,15 @@ type Droplet = {
   created_at?: string;
 };
 
+type DropletList = {
+  droplets: Droplet[];
+  links?: {
+    pages?: {
+      next?: string;
+    };
+  };
+};
+
 type SSHKey = {
   id: number;
   fingerprint?: string;
@@ -39,6 +48,12 @@ type SSHKey = {
 
 export class DigitalOceanProvider implements MachineProvider {
   readonly name = "digitalocean";
+  readonly label = "DigitalOcean";
+  readonly info: MachineProviderInfo = {
+    name: this.name,
+    label: this.label,
+    capabilities: ["create", "destroy", "list", "connect"],
+  };
   private readonly apiURL: string;
 
   constructor(private readonly config: DigitalOceanConfig) {
@@ -81,6 +96,22 @@ export class DigitalOceanProvider implements MachineProvider {
     return { machine: this.machineFromDroplet(machine.name, providerName, machine.ssh_user, droplet), status: droplet.status };
   }
 
+  async listMachines(request: ListProviderMachinesRequest): Promise<Array<{ machine: RemoteMachine; status?: string }>> {
+    const suffix = request.provider_name_suffix ? `-${request.provider_name_suffix}` : "";
+    const droplets = await this.listDroplets();
+    return droplets.flatMap((droplet) => {
+      const providerName = providerNameFromDroplet(droplet);
+      if (!providerName) return [];
+      if (suffix && !providerName.endsWith(suffix)) return [];
+      const logicalName = suffix ? providerName.slice(0, -suffix.length) : providerName;
+      if (!logicalName) return [];
+      return [{
+        machine: this.machineFromDroplet(logicalName, providerName, request.ssh_user, droplet),
+        status: droplet.status,
+      }];
+    });
+  }
+
   async releaseMachine(machine: RemoteMachine): Promise<void> {
     const id = machine.provider_id || (await this.findDroplet(machine.provider_name || machine.name))?.id;
     if (!id) return;
@@ -92,6 +123,22 @@ export class DigitalOceanProvider implements MachineProvider {
     const response = await this.request<{ droplets: Droplet[] }>(`/v2/droplets?tag_name=${encodeURIComponent(tag)}&per_page=200`);
     const want = machineResourceName(machineName);
     return response.droplets.find((droplet) => droplet.name === want && (droplet.tags || []).includes(tag));
+  }
+
+  private async listDroplets(): Promise<Droplet[]> {
+    const baseTags = this.config.tags.length > 0 ? this.config.tags : ["yolobox"];
+    const seen = new Map<number, Droplet>();
+    for (const tag of baseTags) {
+      let path = `/v2/droplets?tag_name=${encodeURIComponent(tag)}&per_page=200`;
+      while (path) {
+        const response = await this.request<DropletList>(path);
+        for (const droplet of response.droplets) {
+          seen.set(droplet.id, droplet);
+        }
+        path = nextPath(response.links?.pages?.next);
+      }
+    }
+    return [...seen.values()];
   }
 
   private async waitForAddress(id: number): Promise<Droplet> {
@@ -184,6 +231,22 @@ function machineResourceName(name: string): string {
 
 function machineTag(name: string): string {
   return `yolobox-${sanitize(name)}`;
+}
+
+function providerNameFromDroplet(droplet: Droplet): string {
+  if (droplet.name.startsWith("yolobox-")) return droplet.name.slice("yolobox-".length);
+  const tag = (droplet.tags || []).find((value) => value.startsWith("yolobox-") && value !== "yolobox");
+  return tag ? tag.slice("yolobox-".length) : "";
+}
+
+function nextPath(next: string | undefined): string {
+  if (!next) return "";
+  try {
+    const parsed = new URL(next);
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return next.startsWith("/") ? next : "";
+  }
 }
 
 function sanitize(value: string): string {

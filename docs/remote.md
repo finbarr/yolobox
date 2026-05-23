@@ -53,6 +53,7 @@ yolobox login --backend-url https://remote.example.com --token <existing-session
 yolobox logout
 
 yolobox remote --name foo codex
+yolobox remote connect foo codex
 yolobox remote resume foo codex
 yolobox remote attach foo codex
 yolobox remote sync up foo
@@ -136,7 +137,9 @@ in the `yolobox-backend-data` Docker volume.
 
 The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 
-The backend reads DigitalOcean settings from environment variables such as `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`.
+The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames.
+
+The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
 ## Client Responsibilities
 
@@ -153,6 +156,13 @@ After the backend leases a host, the CLI:
 - patches backend machine metadata after bootstrap, sync, and command execution
 
 The client requires local `ssh` and `rsync`.
+
+The CLI does not store remote machine state locally. It stores auth/config only,
+then asks the backend for list, status, create, destroy, and connect metadata.
+`yolobox remote connect foo` attaches to a backend-known machine; `yolobox remote
+--name foo ...` creates or reuses one. Connect bootstraps an unprepared machine
+before attaching, but it does not sync the local folder; use `remote --name` or
+`remote sync up` when the remote needs the current project.
 
 ## Backend HTTP API
 
@@ -178,6 +188,15 @@ Health check endpoint for operators and load balancers.
 ### `GET /v1/auth/whoami`
 
 Returns basic authenticated account/backend information for the current Better Auth session.
+
+### `GET /v1/providers`
+
+List configured provider adapters and their capabilities.
+
+### `POST /v1/machines`
+
+Create or return a machine for the authenticated account. This is the UI-friendly
+alias of `POST /v1/machines/ensure`.
 
 ### `POST /v1/machines/ensure`
 
@@ -214,11 +233,17 @@ Successful response:
 
 ### `GET /v1/machines`
 
-List the authenticated user's leased machines.
+List the authenticated user's machines. The backend also asks the configured
+provider for account machines and imports matching resources before responding,
+so a fresh CLI or UI session can see machines that already exist in the account.
 
 ### `GET /v1/machines/{name}`
 
 Return and refresh one leased machine.
+
+### `GET /v1/machines/{name}/connect`
+
+Return refreshed machine state plus SSH and CLI connect commands for the UI.
 
 ### `PATCH /v1/machines/{name}`
 

@@ -9,8 +9,9 @@ RUN apt-get update \
 COPY package.json package-lock.json ./
 RUN npm ci
 
-COPY tsconfig.json ./
+COPY tsconfig.json vite.config.ts ./
 COPY src ./src
+COPY app ./app
 RUN npm run build \
   && npm prune --omit=dev
 
@@ -29,6 +30,7 @@ RUN mkdir -p /data \
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./
 COPY --from=build --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
+COPY --from=build --chown=node:node /app/dist-app ./dist-app
 
 USER node
 

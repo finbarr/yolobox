@@ -40,3 +40,4 @@ docs/.vitepress/cache/
 # Backend
 backend/node_modules/
 backend/dist/
+backend/dist-app/
