@@ -19,6 +19,26 @@ By default the server listens on `127.0.0.1:8787` and stores state at
 `~/.local/state/yolobox/backend.json`. Better Auth users and sessions are stored
 in SQLite at `~/.local/state/yolobox/auth.sqlite`.
 
+## Run With Docker Compose
+
+From the repository root:
+
+```bash
+BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
+docker compose -f docker-compose.backend.yml up --build
+```
+
+The Compose service publishes `127.0.0.1:8787` by default and persists backend
+state in the `yolobox-backend-data` Docker volume. Override the host bind with
+`YOLOBOX_BACKEND_PORT`, for example `YOLOBOX_BACKEND_PORT=127.0.0.1:8877`.
+
+Then sign up or sign in from another shell:
+
+```bash
+yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
+```
+
 Environment:
 
 - `BETTER_AUTH_SECRET`: required signing secret for Better Auth sessions.

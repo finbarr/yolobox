@@ -1,0 +1,33 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    image: yolobox-backend:dev
+    environment:
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?set BETTER_AUTH_SECRET to a long random value}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://127.0.0.1:8787/v1/auth}
+      BETTER_AUTH_TRUSTED_ORIGINS: ${BETTER_AUTH_TRUSTED_ORIGINS:-http://127.0.0.1:8787}
+      YOLOBOX_BACKEND_LISTEN: 0.0.0.0:8787
+      YOLOBOX_BACKEND_STATE: /data/backend.json
+      YOLOBOX_BACKEND_AUTH_DB: /data/auth.sqlite
+      YOLOBOX_BACKEND_PROVIDER: ${YOLOBOX_BACKEND_PROVIDER:-digitalocean}
+      DIGITALOCEAN_ACCESS_TOKEN: ${DIGITALOCEAN_ACCESS_TOKEN:?set DIGITALOCEAN_ACCESS_TOKEN for VM provisioning}
+      DIGITALOCEAN_REGION: ${DIGITALOCEAN_REGION:-nyc3}
+      DIGITALOCEAN_SIZE: ${DIGITALOCEAN_SIZE:-s-2vcpu-4gb}
+      DIGITALOCEAN_IMAGE: ${DIGITALOCEAN_IMAGE:-ubuntu-24-04-x64}
+      DIGITALOCEAN_SSH_KEYS: ${DIGITALOCEAN_SSH_KEYS:-}
+      DIGITALOCEAN_TAGS: ${DIGITALOCEAN_TAGS:-yolobox}
+      DIGITALOCEAN_VPC_UUID: ${DIGITALOCEAN_VPC_UUID:-}
+    ports:
+      - "${YOLOBOX_BACKEND_PORT:-127.0.0.1:8787}:8787"
+    volumes:
+      - yolobox-backend-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  yolobox-backend-data:

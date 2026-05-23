@@ -239,6 +239,14 @@ Remote sync copies the entire current folder into `/opt/yolobox/project` on the 
 
 The CLI defaults to the hosted backend at `https://api.yolobox.dev`. The backend can offer free account/control-plane features, bring-your-own-infra credentials, and paid yolobox-owned VMs. The open-source self-hostable backend lives in [backend/](backend/) and currently includes a DigitalOcean provider adapter.
 
+Self-host the backend with Docker Compose:
+
+```bash
+BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
+docker compose -f docker-compose.backend.yml up --build
+```
+
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
 ## Configuration

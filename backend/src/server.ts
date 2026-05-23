@@ -175,8 +175,11 @@ async function requireAuth(options: BackendOptions, request: { headers: Record<s
   };
 }
 
-function toWebRequest(request: { method: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown }): Request {
+function toWebRequest(request: { method: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown; ip?: string }): Request {
   const headers = toHeaders(request.headers);
+  if (request.ip && !headers.has("x-forwarded-for")) {
+    headers.set("x-forwarded-for", request.ip);
+  }
   const url = `http://${headers.get("host") || "127.0.0.1"}${request.url}`;
   const init: RequestInit = {
     method: request.method,

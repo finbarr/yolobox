@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
@@ -196,6 +197,9 @@ func remoteAuthRequest(backendURL string, endpoint string, token string, body an
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	if origin := remoteAuthOrigin(backendURL); origin != "" {
+		req.Header.Set("Origin", origin)
+	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
@@ -228,4 +232,12 @@ func promptLine(prompt string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(value), nil
+}
+
+func remoteAuthOrigin(backendURL string) string {
+	parsed, err := url.Parse(strings.TrimSpace(backendURL))
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host
 }

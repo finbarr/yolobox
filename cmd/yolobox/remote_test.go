@@ -348,10 +348,14 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 
 	loginCalled := false
 	logoutCalled := false
+	expectedOrigin := ""
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-in/email":
 			loginCalled = true
+			if r.Header.Get("Origin") != expectedOrigin {
+				t.Fatalf("unexpected login origin: %s", r.Header.Get("Origin"))
+			}
 			var req map[string]string
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatal(err)
@@ -362,6 +366,9 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(remoteAuthLoginResponse{Token: "session-token"})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-out":
 			logoutCalled = true
+			if r.Header.Get("Origin") != expectedOrigin {
+				t.Fatalf("unexpected logout origin: %s", r.Header.Get("Origin"))
+			}
 			if r.Header.Get("Authorization") != "Bearer session-token" {
 				t.Fatalf("unexpected logout auth header: %s", r.Header.Get("Authorization"))
 			}
@@ -371,6 +378,7 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 		}
 	}))
 	defer ts.Close()
+	expectedOrigin = ts.URL
 
 	if err := runLogin([]string{"--backend-url", ts.URL, "--email", "user@example.com", "--password", "secret-password"}); err != nil {
 		t.Fatalf("runLogin failed: %v", err)
@@ -411,6 +419,21 @@ func TestRunLoginStoresExistingToken(t *testing.T) {
 	}
 	if cfg.Remote.BackendURL != "https://remote.example.com" || cfg.Remote.Token != "secret-token" {
 		t.Fatalf("unexpected login config: %+v", cfg.Remote)
+	}
+}
+
+func TestRemoteAuthOrigin(t *testing.T) {
+	for _, tt := range []struct {
+		url  string
+		want string
+	}{
+		{url: "https://api.yolobox.dev", want: "https://api.yolobox.dev"},
+		{url: "http://127.0.0.1:8787/", want: "http://127.0.0.1:8787"},
+		{url: "not a url", want: ""},
+	} {
+		if got := remoteAuthOrigin(tt.url); got != tt.want {
+			t.Fatalf("remoteAuthOrigin(%q) = %q, want %q", tt.url, got, tt.want)
+		}
 	}
 }
 

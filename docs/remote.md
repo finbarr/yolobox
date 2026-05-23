@@ -123,6 +123,17 @@ yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.c
 yolobox remote --name foo codex
 ```
 
+Or run the backend with Docker Compose from the repository root:
+
+```bash
+BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
+DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
+docker compose -f docker-compose.backend.yml up --build
+```
+
+The Compose service publishes `127.0.0.1:8787` and stores auth plus machine state
+in the `yolobox-backend-data` Docker volume.
+
 The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 
 The backend reads DigitalOcean settings from environment variables such as `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`.
