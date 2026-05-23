@@ -39,37 +39,46 @@ export class StateStore {
     return Object.values(state.machines);
   }
 
-  async getMachine(name: string): Promise<RemoteMachine | undefined> {
+  async listMachinesForUser(userID: string): Promise<RemoteMachine[]> {
     const state = await this.load();
-    return state.machines[name];
+    return Object.values(state.machines).filter((machine) => machine.user_id === userID);
+  }
+
+  async getMachine(userID: string, name: string): Promise<RemoteMachine | undefined> {
+    const state = await this.load();
+    return state.machines[machineKey(userID, name)];
   }
 
   async putMachine(machine: RemoteMachine): Promise<void> {
+    if (!machine.user_id) throw new Error("machine user_id is required");
     await this.update((state) => {
-      state.machines[machine.name] = machine;
+      state.machines[machineKey(machine.user_id as string, machine.name)] = machine;
     });
   }
 
-  async patchMachine(name: string, patch: RemoteMachine): Promise<RemoteMachine> {
+  async patchMachine(userID: string, name: string, patch: RemoteMachine): Promise<RemoteMachine> {
     let updated: RemoteMachine | undefined;
     await this.update((state) => {
-      const existing = state.machines[name];
+      const key = machineKey(userID, name);
+      const existing = state.machines[key];
       if (!existing) return;
+      const { name: _name, user_id: _userID, ...safePatch } = patch;
       updated = {
         ...existing,
-        ...patch,
+        ...safePatch,
         name,
+        user_id: userID,
         updated_at: new Date().toISOString(),
       };
-      state.machines[name] = updated;
+      state.machines[key] = updated;
     });
     if (!updated) throw new Error("machine is not leased");
     return updated;
   }
 
-  async deleteMachine(name: string): Promise<void> {
+  async deleteMachine(userID: string, name: string): Promise<void> {
     await this.update((state) => {
-      delete state.machines[name];
+      delete state.machines[machineKey(userID, name)];
     });
   }
 
@@ -92,4 +101,8 @@ export class StateStore {
       machines: { ...this.state.machines },
     };
   }
+}
+
+function machineKey(userID: string, name: string): string {
+  return `${userID}:${name}`;
 }

@@ -341,7 +341,63 @@ func TestRunSSHForwardUsesLocalPortMapping(t *testing.T) {
 	}
 }
 
-func TestRunLoginStoresToken(t *testing.T) {
+func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	loginCalled := false
+	logoutCalled := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-in/email":
+			loginCalled = true
+			var req map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatal(err)
+			}
+			if req["email"] != "user@example.com" || req["password"] != "secret-password" {
+				t.Fatalf("unexpected login request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteAuthLoginResponse{Token: "session-token"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-out":
+			logoutCalled = true
+			if r.Header.Get("Authorization") != "Bearer session-token" {
+				t.Fatalf("unexpected logout auth header: %s", r.Header.Get("Authorization"))
+			}
+			_, _ = w.Write([]byte(`{"success":true}`))
+		default:
+			t.Fatalf("unexpected auth request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	if err := runLogin([]string{"--backend-url", ts.URL, "--email", "user@example.com", "--password", "secret-password"}); err != nil {
+		t.Fatalf("runLogin failed: %v", err)
+	}
+	cfg, err := loadSetupDefaults()
+	if err != nil {
+		t.Fatalf("loadSetupDefaults failed: %v", err)
+	}
+	if cfg.Remote.BackendURL != ts.URL || cfg.Remote.Token != "session-token" {
+		t.Fatalf("unexpected login config: %+v", cfg.Remote)
+	}
+	if err := runLogout(nil); err != nil {
+		t.Fatalf("runLogout failed: %v", err)
+	}
+	if !loginCalled || !logoutCalled {
+		t.Fatalf("expected login and logout calls, login=%t logout=%t", loginCalled, logoutCalled)
+	}
+	cfg, err = loadSetupDefaults()
+	if err != nil {
+		t.Fatalf("loadSetupDefaults after logout failed: %v", err)
+	}
+	if cfg.Remote.Token != "" {
+		t.Fatalf("expected logout to clear token, got %+v", cfg.Remote)
+	}
+}
+
+func TestRunLoginStoresExistingToken(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", "")
@@ -356,15 +412,37 @@ func TestRunLoginStoresToken(t *testing.T) {
 	if cfg.Remote.BackendURL != "https://remote.example.com" || cfg.Remote.Token != "secret-token" {
 		t.Fatalf("unexpected login config: %+v", cfg.Remote)
 	}
-	if err := runLogout(nil); err != nil {
-		t.Fatalf("runLogout failed: %v", err)
+}
+
+func TestRunLoginSignupCallsBackend(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	t.Setenv("XDG_CONFIG_HOME", "")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/sign-up/email" {
+			t.Fatalf("unexpected signup request %s %s", r.Method, r.URL.Path)
+		}
+		var req map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			t.Fatal(err)
+		}
+		if req["email"] != "new@example.com" || req["password"] != "secret-password" || req["name"] != "New User" {
+			t.Fatalf("unexpected signup request: %+v", req)
+		}
+		_ = json.NewEncoder(w).Encode(remoteAuthLoginResponse{Token: "signup-session-token"})
+	}))
+	defer ts.Close()
+
+	if err := runLogin([]string{"--signup", "--backend-url", ts.URL, "--email", "new@example.com", "--password", "secret-password", "--name", "New User"}); err != nil {
+		t.Fatalf("runLogin signup failed: %v", err)
 	}
-	cfg, err = loadSetupDefaults()
+	cfg, err := loadSetupDefaults()
 	if err != nil {
-		t.Fatalf("loadSetupDefaults after logout failed: %v", err)
+		t.Fatalf("loadSetupDefaults failed: %v", err)
 	}
-	if cfg.Remote.Token != "" {
-		t.Fatalf("expected logout to clear token, got %+v", cfg.Remote)
+	if cfg.Remote.Token != "signup-session-token" {
+		t.Fatalf("expected signup session token, got %+v", cfg.Remote)
 	}
 }
 

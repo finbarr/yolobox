@@ -10,9 +10,9 @@ there is no `v0.6.0` tag in this repository.
 
 ### Added
 
-- Added backend-first remote mode with `yolobox login`, `yolobox logout`, backend-authenticated machine leasing, `remote sync up`, `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
+- Added backend-first remote mode with `yolobox login`, `yolobox logout`, Better Auth-backed machine leasing, `remote sync up`, `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
 - Added a default hosted backend URL at `https://api.yolobox.dev` plus `YOLOBOX_BACKEND_URL` and `YOLOBOX_TOKEN` overrides.
-- Added an open-source TypeScript backend package under `backend/` with a Fastify API, JSON machine state, and a DigitalOcean provider adapter for self-hosting.
+- Added an open-source TypeScript backend package under `backend/` with a Fastify API, Better Auth email/password sessions, per-user machine ownership, JSON machine state, and a DigitalOcean provider adapter for self-hosting.
 
 ### Changed
 

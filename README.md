@@ -182,8 +182,8 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
-yolobox login               # Store remote backend auth
-yolobox logout              # Clear remote backend auth
+yolobox login               # Sign in and store remote backend auth
+yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> <cmd...> # Run on a named remote machine
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
@@ -218,7 +218,8 @@ See the [recipes](docs/recipes.md) for common fork workflows, including parallel
 Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always talks to a hosted or self-hosted backend, and the backend is the source of truth for machine state.
 
 ```bash
-yolobox login --token <token>
+yolobox login --email you@example.com
+yolobox login --signup --email you@example.com
 yolobox remote --name foo codex
 yolobox remote resume foo codex
 yolobox remote sync up foo
@@ -271,7 +272,7 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
 # backend_url = "https://api.yolobox.dev" # hosted backend by default
-# token = "written-by-yolobox-login"
+# token = "session-written-by-yolobox-login"
 ssh_user = "root"
 setup = ["docker compose pull"]
 ```

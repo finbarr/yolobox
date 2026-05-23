@@ -1,5 +1,7 @@
 export type RemoteMachine = {
   name: string;
+  user_id?: string;
+  provider_name?: string;
   provider?: string;
   provider_id?: string;
   public_ipv4?: string;
@@ -20,6 +22,7 @@ export type RemoteMachine = {
 
 export type EnsureMachineRequest = {
   name: string;
+  provider_name?: string;
   ssh_user?: string;
   source_path?: string;
   repo_url?: string;
@@ -40,5 +43,5 @@ export type BackendState = {
   updated_at?: string;
 };
 
-export const stateVersion = 1;
+export const stateVersion = 2;
 export const defaultProjectPath = "/opt/yolobox/project";

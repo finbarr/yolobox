@@ -21,14 +21,15 @@ Implemented in the CLI:
 Implemented in the open-source backend package under `backend/`:
 
 - TypeScript/Fastify web service
-- bearer-token API auth
-- JSON state file for leased machines
+- Better Auth email/password signup, login, logout, and bearer sessions
+- SQLite auth database plus JSON state file for leased machines
+- per-user machine ownership and isolation
 - DigitalOcean provider adapter for self-hosted provisioning
 - machine metadata updates from the CLI
 
 Not implemented in this repo:
 
-- the hosted sign-up and account UI
+- the hosted account UI
 - managed billing, quotas, team roles, and audit logs
 - yolobox-owned paid VM pools
 - public preview URLs
@@ -45,8 +46,10 @@ Port access remains explicit. The open-source CLI supports local SSH forwarding;
 ## CLI Contract
 
 ```bash
-yolobox login --token <token>
-yolobox login --backend-url https://remote.example.com --token <token>
+yolobox login --email you@example.com
+yolobox login --signup --email you@example.com
+yolobox login --backend-url https://remote.example.com --email you@example.com
+yolobox login --backend-url https://remote.example.com --token <existing-session-token>
 yolobox logout
 
 yolobox remote --name foo codex
@@ -82,8 +85,8 @@ default_harness = "codex"
 [remote]
 # Defaults to https://api.yolobox.dev when omitted.
 backend_url = "https://remote.example.com"
-# Written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
-token = "your-backend-token"
+# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+token = "your-session-token"
 ssh_user = "root"
 setup = [
   "docker compose pull",
@@ -108,7 +111,7 @@ The backend remains open source. Self-hosters run the TypeScript backend with th
 ```bash
 cd backend
 npm ci
-YOLOBOX_BACKEND_TOKEN=change-me \
+BETTER_AUTH_SECRET=replace-with-a-random-secret-at-least-32-bytes \
 DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 npm run dev
 ```
@@ -116,9 +119,11 @@ npm run dev
 Then point the CLI at it:
 
 ```bash
-yolobox login --backend-url http://127.0.0.1:8787 --token change-me
+yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
 yolobox remote --name foo codex
 ```
+
+The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 
 The backend reads DigitalOcean settings from environment variables such as `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`.
 
@@ -140,7 +145,13 @@ The client requires local `ssh` and `rsync`.
 
 ## Backend HTTP API
 
-All non-health requests use:
+Auth endpoints are mounted under `/v1/auth/*` and are handled by Better Auth. The CLI uses:
+
+- `POST /v1/auth/sign-up/email`
+- `POST /v1/auth/sign-in/email`
+- `POST /v1/auth/sign-out`
+
+Machine endpoints require a Better Auth bearer session:
 
 ```http
 Authorization: Bearer <token>
@@ -155,11 +166,11 @@ Health check endpoint for operators and load balancers.
 
 ### `GET /v1/auth/whoami`
 
-Returns basic authenticated account/backend information.
+Returns basic authenticated account/backend information for the current Better Auth session.
 
 ### `POST /v1/machines/ensure`
 
-Lease or return the host for a logical machine name. This operation is idempotent for the same authenticated owner and machine name.
+Lease or return the host for a logical machine name. This operation is idempotent for the same authenticated owner and machine name. Different users can use the same logical machine name; the backend derives a provider-specific machine name per user.
 
 Request:
 
@@ -228,6 +239,6 @@ Use `sync down` only when the remote copy should overwrite local files. For Git 
 
 Remote machines are outside the local container trust boundary. Anyone with SSH access can inspect synced files, running containers, tmux contents, forwarded preview traffic, and any secrets you place there.
 
-Backend tokens authorize machine leasing, release, and metadata updates. Treat `remote.token`, `YOLOBOX_TOKEN`, and `YOLOBOX_BACKEND_TOKEN` like cloud credentials. A self-hosted backend should listen behind TLS or on a private network.
+Backend session tokens authorize machine leasing, release, and metadata updates for one Better Auth user. Treat `remote.token` and `YOLOBOX_TOKEN` like cloud credentials. A self-hosted backend should listen behind TLS or on a private network, and `BETTER_AUTH_SECRET` must be a long random secret.
 
 DigitalOcean credentials now belong to the backend, not the CLI. Hosted bring-your-own-infra flows should store provider credentials server-side and scope them to the smallest permissions practical.

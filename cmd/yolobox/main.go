@@ -308,8 +308,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> <cmd>  Run on a named remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox login               Store remote backend auth")
-	fmt.Fprintln(os.Stderr, "  yolobox logout              Clear remote backend auth")
+	fmt.Fprintln(os.Stderr, "  yolobox login               Sign in and store remote backend auth")
+	fmt.Fprintln(os.Stderr, "  yolobox logout              Revoke and clear remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
@@ -373,7 +373,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
 	fmt.Fprintln(os.Stderr, "  [remote]")
 	fmt.Fprintf(os.Stderr, "  backend_url = %q # defaults to hosted backend\n", defaultRemoteBackendURL)
-	fmt.Fprintln(os.Stderr, "  token = \"...\" # written by yolobox login")
+	fmt.Fprintln(os.Stderr, "  token = \"...\" # session token written by yolobox login")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -386,7 +386,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox login --token <token>  # Store hosted/self-hosted backend auth")
+	fmt.Fprintln(os.Stderr, "  yolobox login --email me@example.com  # Sign in to hosted/self-hosted backend")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex  # Remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
@@ -1073,8 +1073,8 @@ func runSetup() (Config, error) {
 				Placeholder(defaultRemoteBackendURL).
 				Value(&remoteBackendURL),
 			huh.NewInput().
-				Title("Remote auth token").
-				Description("Written by yolobox login; optional if YOLOBOX_TOKEN is set").
+				Title("Remote session token").
+				Description("Better Auth session written by yolobox login; optional if YOLOBOX_TOKEN is set").
 				Value(&remoteToken),
 			huh.NewInput().
 				Title("Remote SSH user").

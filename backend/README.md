@@ -10,17 +10,21 @@ their own provider credentials.
 
 ```bash
 npm ci
-YOLOBOX_BACKEND_TOKEN=change-me \
+BETTER_AUTH_SECRET=replace-with-a-random-secret-at-least-32-bytes \
 DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 npm run dev
 ```
 
 By default the server listens on `127.0.0.1:8787` and stores state at
-`~/.local/state/yolobox/backend.json`.
+`~/.local/state/yolobox/backend.json`. Better Auth users and sessions are stored
+in SQLite at `~/.local/state/yolobox/auth.sqlite`.
 
 Environment:
 
-- `YOLOBOX_BACKEND_TOKEN`: bearer token accepted by the API.
+- `BETTER_AUTH_SECRET`: required signing secret for Better Auth sessions.
+- `BETTER_AUTH_URL`: public auth base URL, default `http://<listen>/v1/auth`.
+- `BETTER_AUTH_TRUSTED_ORIGINS`: comma-separated trusted browser origins.
+- `YOLOBOX_BACKEND_AUTH_DB`: SQLite auth database path.
 - `YOLOBOX_BACKEND_LISTEN`: listen address, default `127.0.0.1:8787`.
 - `YOLOBOX_BACKEND_STATE`: JSON state file path.
 - `YOLOBOX_BACKEND_PROVIDER`: provider adapter, default `digitalocean`.
@@ -34,7 +38,8 @@ Environment:
 
 ## API
 
-All non-health requests require:
+Machine endpoints and `GET /v1/auth/whoami` require a Better Auth bearer
+session:
 
 ```http
 Authorization: Bearer <token>
@@ -43,6 +48,9 @@ Authorization: Bearer <token>
 Routes:
 
 - `GET /healthz`
+- `POST /v1/auth/sign-up/email`
+- `POST /v1/auth/sign-in/email`
+- `POST /v1/auth/sign-out`
 - `GET /v1/auth/whoami`
 - `POST /v1/machines/ensure`
 - `GET /v1/machines`
@@ -50,6 +58,6 @@ Routes:
 - `PATCH /v1/machines/:name`
 - `DELETE /v1/machines/:name`
 
-Machines are one-to-one with a remote VM. There are no backend workspaces or
-multiple named sessions per machine; the CLI uses one project path and one tmux
-session on the VM.
+Machines are scoped to the authenticated Better Auth user and are one-to-one with
+a remote VM. There are no backend workspaces or multiple named sessions per
+machine; the CLI uses one project path and one tmux session on the VM.

@@ -1,13 +1,14 @@
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { createBackendAuth, migrateBackendAuth } from "./auth.js";
 import { StateStore } from "./state.js";
 import { createBackend } from "./server.js";
 import { digitalOceanProviderFromEnv } from "./digitalocean.js";
 
 const listen = process.env.YOLOBOX_BACKEND_LISTEN || "127.0.0.1:8787";
-const token = process.env.YOLOBOX_BACKEND_TOKEN;
-if (!token) {
-  throw new Error("YOLOBOX_BACKEND_TOKEN is required");
+const authSecret = process.env.BETTER_AUTH_SECRET;
+if (!authSecret) {
+  throw new Error("BETTER_AUTH_SECRET is required");
 }
 
 const providerName = (process.env.YOLOBOX_BACKEND_PROVIDER || "digitalocean").toLowerCase();
@@ -17,9 +18,17 @@ const provider = providerName === "digitalocean"
 
 const statePath = process.env.YOLOBOX_BACKEND_STATE || join(homedir(), ".local", "state", "yolobox", "backend.json");
 const store = new StateStore(statePath, provider.name);
-const app = createBackend({ token, provider, store });
-
 const { host, port } = parseListen(listen);
+const authOptions = {
+  baseURL: process.env.BETTER_AUTH_URL || `http://${host}:${port}/v1/auth`,
+  databasePath: process.env.YOLOBOX_BACKEND_AUTH_DB || join(homedir(), ".local", "state", "yolobox", "auth.sqlite"),
+  secret: authSecret,
+  trustedOrigins: splitList(process.env.BETTER_AUTH_TRUSTED_ORIGINS),
+};
+await migrateBackendAuth(authOptions);
+const auth = createBackendAuth(authOptions);
+const app = createBackend({ auth, provider, store });
+
 await app.listen({ host, port });
 console.error(`yolobox backend listening on ${host}:${port} with ${provider.name}`);
 
@@ -30,4 +39,8 @@ function parseListen(value: string): { host: string; port: number } {
     host: value.slice(0, lastColon) || "127.0.0.1",
     port: Number(value.slice(lastColon + 1)),
   };
+}
+
+function splitList(value: string | undefined): string[] {
+  return (value || "").split(",").map((part) => part.trim()).filter(Boolean);
 }

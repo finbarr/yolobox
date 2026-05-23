@@ -46,8 +46,8 @@ yolobox remote --name foo codex
 Log in, then create or reuse a named remote machine. The hosted or self-hosted backend leases the SSH host:
 
 ```bash
-yolobox login --token <token>
-yolobox login --backend-url http://127.0.0.1:8787 --token change-me
+yolobox login --email you@example.com
+yolobox login --signup --backend-url http://127.0.0.1:8787 --email you@example.com
 yolobox remote --name foo codex
 ```
 
@@ -55,7 +55,7 @@ Run the self-hosted backend package for a shared machine pool:
 
 ```bash
 cd backend
-YOLOBOX_BACKEND_TOKEN=change-me DIGITALOCEAN_ACCESS_TOKEN=... npm run dev
+BETTER_AUTH_SECRET=replace-with-a-random-secret-at-least-32-bytes DIGITALOCEAN_ACCESS_TOKEN=... npm run dev
 ```
 
 Reattach later:

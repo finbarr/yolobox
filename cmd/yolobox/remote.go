@@ -92,7 +92,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  --backend-url <url>  Remote backend API URL")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
-	fmt.Fprintln(os.Stderr, "  yolobox login --token <token>")
+	fmt.Fprintln(os.Stderr, "  yolobox login --email you@example.com")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote resume foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo")
@@ -522,7 +522,7 @@ func validateRemoteDefaults(cfg Config) error {
 		return fmt.Errorf("invalid remote backend URL: %w", err)
 	}
 	if remoteAuthToken(cfg) == "" {
-		return fmt.Errorf("remote auth token is required; run `yolobox login` or set %s", remoteAuthTokenEnv)
+		return fmt.Errorf("remote session token is required; run `yolobox login` or set %s", remoteAuthTokenEnv)
 	}
 	return nil
 }

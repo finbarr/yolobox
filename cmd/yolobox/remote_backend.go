@@ -122,7 +122,7 @@ func remoteBackendRequest(cfg Config, method string, endpoint string, body any, 
 	}
 	token := remoteAuthToken(cfg)
 	if token == "" {
-		return fmt.Errorf("remote auth token is not configured; run `yolobox login` or set %s", remoteAuthTokenEnv)
+		return fmt.Errorf("remote session token is not configured; run `yolobox login` or set %s", remoteAuthTokenEnv)
 	}
 	var requestBody *bytes.Reader
 	if body != nil {

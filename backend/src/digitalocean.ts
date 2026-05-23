@@ -46,9 +46,10 @@ export class DigitalOceanProvider implements MachineProvider {
   }
 
   async ensureMachine(request: EnsureMachineRequest): Promise<{ machine: RemoteMachine; status?: string }> {
-    const existing = await this.findDroplet(request.name);
+    const providerName = request.provider_name || request.name;
+    const existing = await this.findDroplet(providerName);
     if (existing) {
-      return { machine: this.machineFromDroplet(request.name, request.ssh_user, existing), status: existing.status };
+      return { machine: this.machineFromDroplet(request.name, providerName, request.ssh_user, existing), status: existing.status };
     }
 
     const sshKeys = this.config.sshKeys.length > 0
@@ -57,30 +58,31 @@ export class DigitalOceanProvider implements MachineProvider {
     const droplet = await this.request<{ droplet: Droplet }>("/v2/droplets", {
       method: "POST",
       body: {
-        name: machineResourceName(request.name),
+        name: machineResourceName(providerName),
         region: this.config.region,
         size: this.config.size,
         image: this.config.image,
         ssh_keys: sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
-        tags: this.machineTags(request.name),
+        tags: this.machineTags(providerName),
         monitoring: true,
         ...(this.config.vpcUUID ? { vpc_uuid: this.config.vpcUUID } : {}),
       },
     });
     const ready = publicIPv4(droplet.droplet) ? droplet.droplet : await this.waitForAddress(droplet.droplet.id);
-    return { machine: this.machineFromDroplet(request.name, request.ssh_user, ready), status: ready.status };
+    return { machine: this.machineFromDroplet(request.name, providerName, request.ssh_user, ready), status: ready.status };
   }
 
   async getMachine(machine: RemoteMachine): Promise<{ machine: RemoteMachine; status?: string }> {
+    const providerName = machine.provider_name || machine.name;
     const droplet = machine.provider_id
       ? (await this.request<{ droplet: Droplet }>(`/v2/droplets/${encodeURIComponent(machine.provider_id)}`)).droplet
-      : await this.findDroplet(machine.name);
+      : await this.findDroplet(providerName);
     if (!droplet) throw new Error(`DigitalOcean droplet for ${machine.name} was not found`);
-    return { machine: this.machineFromDroplet(machine.name, machine.ssh_user, droplet), status: droplet.status };
+    return { machine: this.machineFromDroplet(machine.name, providerName, machine.ssh_user, droplet), status: droplet.status };
   }
 
   async releaseMachine(machine: RemoteMachine): Promise<void> {
-    const id = machine.provider_id || (await this.findDroplet(machine.name))?.id;
+    const id = machine.provider_id || (await this.findDroplet(machine.provider_name || machine.name))?.id;
     if (!id) return;
     await this.request(`/v2/droplets/${encodeURIComponent(String(id))}`, { method: "DELETE" });
   }
@@ -118,10 +120,11 @@ export class DigitalOceanProvider implements MachineProvider {
     return created.ssh_key.id;
   }
 
-  private machineFromDroplet(machineName: string, sshUser: string | undefined, droplet: Droplet): RemoteMachine {
+  private machineFromDroplet(machineName: string, providerName: string, sshUser: string | undefined, droplet: Droplet): RemoteMachine {
     const now = new Date().toISOString();
     return {
       name: machineName,
+      provider_name: providerName,
       provider: this.name,
       provider_id: String(droplet.id),
       public_ipv4: publicIPv4(droplet),

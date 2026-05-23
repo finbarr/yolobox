@@ -37,8 +37,8 @@ runtime_args = ["--security-opt", "seccomp=unconfined"]
 
 [remote]
 backend_url = "https://api.yolobox.dev"
-# Written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
-token = "your-backend-token"
+# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+token = "your-session-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
 ```
@@ -93,15 +93,15 @@ default_harness = "codex"
 [remote]
 # Defaults to https://api.yolobox.dev when omitted.
 backend_url = "https://remote.example.com"
-# Written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
-token = "your-backend-token"
+# Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
+token = "your-session-token"
 ssh_user = "root"
 setup = ["docker compose pull"]
 ```
 
 With that config, bare `yolobox` behaves like `yolobox remote --name foo codex`.
 
-Remote mode requires backend auth from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. The CLI asks the hosted or self-hosted backend for an SSH host, mirrors the current folder to `/opt/yolobox/project` with `rsync`, and runs the requested command through SSH. The backend is the source of truth for machine state.
+Remote mode requires a Better Auth session from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. The CLI asks the hosted or self-hosted backend for an SSH host owned by the authenticated user, mirrors the current folder to `/opt/yolobox/project` with `rsync`, and runs the requested command through SSH. The backend is the source of truth for machine state.
 
 Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote project back to the local folder and requires `--force` because it can overwrite local files.
 
