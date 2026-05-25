@@ -91,7 +91,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, including `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, then runs sessions from a source-path alias matching the local project path. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 

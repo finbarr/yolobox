@@ -12,7 +12,8 @@ Implemented in the CLI:
 - `yolobox login` and `yolobox logout` for backend auth
 - backend-backed machine lease, status, list, update, and destroy calls
 - one named VM per remote name
-- one project path per VM: `/opt/yolobox/project`
+- one project storage path per VM: `/opt/yolobox/project`
+- one source-path workdir alias per VM, matching the original local project path
 - one persistent tmux session per VM: `yolobox`
 - full-folder `remote sync up` and forced `remote sync down --force`
 - local SSH preview forwarding with `remote forward`
@@ -37,7 +38,9 @@ Not implemented in this repo:
 
 ## Mental Model
 
-Remote mode has one main concept: a machine. A named remote maps to one VM, one project directory, and one tmux session.
+Remote mode has one main concept: a machine. A named remote maps to one VM, one project storage directory, one source-path workdir alias, and one tmux session.
+
+Project bytes live at `/opt/yolobox/project` on the remote VM. The CLI also creates the original local source path on the VM as a symlink to that storage directory, then starts remote yolobox from the source path. That means a local checkout at `/Users/example/project` also appears at `/Users/example/project` inside the remote yolobox container, which keeps Codex and Claude session paths stable.
 
 That is intentional. Multiple workspaces and multiple named sessions on one VM replicated fork-mode concepts remotely and made state ownership unclear. If you want another remote environment, create another named remote machine.
 
@@ -159,7 +162,8 @@ After the backend leases a host, the CLI:
 - waits for SSH when the backend returns an unbootstrapped host
 - bootstraps Docker, `tmux`, `git`, `rsync`, and yolobox when needed
 - mirrors the local folder to `/opt/yolobox/project`
-- runs setup commands after upward sync
+- maps the original local source path to that storage directory on the VM
+- runs setup commands from the source-path workdir after upward sync
 - starts or attaches to the single `yolobox` tmux session for interactive commands
 - runs noninteractive commands directly over SSH
 - forwards local preview ports with SSH
@@ -172,7 +176,9 @@ then asks the backend for list, status, create, destroy, and connect metadata.
 `yolobox remote connect foo` attaches to a backend-known machine; `yolobox remote
 --name foo ...` creates or reuses one. Connect bootstraps an unprepared machine
 before attaching, but it does not sync the local folder; use `remote --name` or
-`remote sync up` when the remote needs the current project.
+`remote sync up` when the remote needs the current project. If a machine has no
+stored source path yet, connect records the current folder path and uses it for
+the remote workdir alias.
 
 ## Backend HTTP API
 
@@ -234,6 +240,7 @@ Successful response:
     "provider_id": "123456",
     "public_ipv4": "203.0.113.10",
     "ssh_user": "root",
+    "source_path": "/Users/example/project",
     "project_path": "/opt/yolobox/project",
     "bootstrap_complete": false
   },
@@ -257,7 +264,7 @@ Return refreshed machine state plus SSH and CLI connect commands for the UI.
 
 ### `PATCH /v1/machines/{name}`
 
-Accept CLI-owned metadata updates such as source path, repo URL, branch, last command, sync timestamp, project path, and bootstrap status.
+Accept CLI-owned metadata updates such as source path, repo URL, branch, last command, sync timestamp, project storage path, and bootstrap status.
 
 ### `DELETE /v1/machines/{name}`
 
@@ -272,6 +279,8 @@ rsync -az --delete --human-readable --info=stats1 ./ root@host:/opt/yolobox/proj
 ```
 
 This includes `.git` if present, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine.
+
+The remote storage path remains `/opt/yolobox/project`, but commands run from a source-path alias. For example, syncing from `/Users/example/project` creates `/Users/example/project` on the VM as a symlink to `/opt/yolobox/project`, so the inner yolobox container mounts and works from `/Users/example/project`.
 
 `sync down` copies the remote project back into the current local folder and requires `--force`:
 

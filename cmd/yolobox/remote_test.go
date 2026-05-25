@@ -111,11 +111,11 @@ func TestRemoteBackendClientReportsUnauthorized(t *testing.T) {
 }
 
 func TestBuildRemoteSetupScript(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project"}
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
 	script := buildRemoteSetupScript(machine, []string{"docker compose pull"})
 	for _, want := range []string{
 		"set -euo pipefail",
-		"cd '/opt/yolobox/project'",
+		"cd '/Users/example/my app'",
 		"docker compose pull",
 	} {
 		if !strings.Contains(script, want) {
@@ -124,12 +124,63 @@ func TestBuildRemoteSetupScript(t *testing.T) {
 	}
 }
 
-func TestRemoteTmuxCommand(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/my app"}
+func TestBuildEnsureRemoteProjectPathScriptCreatesSourceAlias(t *testing.T) {
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
+	script := buildEnsureRemoteProjectPathScript(machine)
+	for _, want := range []string{
+		"storage='/opt/yolobox/project'",
+		"work='/Users/example/my app'",
+		"ln -s \"$storage\" \"$work\"",
+		"cannot map remote project workdir $work",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("expected ensure script to contain %q, got:\n%s", want, script)
+		}
+	}
+}
+
+func TestEnsureRemoteProjectPathScriptCreatesSourceAlias(t *testing.T) {
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake rsync: %v", err)
+	}
+
+	storagePath := filepath.Join(root, "storage", "project")
+	sourcePath := filepath.Join(root, "Users", "example", "project")
+	script := buildEnsureRemoteProjectPathScript(remoteMachine{ProjectPath: storagePath, SourcePath: sourcePath})
+	cmd := exec.Command("bash", "-c", script)
+	cmd.Env = append(os.Environ(), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("ensure script failed: %v\n%s", err, output)
+	}
+
+	info, err := os.Stat(storagePath)
+	if err != nil {
+		t.Fatalf("stat storage path: %v", err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("expected storage path to be a directory")
+	}
+	target, err := os.Readlink(sourcePath)
+	if err != nil {
+		t.Fatalf("read source alias: %v", err)
+	}
+	if target != storagePath {
+		t.Fatalf("source alias target = %q, want %q", target, storagePath)
+	}
+}
+
+func TestRemoteTmuxCommandUsesSourcePathAsContainerWorkdir(t *testing.T) {
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
 	command := remoteTmuxCommand(machine, []string{"yolobox", "codex", "--resume"}, true)
 	for _, want := range []string{
-		"cd '/opt/yolobox/my app'",
+		"cd '/Users/example/my app'",
 		"tmux new-session -A -s 'yolobox'",
+		"-c '/Users/example/my app'",
 		"codex",
 		"--resume",
 	} {
@@ -139,10 +190,23 @@ func TestRemoteTmuxCommand(t *testing.T) {
 	}
 }
 
-func TestRemoteDirectCommand(t *testing.T) {
+func TestRemoteTmuxCommandFallsBackToProjectPath(t *testing.T) {
 	machine := remoteMachine{ProjectPath: "/opt/yolobox/my app"}
+	command := remoteTmuxCommand(machine, []string{"yolobox", "codex", "--resume"}, true)
+	for _, want := range []string{
+		"cd '/opt/yolobox/my app'",
+		"-c '/opt/yolobox/my app'",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("expected tmux command to contain %q, got %s", want, command)
+		}
+	}
+}
+
+func TestRemoteDirectCommandUsesSourcePathAsContainerWorkdir(t *testing.T) {
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
 	command := remoteDirectCommand(machine, []string{"yolobox", "run", "echo", "ok"})
-	if !strings.Contains(command, "cd '/opt/yolobox/my app'; exec 'yolobox' 'run' 'echo' 'ok'") {
+	if !strings.Contains(command, "cd '/Users/example/my app'; exec 'yolobox' 'run' 'echo' 'ok'") {
 		t.Fatalf("unexpected direct command: %s", command)
 	}
 }

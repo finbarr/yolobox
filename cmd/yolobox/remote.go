@@ -200,7 +200,7 @@ func runRemoteResume(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	machine, err = prepareRemoteMachineForAttach(cfg, machine)
+	machine, err = prepareRemoteMachineForAttach(cfg, machine, projectDir)
 	if err != nil {
 		return err
 	}
@@ -284,7 +284,7 @@ func runRemoteList(args []string, projectDir string) error {
 	sort.Slice(machines, func(i, j int) bool {
 		return machines[i].Name < machines[j].Name
 	})
-	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", "NAME", "PROVIDER", "IP", "REGION", "PROJECT"); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", "NAME", "PROVIDER", "IP", "REGION", "STORAGE"); err != nil {
 		return err
 	}
 	for _, m := range machines {
@@ -323,6 +323,7 @@ func runRemoteStatus(args []string, projectDir string) error {
 	fmt.Printf("%srepo:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.RepoURL))
 	fmt.Printf("%sbranch:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Branch))
 	fmt.Printf("%sproject_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProjectPath))
+	fmt.Printf("%swork_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(remoteWorkPath(machine)))
 	fmt.Printf("%slast_synced_at:%s %s\n", colorBold, colorReset, displayTime(machine.LastSyncedAt))
 	fmt.Printf("%sbootstrap_complete:%s %t\n", colorBold, colorReset, machine.BootstrapComplete)
 	return nil
@@ -516,9 +517,12 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	return machine, nil
 }
 
-func prepareRemoteMachineForAttach(cfg Config, machine remoteMachine) (remoteMachine, error) {
+func prepareRemoteMachineForAttach(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
 	if machine.ProjectPath == "" {
 		machine.ProjectPath = remoteProjectPath()
+	}
+	if err := ensureRemoteMachineSourcePath(&machine, projectDir); err != nil {
+		return machine, err
 	}
 	if !machine.BootstrapComplete {
 		if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
@@ -689,15 +693,89 @@ func remoteProjectPath() string {
 	return remoteProjectRoot
 }
 
+func cleanRemoteSourcePath(sourcePath string) string {
+	sourcePath = strings.TrimSpace(sourcePath)
+	if sourcePath == "" {
+		return ""
+	}
+	cleaned := filepath.Clean(sourcePath)
+	if cleaned == "." || cleaned == string(os.PathSeparator) || !filepath.IsAbs(cleaned) {
+		return ""
+	}
+	return cleaned
+}
+
+func ensureRemoteMachineSourcePath(machine *remoteMachine, projectDir string) error {
+	if sourcePath := cleanRemoteSourcePath(machine.SourcePath); sourcePath != "" {
+		machine.SourcePath = sourcePath
+		return nil
+	}
+	sourcePath, err := normalizedProjectPath(projectDir)
+	if err != nil {
+		return err
+	}
+	machine.SourcePath = sourcePath
+	return nil
+}
+
+func remoteWorkPath(machine remoteMachine) string {
+	if sourcePath := cleanRemoteSourcePath(machine.SourcePath); sourcePath != "" {
+		return sourcePath
+	}
+	projectPath := strings.TrimSpace(machine.ProjectPath)
+	if projectPath == "" {
+		return remoteProjectPath()
+	}
+	cleaned := filepath.Clean(projectPath)
+	if cleaned == "." || !filepath.IsAbs(cleaned) {
+		return remoteProjectPath()
+	}
+	return cleaned
+}
+
 func ensureRemoteProjectPath(machine remoteMachine) error {
-	parent := filepath.Dir(machine.ProjectPath)
-	script := "set -euo pipefail\n" +
-		"if ! command -v rsync >/dev/null 2>&1; then\n" +
-		"  apt-get update\n" +
-		"  apt-get install -y rsync\n" +
-		"fi\n" +
-		"mkdir -p " + shellQuote(parent) + " " + shellQuote(machine.ProjectPath) + "\n"
-	return runRemoteScript(machine, script, false)
+	return runRemoteScript(machine, buildEnsureRemoteProjectPathScript(machine), false)
+}
+
+func buildEnsureRemoteProjectPathScript(machine remoteMachine) string {
+	projectPath := strings.TrimSpace(machine.ProjectPath)
+	if projectPath == "" {
+		projectPath = remoteProjectPath()
+	}
+	projectPath = filepath.Clean(projectPath)
+	workPath := remoteWorkPath(machine)
+	projectParent := filepath.Dir(projectPath)
+	workParent := filepath.Dir(workPath)
+
+	var b strings.Builder
+	b.WriteString("set -euo pipefail\n")
+	b.WriteString("if ! command -v rsync >/dev/null 2>&1; then\n")
+	b.WriteString("  apt-get update\n")
+	b.WriteString("  apt-get install -y rsync\n")
+	b.WriteString("fi\n")
+	b.WriteString("storage=" + shellQuote(projectPath) + "\n")
+	b.WriteString("work=" + shellQuote(workPath) + "\n")
+	b.WriteString("mkdir -p " + shellQuote(projectParent) + " \"$storage\"\n")
+	if workPath != projectPath {
+		b.WriteString("mkdir -p " + shellQuote(workParent) + "\n")
+		b.WriteString("if [ -L \"$work\" ]; then\n")
+		b.WriteString("  current=\"$(readlink \"$work\" || true)\"\n")
+		b.WriteString("  if [ \"$current\" != \"$storage\" ]; then\n")
+		b.WriteString("    ln -sfn \"$storage\" \"$work\"\n")
+		b.WriteString("  fi\n")
+		b.WriteString("elif [ -e \"$work\" ]; then\n")
+		b.WriteString("  if [ -d \"$work\" ] && [ -z \"$(find \"$work\" -mindepth 1 -maxdepth 1 -print -quit)\" ]; then\n")
+		b.WriteString("    rmdir \"$work\"\n")
+		b.WriteString("    ln -s \"$storage\" \"$work\"\n")
+		b.WriteString("  else\n")
+		b.WriteString("    echo \"cannot map remote project workdir $work: path already exists and is not an empty directory or symlink\" >&2\n")
+		b.WriteString("    exit 1\n")
+		b.WriteString("  fi\n")
+		b.WriteString("else\n")
+		b.WriteString("  ln -s \"$storage\" \"$work\"\n")
+		b.WriteString("fi\n")
+	}
+	return b.String()
 }
 
 func rsyncPathToRemote(machine remoteMachine, projectPath string, sourcePath string) error {
@@ -741,7 +819,7 @@ func rsyncPathFromRemote(machine remoteMachine, projectPath string, destinationP
 func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
 	var b strings.Builder
 	b.WriteString("set -euo pipefail\n")
-	b.WriteString("cd " + shellQuote(machine.ProjectPath) + "\n")
+	b.WriteString("cd " + shellQuote(remoteWorkPath(machine)) + "\n")
 	for _, command := range setup {
 		command = strings.TrimSpace(command)
 		if command == "" {
@@ -818,7 +896,7 @@ func remoteCommandNeedsTTY(command []string) bool {
 }
 
 func remoteCommandPrefix(machine remoteMachine) string {
-	return "export PATH=\"/root/.local/bin:$PATH\"; cd " + shellQuote(machine.ProjectPath) + "; "
+	return "export PATH=\"/root/.local/bin:$PATH\"; cd " + shellQuote(remoteWorkPath(machine)) + "; "
 }
 
 func remoteDirectCommand(machine remoteMachine, command []string) string {
@@ -826,10 +904,12 @@ func remoteDirectCommand(machine remoteMachine, command []string) string {
 }
 
 func remoteTmuxCommand(machine remoteMachine, command []string, attach bool) string {
+	workPath := remoteWorkPath(machine)
+	sessionCommand := "cd " + shellQuote(workPath) + "; exec " + shellJoin(command)
 	if attach {
-		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(machine.ProjectPath) + " " + shellQuote(shellJoin(command))
+		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
 	}
-	return remoteCommandPrefix(machine) + "tmux has-session -t " + shellQuote(remoteDefaultSessionName) + " 2>/dev/null || tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(machine.ProjectPath) + " " + shellQuote(shellJoin(command))
+	return remoteCommandPrefix(machine) + "tmux has-session -t " + shellQuote(remoteDefaultSessionName) + " 2>/dev/null || tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
 }
 
 func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) error {
