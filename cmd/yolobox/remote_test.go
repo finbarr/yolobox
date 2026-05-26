@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +12,27 @@ import (
 	"testing"
 	"time"
 )
+
+func captureStdout(t *testing.T, fn func()) string {
+	t.Helper()
+
+	oldStdout := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	os.Stdout = w
+	fn()
+	_ = w.Close()
+	os.Stdout = oldStdout
+
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("io.ReadAll() error = %v", err)
+	}
+	_ = r.Close()
+	return string(out)
+}
 
 func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
@@ -110,6 +132,57 @@ func TestRemoteBackendClientReportsUnauthorized(t *testing.T) {
 	}
 }
 
+func TestRemoteListShowsCompactMachineTable(t *testing.T) {
+	const token = "secret-token"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/machines" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(remoteBackendListResponse{Machines: []remoteMachine{{
+			Name:            "boom",
+			Provider:        "digitalocean",
+			PublicIPv4:      "203.0.113.10",
+			Region:          "nyc3",
+			Size:            "s-2vcpu-4gb-amd",
+			PreviewHostname: "amber-bridge-a1b2c3.hosted.yolobox.dev",
+			PreviewURL:      "https://amber-bridge-a1b2c3.hosted.yolobox.dev",
+			ProjectPath:     "/opt/yolobox/project",
+		}}})
+	}))
+	defer ts.Close()
+
+	t.Setenv(remoteBackendURLEnv, ts.URL)
+	t.Setenv(remoteAuthTokenEnv, token)
+
+	var runErr error
+	output := captureStdout(t, func() {
+		runErr = runRemoteList(nil, t.TempDir())
+	})
+	if runErr != nil {
+		t.Fatalf("runRemoteList failed: %v", runErr)
+	}
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected header and one row, got %q", output)
+	}
+	if got := strings.Fields(lines[0]); strings.Join(got, "|") != "NAME|SIZE|URL" {
+		t.Fatalf("unexpected header fields: %v", got)
+	}
+	if got := strings.Fields(lines[1]); strings.Join(got, "|") != "boom|s-2vcpu-4gb-amd|https://amber-bridge-a1b2c3.hosted.yolobox.dev" {
+		t.Fatalf("unexpected row fields: %v", got)
+	}
+	for _, notWant := range []string{"PROVIDER", "IP", "REGION", "STORAGE", "203.0.113.10", "/opt/yolobox/project"} {
+		if strings.Contains(output, notWant) {
+			t.Fatalf("remote list output should not contain %q:\n%s", notWant, output)
+		}
+	}
+}
+
 func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	const token = "secret-token"
 	sawPost := false
@@ -150,14 +223,17 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	if err := os.MkdirAll(fakeBin, 0755); err != nil {
 		t.Fatalf("create fake bin: %v", err)
 	}
-	for _, tool := range []string{"ssh", "rsync"} {
-		if err := os.WriteFile(filepath.Join(fakeBin, tool), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
-			t.Fatalf("write fake %s: %v", tool, err)
-		}
+	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
+	}
+	rsyncArgsFile := filepath.Join(root, "rsync-args")
+	if err := os.WriteFile(filepath.Join(fakeBin, "rsync"), []byte("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$YOLOBOX_FAKE_RSYNC_ARGS\"\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake rsync: %v", err)
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv(remoteBackendURLEnv, ts.URL)
 	t.Setenv(remoteAuthTokenEnv, token)
+	t.Setenv("YOLOBOX_FAKE_RSYNC_ARGS", rsyncArgsFile)
 
 	if err := runRemote([]string{"run", "foo", "true"}, t.TempDir()); err != nil {
 		t.Fatalf("remote run failed: %v", err)
@@ -167,6 +243,16 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	}
 	if patches == 0 {
 		t.Fatal("expected remote run to update existing machine metadata")
+	}
+	rsyncArgs, err := os.ReadFile(rsyncArgsFile)
+	if err != nil {
+		t.Fatalf("read rsync args: %v", err)
+	}
+	if strings.Contains(string(rsyncArgs), "--info=stats1") {
+		t.Fatalf("rsync args should stay compatible with macOS rsync:\n%s", rsyncArgs)
+	}
+	if !strings.Contains(string(rsyncArgs), "--delete") {
+		t.Fatalf("expected rsync args to include --delete:\n%s", rsyncArgs)
 	}
 }
 
@@ -362,6 +448,8 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"@openai/codex",
 		"docker network create yolobox-net",
 		"YOLOBOX_REMOTE=1",
+		"/var/log/yolobox-remote-install.log",
+		"step \"installing base packages\"",
 	} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("expected remote VM installer to contain %q", want)

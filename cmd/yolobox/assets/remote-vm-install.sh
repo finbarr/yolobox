@@ -5,15 +5,28 @@ export DEBIAN_FRONTEND=noninteractive
 
 ready_marker="${YOLOBOX_REMOTE_READY_MARKER:-/opt/yolobox/remote/ready}"
 
-if command -v cloud-init >/dev/null 2>&1; then
-  cloud-init status --wait >/dev/null 2>&1 || true
-fi
-
 if [ -f "$ready_marker" ]; then
   exit 0
 fi
 
+if command -v cloud-init >/dev/null 2>&1; then
+  echo "remote setup: waiting for cloud-init"
+  cloud-init status --wait >/dev/null 2>&1 || true
+fi
+
+install_log="${YOLOBOX_REMOTE_INSTALL_LOG:-/var/log/yolobox-remote-install.log}"
+mkdir -p "$(dirname "$install_log")"
+: > "$install_log"
+exec 3>&1
+trap 'status=$?; if [ "$status" -ne 0 ]; then echo "yolobox remote installer failed; recent log follows (${install_log})" >&3; tail -n 80 "$install_log" >&3 || true; fi; exit "$status"' EXIT
+exec >>"$install_log" 2>&1
+
+step() {
+  echo "remote setup: $*" >&3
+}
+
 apt_install() {
+  step "installing base packages"
   apt-get update
   apt-get install -y --no-install-recommends \
     bash \
@@ -54,6 +67,7 @@ apt_install() {
 }
 
 install_node() {
+  step "checking Node.js"
   local major
   major="$(node -v 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/' || true)"
   if [ "${major:-0}" -ge 22 ] 2>/dev/null; then
@@ -64,6 +78,7 @@ install_node() {
 }
 
 install_gh() {
+  step "checking GitHub CLI"
   if command -v gh >/dev/null 2>&1; then
     return 0
   fi
@@ -76,6 +91,7 @@ install_gh() {
 }
 
 install_docker() {
+  step "checking Docker Engine"
   if ! command -v docker >/dev/null 2>&1; then
     curl -fsSL https://get.docker.com | sh
   fi
@@ -85,6 +101,7 @@ install_docker() {
 }
 
 install_go() {
+  step "checking Go"
   if command -v go >/dev/null 2>&1; then
     return 0
   fi
@@ -106,6 +123,7 @@ install_go() {
 }
 
 install_bun() {
+  step "checking Bun"
   if command -v bun >/dev/null 2>&1; then
     return 0
   fi
@@ -115,6 +133,7 @@ install_bun() {
 }
 
 install_uv() {
+  step "checking uv"
   if command -v uv >/dev/null 2>&1 && command -v uvx >/dev/null 2>&1; then
     return 0
   fi
@@ -122,6 +141,7 @@ install_uv() {
 }
 
 install_ai_clis() {
+  step "installing AI CLIs"
   NPM_CONFIG_PREFIX="" npm install -g --no-audit --no-fund \
     @google/gemini-cli \
     @openai/codex \
@@ -132,6 +152,7 @@ install_ai_clis() {
 }
 
 install_claude() {
+  step "checking Claude Code"
   if ! command -v claude >/dev/null 2>&1; then
     curl -fsSL https://claude.ai/install.sh | bash
   fi
@@ -141,6 +162,7 @@ install_claude() {
 }
 
 install_rtk() {
+  step "checking RTK"
   if command -v rtk >/dev/null 2>&1; then
     return 0
   fi
@@ -148,6 +170,7 @@ install_rtk() {
 }
 
 install_yolo_user() {
+  step "configuring yolo user"
   if ! id -u yolo >/dev/null 2>&1; then
     useradd -m -s /bin/bash yolo
   fi
@@ -156,6 +179,7 @@ install_yolo_user() {
 }
 
 install_wrappers() {
+  step "writing yolobox command wrappers"
   mkdir -p /opt/yolobox/bin
   cat > /opt/yolobox/wrapper-template <<'EOF'
 #!/bin/bash
@@ -204,6 +228,7 @@ EOF
 }
 
 install_git_credential_helper() {
+  step "writing Git credential helper"
   cat > /opt/yolobox/bin/git-credential-github-token <<'EOF'
 #!/bin/sh
 case "${1:-}" in
@@ -232,6 +257,7 @@ EOF
 }
 
 install_upsert_block() {
+  step "writing managed instruction updater"
   cat > /usr/local/bin/yolobox-upsert-block <<'EOF'
 #!/usr/bin/env python3
 import pathlib
@@ -276,6 +302,7 @@ EOF
 }
 
 install_remote_session() {
+  step "writing remote session launcher"
   cat > /usr/local/bin/yolobox-remote-session <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -395,6 +422,7 @@ EOF
 }
 
 copy_repo_assets_if_present() {
+  step "copying bundled assets"
   local source_dir="${YOLOBOX_SOURCE_DIR:-}"
   local tmp_dir=""
   if [ -z "$source_dir" ] || [ ! -d "$source_dir" ]; then
@@ -426,6 +454,7 @@ copy_repo_assets_if_present() {
 }
 
 write_profile() {
+  step "writing shell profile"
   cat > /etc/profile.d/yolobox-remote.sh <<'EOF'
 export PATH="/opt/yolobox/bin:/root/.npm-global/bin:/home/yolo/.npm-global/bin:/usr/local/go/bin:$PATH"
 export YOLOBOX=1
@@ -452,6 +481,8 @@ install_remote_session
 copy_repo_assets_if_present
 write_profile
 
+step "marking remote runtime ready"
 mkdir -p "$(dirname "$ready_marker")" /opt/yolobox/project
 chmod 755 /opt /opt/yolobox /opt/yolobox/project
 date -u +%Y-%m-%dT%H:%M:%SZ > "$ready_marker"
+step "complete"

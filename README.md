@@ -273,7 +273,9 @@ Remote sync copies the entire current folder into `/opt/yolobox/project` on the 
 Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
 yolobox VM image or provider snapshot. Plain Ubuntu machines still work as a
 fallback because the CLI sends the VM runtime installer over SSH and marks the
-host ready at `/opt/yolobox/remote/ready`.
+host ready at `/opt/yolobox/remote/ready`. Installer command output is written
+on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints high-level
+setup steps and shows recent log output only if installation fails.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free

@@ -212,10 +212,8 @@ function AccessPanel({ onToken, deviceUserCode }: { onToken: (token: string) => 
           <span />
         </div>
         <pre>{`$ yolobox remote list
-provider     machine        status
-backend      source         truth
-cli          zero-state     client
-ui           account        control`}</pre>
+NAME   SIZE              URL
+boom   s-2vcpu-4gb-amd  https://amber-bridge-a1b2c3.hosted.yolobox.dev`}</pre>
       </div>
       <form className="auth-panel" onSubmit={submit}>
         <div className="segmented">

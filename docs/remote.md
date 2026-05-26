@@ -299,7 +299,7 @@ the request to that machine on `YOLOBOX_PREVIEW_TARGET_PORT`.
 `sync up` mirrors the current local folder to the remote machine:
 
 ```bash
-rsync -az --delete --human-readable --info=stats1 ./ root@host:/opt/yolobox/project/
+rsync -az --delete --human-readable ./ root@host:/opt/yolobox/project/
 ```
 
 This includes `.git` if present, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine.
@@ -318,7 +318,7 @@ When building an image from this repository checkout, run:
 sudo env YOLOBOX_SOURCE_DIR="$PWD" ./cmd/yolobox/assets/remote-vm-install.sh
 ```
 
-The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or connecting.
+The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or connecting. Installer command output is written on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints only high-level setup steps unless installation fails.
 
 `sync down` copies the remote project back into the current local folder and requires `--force`:
 

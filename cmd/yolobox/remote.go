@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"text/tabwriter"
 	"time"
 
 	"golang.org/x/term"
@@ -337,15 +338,26 @@ func runRemoteList(args []string, projectDir string) error {
 	sort.Slice(machines, func(i, j int) bool {
 		return machines[i].Name < machines[j].Name
 	})
-	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-18s %-32s %s\n", "NAME", "PROVIDER", "IP", "REGION", "SIZE", "PREVIEW", "STORAGE"); err != nil {
+	table := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	if _, err := fmt.Fprintln(table, "NAME\tSIZE\tURL"); err != nil {
 		return err
 	}
 	for _, m := range machines {
-		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-18s %-32s %s\n", m.Name, configValueOrNotSet(m.Provider), m.PublicIPv4, m.Region, configValueOrNotSet(m.Size), configValueOrNotSet(m.PreviewHostname), m.ProjectPath); err != nil {
+		if _, err := fmt.Fprintf(table, "%s\t%s\t%s\n", m.Name, configValueOrNotSet(m.Size), remoteListURL(m)); err != nil {
 			return err
 		}
 	}
-	return nil
+	return table.Flush()
+}
+
+func remoteListURL(machine remoteMachine) string {
+	if machine.PreviewURL != "" {
+		return machine.PreviewURL
+	}
+	if machine.PreviewHostname != "" {
+		return "https://" + machine.PreviewHostname
+	}
+	return "-"
 }
 
 func runRemoteStatus(args []string, projectDir string) error {
@@ -750,7 +762,6 @@ func rsyncPathToRemote(machine remoteMachine, projectPath string, sourcePath str
 		"-az",
 		"--delete",
 		"--human-readable",
-		"--info=stats1",
 		"-e", remoteSSHCommand(false),
 		source,
 		target,
@@ -769,7 +780,6 @@ func rsyncPathFromRemote(machine remoteMachine, projectPath string, destinationP
 		"-az",
 		"--delete",
 		"--human-readable",
-		"--info=stats1",
 		"-e", remoteSSHCommand(false),
 		source,
 		target,
