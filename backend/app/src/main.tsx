@@ -448,7 +448,7 @@ function MachineDetail({ machine, connect, loading, onDestroy, destroying }: {
       <CommandBlock label="SSH" value={connect?.connect.ssh || sshFallback(machine)} />
       <CommandBlock label="Preview URL" value={machine.preview_url || ""} />
       <CommandBlock label="CLI connect" value={connect?.connect.cli || `yolobox remote connect ${machine.name}`} />
-      <CommandBlock label="CLI run/sync" value={connect?.connect.cli_run || `yolobox remote --name ${machine.name}`} />
+      <CommandBlock label="CLI run" value={connect?.connect.cli_run || `yolobox remote run ${machine.name}`} />
       <dl className="meta">
         <div><dt>Provider ID</dt><dd>{machine.provider_id || "-"}</dd></div>
         <div><dt>Project path</dt><dd>{machine.project_path || "/opt/yolobox/project"}</dd></div>

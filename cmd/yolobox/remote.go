@@ -1,8 +1,6 @@
 package main
 
 import (
-	"errors"
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -54,6 +52,10 @@ func runRemote(args []string, projectDir string) error {
 	}
 
 	switch args[0] {
+	case "create":
+		return runRemoteCreate(args[1:], projectDir)
+	case "run":
+		return runRemoteRun(args[1:], projectDir)
 	case "connect":
 		return runRemoteConnect(args[1:], projectDir)
 	case "sync":
@@ -67,34 +69,32 @@ func runRemote(args []string, projectDir string) error {
 	case "destroy":
 		return runRemoteDestroy(args[1:], projectDir)
 	default:
-		if !strings.HasPrefix(args[0], "-") {
-			return fmt.Errorf("unknown remote command: %s", args[0])
-		}
-		return runRemoteCreate(args, projectDir)
+		return fmt.Errorf("unknown remote command: %s", args[0])
 	}
 }
 
 func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]       Create or reuse a named remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect [<env>] [cmd...]    Connect to an existing backend machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote sync [up] [<env>]           Copy the current folder to the remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote sync down [<env>] --force   Copy the remote project back locally")
-	fmt.Fprintln(os.Stderr, "  yolobox remote stop [<env>]                Stop the remote tmux session")
+	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> [--no-sync]    Create or reuse a machine and sync this folder")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd...>          Sync this folder, then run a command")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>               Connect to a shell without syncing")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync up <env>               Copy the current folder to the remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote sync down <env> --force     Copy the remote project back locally")
+	fmt.Fprintln(os.Stderr, "  yolobox remote stop <env>                  Stop the remote tmux session")
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                        List backend machines")
-	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>]              Show backend machine state")
+	fmt.Fprintln(os.Stderr, "  yolobox remote status <env>                Show backend machine state")
 	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force       Release/delete remote machine")
-	fmt.Fprintln(os.Stderr, "  Omit <env> only when remote_name is configured.")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
-	fmt.Fprintln(os.Stderr, "  --name <env>         Remote machine name")
-	fmt.Fprintln(os.Stderr, "  --ssh-user <user>    SSH user for the remote host")
-	fmt.Fprintln(os.Stderr, "  --backend-url <url>  Remote backend API URL")
+	fmt.Fprintln(os.Stderr, "  --no-sync            Skip the create command's initial project sync")
+	fmt.Fprintln(os.Stderr, "  --ssh-user <user>    SSH user for create")
+	fmt.Fprintln(os.Stderr, "  --backend-url <url>  Remote backend API URL for create")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "EXAMPLES:")
 	fmt.Fprintln(os.Stderr, "  yolobox login")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo codex")
+	fmt.Fprintln(os.Stderr, "  yolobox remote create foo")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run foo codex")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo")
 }
 
@@ -103,11 +103,11 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 		return err
 	}
 	name := strings.TrimSpace(cfg.RemoteName)
-	machine, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{Name: name})
+	machine, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{Name: name}, true)
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(cfg, machine, remoteDefaultCommand(cfg))
+	return runRemoteMachineCommand(cfg, machine, remoteDefaultCommand(cfg))
 }
 
 func runRemoteCreate(args []string, projectDir string) error {
@@ -116,57 +116,88 @@ func runRemoteCreate(args []string, projectDir string) error {
 		return err
 	}
 
-	opts, commandArgs, err := parseRemoteCreateFlags(args, cfg)
+	opts, noSync, err := parseRemoteCreateArgs(args, cfg)
 	if err != nil {
-		return err
-	}
-	if opts.Name == "" {
-		return fmt.Errorf("yolobox remote requires --name")
-	}
-	if err := validateRemoteName(opts.Name); err != nil {
 		return err
 	}
 	cfg, err = remoteConfigForProvision(cfg, opts)
 	if err != nil {
 		return err
 	}
-	if len(commandArgs) == 0 {
-		commandArgs = remoteDefaultCommand(cfg)
-	}
 
-	machine, err := ensureRemoteMachine(cfg, projectDir, opts)
+	_, err = ensureRemoteMachine(cfg, projectDir, opts, !noSync)
+	return err
+}
+
+func runRemoteRun(args []string, projectDir string) error {
+	cfg, err := loadConfig(projectDir)
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(cfg, machine, commandArgs)
+	name, commandArgs, err := parseRemoteNameAndCommand("run", args)
+	if err != nil {
+		return err
+	}
+	if len(commandArgs) == 0 {
+		return fmt.Errorf("yolobox remote run requires a command")
+	}
+	opts := remoteProvisionOptions{
+		Name:       name,
+		BackendURL: remoteBackendURL(cfg),
+	}
+	machine, err := ensureRemoteMachine(cfg, projectDir, opts, true)
+	if err != nil {
+		return err
+	}
+	return runRemoteMachineCommand(cfg, machine, commandArgs)
 }
 
-func parseRemoteCreateFlags(args []string, cfg Config) (remoteProvisionOptions, []string, error) {
-	fs := flag.NewFlagSet("remote", flag.ContinueOnError)
-	fs.SetOutput(os.Stderr)
-	fs.Usage = printRemoteUsage
-
+func parseRemoteCreateArgs(args []string, cfg Config) (remoteProvisionOptions, bool, error) {
 	opts := remoteProvisionOptions{
-		Name:       strings.TrimSpace(cfg.RemoteName),
 		SSHUser:    cfg.Remote.SSHUser,
 		BackendURL: remoteBackendURL(cfg),
 	}
-	fs.StringVar(&opts.Name, "name", opts.Name, "remote machine name")
-	fs.StringVar(&opts.SSHUser, "ssh-user", opts.SSHUser, "remote SSH user")
-	fs.StringVar(&opts.BackendURL, "backend-url", opts.BackendURL, "remote backend API URL")
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			printRemoteUsage()
-			return opts, nil, errHelp
+	noSync := false
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "--no-sync":
+			noSync = true
+		case arg == "--ssh-user":
+			i++
+			if i >= len(args) {
+				return opts, noSync, fmt.Errorf("remote create --ssh-user requires a value")
+			}
+			opts.SSHUser = args[i]
+		case strings.HasPrefix(arg, "--ssh-user="):
+			opts.SSHUser = strings.TrimPrefix(arg, "--ssh-user=")
+		case arg == "--backend-url":
+			i++
+			if i >= len(args) {
+				return opts, noSync, fmt.Errorf("remote create --backend-url requires a value")
+			}
+			opts.BackendURL = args[i]
+		case strings.HasPrefix(arg, "--backend-url="):
+			opts.BackendURL = strings.TrimPrefix(arg, "--backend-url=")
+		case strings.HasPrefix(arg, "-"):
+			return opts, noSync, fmt.Errorf("unknown remote create option: %s", arg)
+		default:
+			if opts.Name != "" {
+				return opts, noSync, fmt.Errorf("unexpected remote create argument: %s", arg)
+			}
+			opts.Name = arg
 		}
-		return opts, nil, err
 	}
-
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
 	opts.SSHUser = strings.TrimSpace(opts.SSHUser)
 	opts.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
-	return opts, fs.Args(), nil
+	if opts.Name == "" {
+		return opts, noSync, fmt.Errorf("yolobox remote create requires a remote name")
+	}
+	if err := validateRemoteName(opts.Name); err != nil {
+		return opts, noSync, err
+	}
+	return opts, noSync, nil
 }
 
 func remoteConfigForProvision(cfg Config, opts remoteProvisionOptions) (Config, error) {
@@ -187,22 +218,22 @@ func runRemoteConnect(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	name, commandArgs, err := parseRemoteNameAndCommand("connect", args, cfg)
+	name, rest, err := parseRemoteNameAndCommand("connect", args)
 	if err != nil {
 		return err
 	}
-	if len(commandArgs) == 0 {
-		commandArgs = remoteDefaultCommand(cfg)
+	if len(rest) != 0 {
+		return fmt.Errorf("unexpected remote connect args: %v", rest)
 	}
 	machine, _, err := getRemoteBackendMachine(cfg, name)
 	if err != nil {
 		return err
 	}
-	machine, err = prepareRemoteMachineForAttach(cfg, machine, projectDir)
+	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
 	if err != nil {
 		return err
 	}
-	return attachRemoteMachine(cfg, machine, commandArgs)
+	return runRemoteMachineCommand(cfg, machine, []string{"shell"})
 }
 
 func runRemoteSync(args []string, projectDir string) error {
@@ -211,11 +242,14 @@ func runRemoteSync(args []string, projectDir string) error {
 		return err
 	}
 
-	direction := "up"
-	if len(args) > 0 && (args[0] == "up" || args[0] == "down") {
-		direction = args[0]
-		args = args[1:]
+	if len(args) == 0 {
+		return fmt.Errorf("yolobox remote sync requires direction: up or down")
 	}
+	direction := args[0]
+	if direction != "up" && direction != "down" {
+		return fmt.Errorf("unknown remote sync direction %q", direction)
+	}
+	args = args[1:]
 	force := false
 	filtered := make([]string, 0, len(args))
 	for _, arg := range args {
@@ -226,7 +260,7 @@ func runRemoteSync(args []string, projectDir string) error {
 		filtered = append(filtered, arg)
 	}
 
-	name, rest, err := parseRemoteNameAndCommand("sync", filtered, cfg)
+	name, rest, err := parseRemoteNameAndCommand("sync "+direction, filtered)
 	if err != nil {
 		return err
 	}
@@ -253,8 +287,6 @@ func runRemoteSync(args []string, projectDir string) error {
 		if err := syncRemoteProjectDown(machine, projectDir); err != nil {
 			return err
 		}
-	default:
-		return fmt.Errorf("unknown remote sync direction %q", direction)
 	}
 
 	success("Synced remote %s %s", machine.Name, direction)
@@ -298,7 +330,7 @@ func runRemoteStatus(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	name, rest, err := parseRemoteNameAndCommand("status", args, cfg)
+	name, rest, err := parseRemoteNameAndCommand("status", args)
 	if err != nil {
 		return err
 	}
@@ -370,7 +402,7 @@ func runRemoteStop(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	name, rest, err := parseRemoteNameAndCommand("stop", args, cfg)
+	name, rest, err := parseRemoteNameAndCommand("stop", args)
 	if err != nil {
 		return err
 	}
@@ -389,14 +421,9 @@ func runRemoteStop(args []string, projectDir string) error {
 	return nil
 }
 
-func parseRemoteNameAndCommand(command string, args []string, cfg Config) (string, []string, error) {
+func parseRemoteNameAndCommand(command string, args []string) (string, []string, error) {
 	if len(args) == 0 {
-		name := strings.TrimSpace(cfg.RemoteName)
-		if name == "" {
-			return "", nil, fmt.Errorf("yolobox remote %s requires a remote name", command)
-		}
-		name = strings.ToLower(name)
-		return name, nil, validateRemoteName(name)
+		return "", nil, fmt.Errorf("yolobox remote %s requires a remote name", command)
 	}
 	name := strings.ToLower(strings.TrimSpace(args[0]))
 	if err := validateRemoteName(name); err != nil {
@@ -405,13 +432,16 @@ func parseRemoteNameAndCommand(command string, args []string, cfg Config) (strin
 	return name, args[1:], nil
 }
 
-func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
+func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions, syncProject bool) (remoteMachine, error) {
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
 	if err := validateRemoteName(opts.Name); err != nil {
 		return remoteMachine{}, err
 	}
 	if opts.BackendURL != "" {
 		cfg.Remote.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
+	}
+	if err := requireRemoteClientTools("ssh"); err != nil {
+		return remoteMachine{}, err
 	}
 	machine, err := ensureRemoteBackendMachine(cfg, projectDir, opts)
 	if err != nil {
@@ -430,11 +460,13 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 			return machine, err
 		}
 	}
-	if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
-		return machine, err
-	}
-	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
-		return machine, err
+	if syncProject {
+		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
+			return machine, err
+		}
+		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
+			return machine, err
+		}
 	}
 	if machine.PreviewURL != "" {
 		success("Remote %s is ready at %s via backend; preview %s", machine.Name, machine.PublicIPv4, machine.PreviewURL)
@@ -444,11 +476,14 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	return machine, nil
 }
 
-func prepareRemoteMachineForAttach(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
+func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
 	if machine.ProjectPath == "" {
 		machine.ProjectPath = remoteProjectPath()
 	}
 	if err := ensureRemoteMachineSourcePath(&machine, projectDir); err != nil {
+		return machine, err
+	}
+	if err := requireRemoteClientTools("ssh"); err != nil {
 		return machine, err
 	}
 	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
@@ -740,7 +775,7 @@ func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
 	return b.String()
 }
 
-func attachRemoteMachine(cfg Config, machine remoteMachine, commandArgs []string) error {
+func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []string) error {
 	if machine.PublicIPv4 == "" {
 		return fmt.Errorf("remote %s has no public IPv4; run yolobox remote status %s", machine.Name, machine.Name)
 	}
@@ -849,10 +884,10 @@ func remoteDirectCommand(machine remoteMachine, command []string) string {
 	return remoteCommandPrefix(machine) + "exec " + shellJoin(command)
 }
 
-func remoteTmuxCommand(machine remoteMachine, command []string, attach bool) string {
+func remoteTmuxCommand(machine remoteMachine, command []string, joinSession bool) string {
 	workPath := remoteWorkPath(machine)
 	sessionCommand := remoteCommandPrefix(machine) + "exec " + shellJoin(command)
-	if attach {
+	if joinSession {
 		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
 	}
 	return remoteCommandPrefix(machine) + "tmux has-session -t " + shellQuote(remoteDefaultSessionName) + " 2>/dev/null || tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)

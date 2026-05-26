@@ -69,7 +69,7 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   const headers = { authorization: `Bearer ${token}` };
   const ensured = await app.inject({
     method: "POST",
-    url: "/v1/machines/ensure",
+    url: "/v1/machines",
     headers,
     payload: {
       name: "Foo",
@@ -148,6 +148,7 @@ test("backend imports provider machines for the authenticated user", async () =>
   assert.equal(connect.statusCode, 200);
   assert.equal(connect.json().connect.ssh, "ssh root@203.0.113.20");
   assert.equal(connect.json().connect.cli, "yolobox remote connect already-there");
+  assert.equal(connect.json().connect.cli_run, "yolobox remote run already-there");
 });
 
 test("backend auth supports multiple users with isolated machine names", async () => {
@@ -159,7 +160,7 @@ test("backend auth supports multiple users with isolated machine names", async (
 
   const firstEnsure = await app.inject({
     method: "POST",
-    url: "/v1/machines/ensure",
+    url: "/v1/machines",
     headers: firstHeaders,
     payload: { name: "foo" },
   });
@@ -174,7 +175,7 @@ test("backend auth supports multiple users with isolated machine names", async (
 
   const secondEnsure = await app.inject({
     method: "POST",
-    url: "/v1/machines/ensure",
+    url: "/v1/machines",
     headers: secondHeaders,
     payload: { name: "foo" },
   });
@@ -200,7 +201,7 @@ test("backend registers preview hostnames and proxies them to the machine", asyn
     const headers = { authorization: `Bearer ${token}` };
     const ensured = await app.inject({
       method: "POST",
-      url: "/v1/machines/ensure",
+      url: "/v1/machines",
       headers,
       payload: { name: "preview" },
     });

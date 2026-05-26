@@ -70,18 +70,6 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     await sendAuthResponse(reply, await options.auth.handler(toWebRequest(request)));
   });
 
-  app.post<{ Body: EnsureMachineRequest }>("/v1/machines/ensure", async (request, reply) => {
-    const auth = await requireAuth(options, request, reply);
-    if (!auth) return;
-    const body = normalizeEnsureRequest(request.body, options.provider.name);
-    if (body.provider && body.provider !== options.provider.name) {
-      return reply.code(400).send({ id: "bad_request", message: `provider ${body.provider} is not configured` });
-    }
-    const error = validateName(body.name);
-    if (error) return reply.code(400).send({ id: "bad_request", message: error });
-    return leaseMachine(options, auth, body);
-  });
-
   app.post<{ Body: EnsureMachineRequest }>("/v1/machines", async (request, reply) => {
     const auth = await requireAuth(options, request, reply);
     if (!auth) return;
@@ -142,7 +130,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       connect: {
         ssh: target ? `ssh ${target}` : "",
         cli: `yolobox remote connect ${machine.name}`,
-        cli_run: `yolobox remote --name ${machine.name}`,
+        cli_run: `yolobox remote run ${machine.name}`,
       },
     };
   });

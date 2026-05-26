@@ -35,9 +35,6 @@ type remoteBackendListResponse struct {
 }
 
 func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
-	if err := requireRemoteClientTools("ssh", "rsync"); err != nil {
-		return remoteMachine{}, err
-	}
 	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
 		return remoteMachine{}, err
@@ -51,7 +48,7 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 		Branch:     repo.Branch,
 	}
 	var response remoteBackendMachineResponse
-	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/ensure", req, &response); err != nil {
+	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines", req, &response); err != nil {
 		return remoteMachine{}, err
 	}
 	machine := response.Machine

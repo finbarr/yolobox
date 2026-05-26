@@ -307,8 +307,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               Start interactive shell in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> <cmd>  Run on a named remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env> <cmd>  Connect to an existing remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote create <env>  Create a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd>  Sync and run on a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>  Open a shell on an existing remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox login               Open browser login and store remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox logout              Revoke and clear remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
@@ -388,8 +389,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox login               # Sign in through the browser")
-	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex  # Remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo codex  # Existing remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote create foo  # Create/sync remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run foo codex  # Remote command")
+	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo  # Remote shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
@@ -1044,7 +1046,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default run mode").
-				Description("Choose remote to make bare yolobox connect to a named remote machine").
+				Description("Choose remote to make bare yolobox run on a named remote machine").
 				Options(
 					huh.NewOption("Local container", "local"),
 					huh.NewOption("Remote machine", "remote"),

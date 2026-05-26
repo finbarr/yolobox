@@ -184,8 +184,9 @@ yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox login               # Open browser login and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
-yolobox remote --name <env> <cmd...> # Run on a named remote machine
-yolobox remote connect <env> <cmd...> # Connect to a backend-known machine
+yolobox remote create <env> # Create or reuse a named remote machine and sync this folder
+yolobox remote run <env> <cmd...> # Sync, then run on a named remote machine
+yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -221,8 +222,9 @@ Remote mode gives Claude, Codex, and other harnesses a named Linux machine that 
 ```bash
 yolobox login
 yolobox login --backend-url https://remote.example.com
-yolobox remote --name foo codex
-yolobox remote connect foo codex
+yolobox remote create foo
+yolobox remote run foo codex
+yolobox remote connect foo
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote stop foo
@@ -238,13 +240,15 @@ tries to open it, and then waits for approval from the web app. Use
 `--no-open` when you only want the printed URL, or `--token` for noninteractive
 automation with an existing session token.
 
-The CLI does not keep a local machine registry. It stores only auth/config, asks
-the backend for the account's machines, and connects to any machine the backend
-knows about. `yolobox remote --name foo ...` creates or reuses a backend machine;
-`yolobox remote connect foo ...` prepares the yolobox VM runtime when needed and
-connects to an existing machine without syncing the current folder. If the machine
-has no stored source path yet, connect records the current folder path and uses
-that as the remote workdir alias.
+The CLI does not keep a local machine registry. It stores only auth/config and
+asks the backend for the account's machines. `yolobox remote create foo` creates
+or reuses a backend machine, prepares the yolobox VM runtime, and syncs the
+current folder by default; pass `--no-sync` to create the machine without copying
+the folder yet. `yolobox remote run foo ...` syncs the current folder, then runs
+the command. `yolobox remote connect foo` prepares an existing machine and opens
+a shell without syncing the current folder. If the machine has no stored source
+path yet, connect records the current folder path and uses that as the remote
+workdir alias.
 
 When the backend is configured with a preview base domain, every remote machine
 gets a stable generated preview URL such as
@@ -253,7 +257,9 @@ gets a stable generated preview URL such as
 `YOLOBOX_PREVIEW_URL`. Hosted deployments proxy that URL to the machine's
 standard preview service.
 
-When `remote_name` is configured, commands that take a remote target can omit `foo`.
+When `mode = "remote"` and `remote_name` are configured, bare `yolobox` uses
+that named remote. Explicit `yolobox remote ...` subcommands still require a
+machine name so typos in command names fail instead of becoming machine names.
 
 Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM, then maps the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
 

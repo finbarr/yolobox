@@ -17,7 +17,7 @@ That is the intended path. You point the agent at a project and let it work insi
 
 If you use one tool most of the time, set `default_harness = "codex"` or another shortcut name in config. Then bare `yolobox` launches that tool. Set `default_harness = "none"` or leave it unset to keep bare `yolobox` as an interactive shell.
 
-If you set `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"`, bare `yolobox` runs `yolobox remote --name foo codex`.
+If you set `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"`, bare `yolobox` behaves like `yolobox remote run foo codex`.
 
 ## Command reference
 
@@ -46,13 +46,14 @@ yolobox fork discard <env> --force # Delete a copied folder
 yolobox login [--backend-url <url>] # Open browser login for remote backend
 yolobox login [--backend-url <url>] --no-open # Print browser URL without opening it
 yolobox logout              # Revoke and clear remote backend auth
-yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
-yolobox remote connect [<env>] [cmd...] # Connect to a backend-known machine
-yolobox remote sync up [<env>] # Copy the current folder to the remote machine
-yolobox remote sync down [<env>] --force # Copy the remote project back locally
-yolobox remote stop [<env>] # Stop the remote tmux session
+yolobox remote create <env> [--no-sync] # Create or reuse a named remote machine
+yolobox remote run <env> <cmd...> # Sync, then run on a named remote machine
+yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
+yolobox remote sync up <env> # Copy the current folder to the remote machine
+yolobox remote sync down <env> --force # Copy the remote project back locally
+yolobox remote stop <env> # Stop the remote tmux session
 yolobox remote list             # List backend machines
-yolobox remote status [<env>]   # Show backend machine state
+yolobox remote status <env>     # Show backend machine state
 yolobox remote destroy <env> --force # Release the backend machine
 yolobox setup               # Write global defaults to ~/.config/yolobox/config.toml
 yolobox config              # Print the resolved config for the current project
@@ -64,7 +65,7 @@ yolobox version             # Print version and platform
 yolobox help                # Show CLI help
 ```
 
-The optional remote target can be omitted only when `remote_name` is configured.
+Remote subcommands require an explicit machine name. `remote_name` is used only by bare `yolobox` when `mode = "remote"`.
 
 ## Common examples
 
@@ -122,14 +123,15 @@ See [Recipes](/recipes) for common fork workflows, including webapp routing.
 
 ```bash
 yolobox login
-yolobox remote --name foo codex
-yolobox remote connect foo codex
+yolobox remote create foo
+yolobox remote run foo codex
+yolobox remote connect foo
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote status foo # shows the generated preview URL when the backend has one
 ```
 
-Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. Plain `yolobox login` prints a browser URL, tries to open it, and waits while the web app grants CLI access; use `--no-open` on SSH/headless hosts. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, maps the original local source path to that storage directory on the VM, prepares the yolobox VM runtime when the image is not already ready, then starts the requested command over SSH from the source-path workdir. Remote commands run directly on the VM with yolobox wrappers on `PATH`, not inside a nested yolobox container, so Docker Compose and installed packages persist on the machine. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote connect foo` prepares and connects to an existing machine without syncing the current folder. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Backends with a preview base domain assign a generated HTTPS URL to each machine and export it inside remote sessions as `YOLOBOX_PREVIEW_URL`. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
+Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. Plain `yolobox login` prints a browser URL, tries to open it, and waits while the web app grants CLI access; use `--no-open` on SSH/headless hosts. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, maps the original local source path to that storage directory on the VM, prepares the yolobox VM runtime when the image is not already ready, then starts requested commands over SSH from the source-path workdir. Remote commands run directly on the VM with yolobox wrappers on `PATH`, not inside a nested yolobox container, so Docker Compose and installed packages persist on the machine. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote create foo` creates or reuses a machine and syncs the current folder by default; pass `--no-sync` to skip that copy. `yolobox remote run foo ...` syncs the folder and then runs the command. `yolobox remote connect foo` opens a shell without syncing. Use `yolobox remote sync up foo` when you want to copy without running a command. Backends with a preview base domain assign a generated HTTPS URL to each machine and export it inside remote sessions as `YOLOBOX_PREVIEW_URL`. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

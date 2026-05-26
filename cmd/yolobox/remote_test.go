@@ -23,7 +23,7 @@ func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) 
 			return
 		}
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/ensure":
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines":
 			var req remoteBackendEnsureRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode ensure request: %v", err)
@@ -292,26 +292,32 @@ func TestValidateRemoteDefaultsRequiresLogin(t *testing.T) {
 }
 
 func TestRunRemoteUnknownCommandDoesNotFallThroughToCreate(t *testing.T) {
-	err := runRemote([]string{"resume"}, t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "unknown remote command: resume") {
+	err := runRemote([]string{"creeate", "foo"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unknown remote command: creeate") {
 		t.Fatalf("expected unknown command error, got %v", err)
+	}
+	err = runRemote([]string{"--name", "foo"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unknown remote command: --name") {
+		t.Fatalf("expected old --name form to be rejected, got %v", err)
 	}
 }
 
-func TestParseRemoteCreateFlagsBackendOnly(t *testing.T) {
-	opts, command, err := parseRemoteCreateFlags([]string{
-		"--name", "Foo",
+func TestParseRemoteCreateArgsBackendOnly(t *testing.T) {
+	opts, noSync, err := parseRemoteCreateArgs([]string{
+		"Foo",
 		"--ssh-user", "ubuntu",
 		"--backend-url", "https://remote.example.com/",
-		"codex",
+		"--no-sync",
 	}, defaultConfig())
 	if err != nil {
-		t.Fatalf("parseRemoteCreateFlags failed: %v", err)
+		t.Fatalf("parseRemoteCreateArgs failed: %v", err)
 	}
 	if opts.Name != "foo" || opts.SSHUser != "ubuntu" || opts.BackendURL != "https://remote.example.com" {
 		t.Fatalf("unexpected opts: %+v", opts)
 	}
-	expectSliceEqual(t, command, []string{"codex"})
+	if !noSync {
+		t.Fatal("expected --no-sync to be parsed")
+	}
 }
 
 func TestRemoteConfigForProvisionAppliesBackendURLToFollowupRequests(t *testing.T) {
@@ -418,29 +424,37 @@ token = "secret-token"
 	}
 }
 
-func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
+func TestRemoteSyncRequiresExplicitDirection(t *testing.T) {
+	err := runRemoteSync([]string{"foo"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), `unknown remote sync direction "foo"`) {
+		t.Fatalf("expected explicit direction error, got %v", err)
+	}
+}
+
+func TestRemoteConnectRejectsCommandArgs(t *testing.T) {
+	projectDir := t.TempDir()
+	cfg := `[remote]
+backend_url = "http://127.0.0.1:1"
+token = "secret-token"
+`
+	if err := os.WriteFile(filepath.Join(projectDir, ".yolobox.toml"), []byte(cfg), 0644); err != nil {
+		t.Fatal(err)
+	}
+	err := runRemoteConnect([]string{"foo", "codex"}, projectDir)
+	if err == nil || !strings.Contains(err.Error(), "unexpected remote connect args") {
+		t.Fatalf("expected connect args rejection before backend request, got %v", err)
+	}
+}
+
+func TestRunLoginTokenAndLogoutRevokesSession(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	loginCalled := false
 	logoutCalled := false
 	expectedOrigin := ""
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-in/email":
-			loginCalled = true
-			if r.Header.Get("Origin") != expectedOrigin {
-				t.Fatalf("unexpected login origin: %s", r.Header.Get("Origin"))
-			}
-			var req map[string]string
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatal(err)
-			}
-			if req["email"] != "user@example.com" || req["password"] != "secret-password" {
-				t.Fatalf("unexpected login request: %+v", req)
-			}
-			_ = json.NewEncoder(w).Encode(remoteAuthLoginResponse{Token: "session-token"})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/auth/sign-out":
 			logoutCalled = true
 			if r.Header.Get("Origin") != expectedOrigin {
@@ -457,7 +471,7 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 	defer ts.Close()
 	expectedOrigin = ts.URL
 
-	if err := runLogin([]string{"--backend-url", ts.URL, "--email", "user@example.com", "--password", "secret-password"}); err != nil {
+	if err := runLogin([]string{"--backend-url", ts.URL, "--token", "session-token"}); err != nil {
 		t.Fatalf("runLogin failed: %v", err)
 	}
 	cfg, err := loadSetupDefaults()
@@ -470,8 +484,8 @@ func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 	if err := runLogout(nil); err != nil {
 		t.Fatalf("runLogout failed: %v", err)
 	}
-	if !loginCalled || !logoutCalled {
-		t.Fatalf("expected login and logout calls, login=%t logout=%t", loginCalled, logoutCalled)
+	if !logoutCalled {
+		t.Fatal("expected logout call")
 	}
 	cfg, err = loadSetupDefaults()
 	if err != nil {
@@ -587,38 +601,6 @@ func TestRemoteAuthOrigin(t *testing.T) {
 		if got := remoteAuthOrigin(tt.url); got != tt.want {
 			t.Fatalf("remoteAuthOrigin(%q) = %q, want %q", tt.url, got, tt.want)
 		}
-	}
-}
-
-func TestRunLoginSignupCallsBackend(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
-	t.Setenv("XDG_CONFIG_HOME", "")
-
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/v1/auth/sign-up/email" {
-			t.Fatalf("unexpected signup request %s %s", r.Method, r.URL.Path)
-		}
-		var req map[string]string
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			t.Fatal(err)
-		}
-		if req["email"] != "new@example.com" || req["password"] != "secret-password" || req["name"] != "New User" {
-			t.Fatalf("unexpected signup request: %+v", req)
-		}
-		_ = json.NewEncoder(w).Encode(remoteAuthLoginResponse{Token: "signup-session-token"})
-	}))
-	defer ts.Close()
-
-	if err := runLogin([]string{"--signup", "--backend-url", ts.URL, "--email", "new@example.com", "--password", "secret-password", "--name", "New User"}); err != nil {
-		t.Fatalf("runLogin signup failed: %v", err)
-	}
-	cfg, err := loadSetupDefaults()
-	if err != nil {
-		t.Fatalf("loadSetupDefaults failed: %v", err)
-	}
-	if cfg.Remote.Token != "signup-session-token" {
-		t.Fatalf("expected signup session token, got %+v", cfg.Remote)
 	}
 }
 

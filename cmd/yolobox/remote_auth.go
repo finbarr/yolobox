@@ -13,8 +13,6 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"golang.org/x/term"
 )
 
 const remoteAuthDeviceClientID = "yolobox-cli"
@@ -74,22 +72,14 @@ func runLogin(args []string) error {
 	}
 
 	backendURL := remoteBackendURL(cfg)
-	email := ""
-	password := ""
-	name := ""
 	token := ""
-	signUp := false
 	noOpen := false
 
 	fs := flag.NewFlagSet("login", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.Usage = printLoginUsage
 	fs.StringVar(&backendURL, "backend-url", backendURL, "remote backend API URL")
-	fs.StringVar(&email, "email", "", "account email")
-	fs.StringVar(&password, "password", "", "account password")
-	fs.StringVar(&name, "name", "", "account display name for --signup")
 	fs.StringVar(&token, "token", "", "existing remote session token")
-	fs.BoolVar(&signUp, "signup", false, "create an account before storing the session token")
 	fs.BoolVar(&noOpen, "no-open", false, "print the browser login URL without trying to open it")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -106,49 +96,12 @@ func runLogin(args []string) error {
 		return fmt.Errorf("invalid --backend-url: %w", err)
 	}
 	token = strings.TrimSpace(token)
-	if token != "" && (email != "" || password != "" || signUp) {
-		return fmt.Errorf("--token cannot be combined with --email, --password, or --signup")
-	}
 	if token == "" {
-		if email != "" || password != "" || signUp {
-			email = strings.TrimSpace(email)
-			if email == "" {
-				if !term.IsTerminal(int(os.Stdin.Fd())) {
-					return fmt.Errorf("login requires --email and --password for terminal password auth")
-				}
-				var err error
-				email, err = promptLine("Email: ")
-				if err != nil {
-					return err
-				}
-			}
-			if password == "" {
-				if !term.IsTerminal(int(os.Stdin.Fd())) {
-					return fmt.Errorf("login requires --password for terminal password auth")
-				}
-				fmt.Fprint(os.Stderr, "Password: ")
-				data, err := term.ReadPassword(int(os.Stdin.Fd()))
-				fmt.Fprintln(os.Stderr)
-				if err != nil {
-					return err
-				}
-				password = string(data)
-			}
-			login, err := remoteAuthLogin(backendURL, email, password, name, signUp)
-			if err != nil {
-				return err
-			}
-			token = login.Token
-			if login.User.Email != "" {
-				email = login.User.Email
-			}
-		} else {
-			login, err := remoteAuthBrowserLogin(backendURL, !noOpen)
-			if err != nil {
-				return err
-			}
-			token = login.Token
+		login, err := remoteAuthBrowserLogin(backendURL, !noOpen)
+		if err != nil {
+			return err
 		}
+		token = login.Token
 	}
 	if token == "" {
 		return fmt.Errorf("remote session token cannot be empty")
@@ -159,11 +112,7 @@ func runLogin(args []string) error {
 	if err := saveGlobalConfig(cfg); err != nil {
 		return err
 	}
-	if email != "" {
-		success("Logged in to %s as %s", backendURL, email)
-	} else {
-		success("Logged in to %s", backendURL)
-	}
+	success("Logged in to %s", backendURL)
 	return nil
 }
 
@@ -193,12 +142,9 @@ func runLogout(args []string) error {
 func printLoginUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
 	fmt.Fprintln(os.Stderr, "  yolobox login [--backend-url <url>] [--no-open]")
-	fmt.Fprintln(os.Stderr, "  yolobox login [--backend-url <url>] --email <email> --password <password>")
-	fmt.Fprintln(os.Stderr, "  yolobox login --signup [--backend-url <url>] --email <email> --password <password> [--name <name>]")
 	fmt.Fprintln(os.Stderr, "  yolobox login [--backend-url <url>] --token <token>")
 	fmt.Fprintln(os.Stderr, "")
-	fmt.Fprintln(os.Stderr, "Without --email/--password or --token, yolobox opens a browser approval flow and also prints the URL.")
-	fmt.Fprintln(os.Stderr, "--email/--password keep the old terminal password flow for scripts and local testing.")
+	fmt.Fprintln(os.Stderr, "Without --token, yolobox opens a browser approval flow and also prints the URL.")
 	fmt.Fprintln(os.Stderr, "--token stores an existing backend session token without calling the login API.")
 }
 
@@ -332,42 +278,6 @@ func remoteAuthExchangeDeviceToken(backendURL string, deviceCode string) (remote
 	return response, nil, nil
 }
 
-func remoteAuthLogin(backendURL string, email string, password string, name string, signUp bool) (remoteAuthLoginResponse, error) {
-	email = strings.TrimSpace(email)
-	password = strings.TrimSpace(password)
-	name = strings.TrimSpace(name)
-	if email == "" {
-		return remoteAuthLoginResponse{}, fmt.Errorf("email cannot be empty")
-	}
-	if password == "" {
-		return remoteAuthLoginResponse{}, fmt.Errorf("password cannot be empty")
-	}
-	endpoint := "/v1/auth/sign-in/email"
-	payload := map[string]string{
-		"email":    email,
-		"password": password,
-	}
-	if signUp {
-		endpoint = "/v1/auth/sign-up/email"
-		if name == "" {
-			name = strings.Split(email, "@")[0]
-		}
-		payload["name"] = name
-	}
-	var response remoteAuthLoginResponse
-	headers, err := remoteAuthRequest(backendURL, endpoint, "", payload, &response)
-	if err != nil {
-		return response, err
-	}
-	if response.Token == "" {
-		response.Token = strings.TrimSpace(headers.Get("set-auth-token"))
-	}
-	if response.Token == "" {
-		return response, fmt.Errorf("remote backend login returned no session token")
-	}
-	return response, nil
-}
-
 func remoteAuthLogout(backendURL string, token string) error {
 	_, err := remoteAuthRequest(backendURL, "/v1/auth/sign-out", token, map[string]string{}, nil)
 	return err
@@ -450,15 +360,6 @@ func formatRemoteUserCode(code string) string {
 		return clean[:4] + "-" + clean[4:]
 	}
 	return strings.TrimSpace(code)
-}
-
-func promptLine(prompt string) (string, error) {
-	fmt.Fprint(os.Stderr, prompt)
-	var value string
-	if _, err := fmt.Fscanln(os.Stdin, &value); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(value), nil
 }
 
 func remoteAuthOrigin(backendURL string) string {

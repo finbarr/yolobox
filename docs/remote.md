@@ -60,8 +60,10 @@ yolobox login --backend-url https://remote.example.com --no-open
 yolobox login --backend-url https://remote.example.com --token <existing-session-token>
 yolobox logout
 
-yolobox remote --name foo codex
-yolobox remote connect foo codex
+yolobox remote create foo
+yolobox remote create foo --no-sync
+yolobox remote run foo codex
+yolobox remote connect foo
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote stop foo
@@ -96,7 +98,7 @@ setup = [
 With this config, bare `yolobox` behaves like:
 
 ```bash
-yolobox remote --name foo codex
+yolobox remote run foo codex
 ```
 
 `YOLOBOX_BACKEND_URL` overrides `remote.backend_url`. `YOLOBOX_TOKEN` overrides `remote.token`.
@@ -105,8 +107,8 @@ Plain `yolobox login` uses Better Auth's device authorization flow: the CLI
 creates a short-lived login request, prints the verification URL, tries to open
 it in your browser, and polls until the web app grants or denies CLI access.
 The CLI always prints the URL so SSH and headless sessions can copy/paste it;
-`--no-open` skips the automatic browser attempt. `--email`, `--password`,
-`--signup`, and `--token` remain available for scripts and local testing.
+`--no-open` skips the automatic browser attempt. `--token` stores an existing
+backend session token for scripts and local testing.
 
 ## Hosted And Self-Hosted Backends
 
@@ -126,7 +128,7 @@ Then point the CLI at it:
 
 ```bash
 yolobox login --backend-url http://127.0.0.1:8787
-yolobox remote --name foo codex
+yolobox remote run foo codex
 ```
 
 Or run the backend with Docker Compose from the repository root:
@@ -171,23 +173,25 @@ After the backend leases a host, the CLI:
 - exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
 - patches backend machine metadata after bootstrap, sync, and command execution
 
-The client requires local `ssh` and `rsync`.
+Remote create, run, connect, status, stop, and destroy require local `ssh` when
+they need to reach a machine. Commands that copy project files also require
+local `rsync`.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
-`yolobox remote connect foo` connects to a backend-known machine; `yolobox remote
---name foo ...` creates or reuses one. Connect prepares an unready machine
-before connecting, but it does not sync the local folder; use `remote --name` or
-`remote sync up` when the remote needs the current project. If a machine has no
-stored source path yet, connect records the current folder path and uses it for
-the remote workdir alias.
+`yolobox remote create foo` creates or reuses one, prepares the VM runtime, and
+syncs the current folder by default. Pass `--no-sync` to skip the initial copy.
+`yolobox remote run foo ...` syncs the folder and then runs the command.
+`yolobox remote connect foo` prepares a backend-known machine and opens a shell
+without syncing the local folder. If a machine has no stored source path yet,
+connect records the current folder path and uses it for the remote workdir alias.
 
 ## Backend HTTP API
 
 Auth endpoints are mounted under `/v1/auth/*` and are handled by Better Auth. The CLI uses:
 
-- `POST /v1/auth/sign-up/email`
-- `POST /v1/auth/sign-in/email`
+- `POST /v1/auth/device/code`
+- `POST /v1/auth/device/token`
 - `POST /v1/auth/sign-out`
 
 Machine endpoints require a Better Auth bearer session:
@@ -212,11 +216,6 @@ Returns basic authenticated account/backend information for the current Better A
 List configured provider adapters and their capabilities.
 
 ### `POST /v1/machines`
-
-Create or return a machine for the authenticated account. This is the UI-friendly
-alias of `POST /v1/machines/ensure`.
-
-### `POST /v1/machines/ensure`
 
 Lease or return the host for a logical machine name. This operation is idempotent for the same authenticated owner and machine name. Different users can use the same logical machine name; the backend derives a provider-specific machine name per user.
 
