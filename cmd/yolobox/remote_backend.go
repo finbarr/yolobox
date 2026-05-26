@@ -12,9 +12,11 @@ import (
 )
 
 const (
-	defaultRemoteBackendURL = "https://api.yolobox.dev"
-	remoteBackendURLEnv     = "YOLOBOX_BACKEND_URL"
-	remoteAuthTokenEnv      = "YOLOBOX_TOKEN"
+	defaultRemoteBackendURL       = "https://api.yolobox.dev"
+	remoteBackendURLEnv           = "YOLOBOX_BACKEND_URL"
+	remoteAuthTokenEnv            = "YOLOBOX_TOKEN"
+	remoteBackendDefaultTimeout   = 30 * time.Second
+	remoteBackendProvisionTimeout = 5 * time.Minute
 )
 
 type remoteBackendCreateRequest struct {
@@ -50,7 +52,7 @@ func createRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 		Branch:     repo.Branch,
 	}
 	var response remoteBackendMachineResponse
-	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines", req, &response); err != nil {
+	if err := remoteBackendRequestWithTimeout(cfg, http.MethodPost, "/v1/machines", req, &response, remoteBackendProvisionTimeout); err != nil {
 		return remoteMachine{}, err
 	}
 	machine := response.Machine
@@ -115,6 +117,10 @@ func releaseRemoteBackendMachine(cfg Config, name string) error {
 }
 
 func remoteBackendRequest(cfg Config, method string, endpoint string, body any, out any) error {
+	return remoteBackendRequestWithTimeout(cfg, method, endpoint, body, out, remoteBackendDefaultTimeout)
+}
+
+func remoteBackendRequestWithTimeout(cfg Config, method string, endpoint string, body any, out any, timeout time.Duration) error {
 	baseURL := remoteBackendURL(cfg)
 	if baseURL == "" {
 		return fmt.Errorf("remote backend URL is not configured")
@@ -141,7 +147,7 @@ func remoteBackendRequest(cfg Config, method string, endpoint string, body any, 
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: timeout}
 	resp, err := client.Do(req)
 	if err != nil {
 		return err
