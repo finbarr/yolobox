@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -60,8 +61,6 @@ func runRemote(args []string, projectDir string) error {
 		return runRemoteConnect(args[1:], projectDir)
 	case "sync":
 		return runRemoteSync(args[1:], projectDir)
-	case "stop":
-		return runRemoteStop(args[1:], projectDir)
 	case "list":
 		return runRemoteList(args[1:], projectDir)
 	case "status":
@@ -80,7 +79,6 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>               Connect to a shell without syncing")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up <env>               Copy the current folder to the remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync down <env> --force     Copy the remote project back locally")
-	fmt.Fprintln(os.Stderr, "  yolobox remote stop <env>                  Stop the remote tmux session")
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                        List backend machines")
 	fmt.Fprintln(os.Stderr, "  yolobox remote status <env>                Show backend machine state")
 	fmt.Fprintln(os.Stderr, "  yolobox remote destroy <env> --force       Release/delete remote machine")
@@ -394,30 +392,6 @@ func runRemoteDestroy(args []string, projectDir string) error {
 		return err
 	}
 	success("Destroyed remote %s", name)
-	return nil
-}
-
-func runRemoteStop(args []string, projectDir string) error {
-	cfg, err := loadConfig(projectDir)
-	if err != nil {
-		return err
-	}
-	name, rest, err := parseRemoteNameAndCommand("stop", args)
-	if err != nil {
-		return err
-	}
-	if len(rest) != 0 {
-		return fmt.Errorf("unexpected remote stop args: %v", rest)
-	}
-	machine, _, err := getRemoteBackendMachine(cfg, name)
-	if err != nil {
-		return err
-	}
-	script := "tmux has-session -t " + shellQuote(remoteDefaultSessionName) + " 2>/dev/null && tmux kill-session -t " + shellQuote(remoteDefaultSessionName) + " || true"
-	if err := runSSHCommand(machine, script, false, false); err != nil {
-		return err
-	}
-	success("Stopped remote session %s", machine.Name)
 	return nil
 }
 
@@ -790,14 +764,32 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 	stdoutTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	interactive := remoteCommandNeedsTTY(commandArgs)
 	sshTTY := false
+	recordCommand := true
 	var remoteCommand string
 
 	if interactive {
+		sessionExists, err := remoteManagedSessionExists(machine)
+		if err != nil {
+			return err
+		}
 		if stdinTTY && stdoutTTY {
-			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
+			if sessionExists {
+				remoteCommand = remoteTmuxAttachCommand(machine)
+				recordCommand = false
+				if remoteShellCommand(commandArgs) {
+					info("Connecting to existing remote session %s (%s)", machine.Name, machine.PublicIPv4)
+				} else {
+					info("Connecting to existing remote session %s (%s); %q was not started", machine.Name, machine.PublicIPv4, strings.Join(commandArgs, " "))
+				}
+			} else {
+				remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
+				info("Starting remote session %s (%s)", machine.Name, machine.PublicIPv4)
+			}
 			sshTTY = true
-			info("Connecting to remote %s (%s)", machine.Name, machine.PublicIPv4)
 		} else {
+			if sessionExists {
+				return fmt.Errorf("remote session %s is already running; run `yolobox remote connect %s` from a terminal to attach", machine.Name, machine.Name)
+			}
 			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), false)
 			info("Starting detached remote session %s (%s); run from a terminal to connect", machine.Name, machine.PublicIPv4)
 		}
@@ -810,6 +802,9 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 		return err
 	}
 
+	if !recordCommand {
+		return nil
+	}
 	machine.LastCommand = commandArgs
 	machine.UpdatedAt = time.Now().UTC()
 	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
@@ -838,6 +833,17 @@ func remoteCommandNeedsTTY(command []string) bool {
 	default:
 		return shouldAttachTTY(command, false, true, true)
 	}
+}
+
+func remoteShellCommand(command []string) bool {
+	if len(command) == 0 {
+		return true
+	}
+	if len(command) != 1 {
+		return false
+	}
+	cmd := filepath.Base(command[0])
+	return cmd == "shell" || cmd == "run"
 }
 
 func remoteHostCommand(command []string) []string {
@@ -884,13 +890,35 @@ func remoteDirectCommand(machine remoteMachine, command []string) string {
 	return remoteCommandPrefix(machine) + "exec " + shellJoin(command)
 }
 
+func remoteTmuxAttachCommand(machine remoteMachine) string {
+	return remoteCommandPrefix(machine) + "tmux attach-session -t " + shellQuote(remoteDefaultSessionName)
+}
+
 func remoteTmuxCommand(machine remoteMachine, command []string, joinSession bool) string {
 	workPath := remoteWorkPath(machine)
 	sessionCommand := remoteCommandPrefix(machine) + "exec " + shellJoin(command)
 	if joinSession {
 		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
 	}
-	return remoteCommandPrefix(machine) + "tmux has-session -t " + shellQuote(remoteDefaultSessionName) + " 2>/dev/null || tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
+	return remoteCommandPrefix(machine) + "tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
+}
+
+func remoteManagedSessionExists(machine remoteMachine) (bool, error) {
+	if err := requireRemoteClientTools("ssh"); err != nil {
+		return false, err
+	}
+	args := remoteSSHOptions(false)
+	args = append(args, machine.sshTarget(), "tmux has-session -t "+shellQuote(remoteDefaultSessionName)+" 2>/dev/null")
+	cmd := exec.Command("ssh", args...)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return false, nil
+		}
+		return false, fmt.Errorf("check remote session %s: %w", machine.Name, err)
+	}
+	return true, nil
 }
 
 func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) error {

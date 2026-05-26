@@ -204,6 +204,70 @@ func TestRemoteTmuxCommandFallsBackToProjectPath(t *testing.T) {
 	}
 }
 
+func TestRemoteTmuxDetachedCommandStartsOnlyWhenNoManagedSessionExists(t *testing.T) {
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
+	command := remoteTmuxCommand(machine, []string{"codex"}, false)
+	if strings.Contains(command, "has-session") {
+		t.Fatalf("detached tmux command should not silently no-op when a session exists: %s", command)
+	}
+	for _, want := range []string{
+		"tmux new-session -d -s 'yolobox'",
+		"-c '/Users/example/my app'",
+		"codex",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("expected detached tmux command to contain %q, got %s", want, command)
+		}
+	}
+}
+
+func TestRemoteTmuxAttachCommandAttachesWithoutCommand(t *testing.T) {
+	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
+	command := remoteTmuxAttachCommand(machine)
+	for _, want := range []string{
+		"cd '/Users/example/my app'",
+		"tmux attach-session -t 'yolobox'",
+	} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("expected attach command to contain %q, got %s", want, command)
+		}
+	}
+	if strings.Contains(command, "new-session") || strings.Contains(command, "codex") {
+		t.Fatalf("attach command should not create a session or carry a requested command: %s", command)
+	}
+}
+
+func TestRemoteManagedSessionExistsHandlesSSHExitCodes(t *testing.T) {
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte("#!/bin/sh\nexit \"${YOLOBOX_FAKE_SSH_EXIT:-0}\"\n"), 0755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	machine := remoteMachine{Name: "foo", PublicIPv4: "192.0.2.1"}
+	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "0")
+	exists, err := remoteManagedSessionExists(machine)
+	if err != nil || !exists {
+		t.Fatalf("exit 0 should mean session exists, exists=%v err=%v", exists, err)
+	}
+
+	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "1")
+	exists, err = remoteManagedSessionExists(machine)
+	if err != nil || exists {
+		t.Fatalf("exit 1 should mean no session, exists=%v err=%v", exists, err)
+	}
+
+	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "255")
+	exists, err = remoteManagedSessionExists(machine)
+	if err == nil || exists {
+		t.Fatalf("unexpected SSH failure should be an error, exists=%v err=%v", exists, err)
+	}
+}
+
 func TestRemoteDirectCommandUsesSourcePathAsVMWorkdir(t *testing.T) {
 	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
 	command := remoteDirectCommand(machine, remoteHostCommand([]string{"run", "echo", "ok"}))

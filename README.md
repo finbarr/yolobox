@@ -227,7 +227,6 @@ yolobox remote run foo codex
 yolobox remote connect foo
 yolobox remote sync up foo
 yolobox remote sync down foo --force
-yolobox remote stop foo
 yolobox remote list
 yolobox remote status foo
 yolobox remote destroy foo --force
@@ -248,7 +247,11 @@ the folder yet. `yolobox remote run foo ...` syncs the current folder, then runs
 the command. `yolobox remote connect foo` prepares an existing machine and opens
 a shell without syncing the current folder. If the machine has no stored source
 path yet, connect records the current folder path and uses that as the remote
-workdir alias.
+workdir alias. If the managed tmux session already exists, `remote run` and
+`remote connect` attach to that session instead of starting another one or
+replacing what is running. From a non-terminal, an already-running interactive
+session is a hard error so scripts do not silently succeed without starting the
+requested command.
 
 When the backend is configured with a preview base domain, every remote machine
 gets a stable generated preview URL such as

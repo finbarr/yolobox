@@ -38,7 +38,7 @@ yolobox shell
 If `mode = "remote"`, `remote_name = "foo"`, and `default_harness = "codex"` are set, bare `yolobox` runs:
 
 ```bash
-yolobox remote --name foo codex
+yolobox remote run foo codex
 ```
 
 ## Remote machines
@@ -48,7 +48,8 @@ Log in through the browser, then create or reuse a named remote machine. The hos
 ```bash
 yolobox login
 yolobox login --backend-url http://127.0.0.1:8787
-yolobox remote --name foo codex
+yolobox remote create foo
+yolobox remote run foo codex
 ```
 
 Run the self-hosted backend package for a shared machine pool:
@@ -58,10 +59,10 @@ cd backend
 BETTER_AUTH_SECRET=replace-with-a-random-secret-at-least-32-bytes DIGITALOCEAN_ACCESS_TOKEN=... npm run dev
 ```
 
-Reattach later:
+Attach to the existing managed session without syncing:
 
 ```bash
-yolobox remote resume foo codex
+yolobox remote connect foo
 ```
 
 Sync the current folder to the remote machine:
@@ -76,13 +77,6 @@ Copy the remote project back to the local folder, overwriting local files:
 yolobox remote sync down foo --force
 ```
 
-Forward a remote preview port to localhost:
-
-```bash
-yolobox remote forward foo 3000
-yolobox remote forward 3000 # uses configured remote_name
-```
-
 Inspect and clean up backend state:
 
 ```bash
@@ -91,7 +85,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, then runs VM-native sessions from a source-path alias matching the local project path. The remote VM is the sandbox: commands do not run inside a nested yolobox container, and Docker Compose talks to the VM's Docker daemon. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, then runs VM-native sessions from a source-path alias matching the local project path. Each remote machine has one managed tmux session named `yolobox`; if it already exists, terminal `run` and `connect` attach instead of starting another session. The remote VM is the sandbox: commands do not run inside a nested yolobox container, and Docker Compose talks to the VM's Docker daemon. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 ## Isolation controls
 

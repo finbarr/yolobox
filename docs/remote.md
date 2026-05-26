@@ -46,6 +46,11 @@ Project bytes live at `/opt/yolobox/project` on the remote VM. The CLI also crea
 
 That is intentional. Multiple workspaces and multiple named sessions on one VM replicated fork-mode concepts remotely and made state ownership unclear. If you want another remote environment, create another named remote machine.
 
+`remote run` and `remote connect` never create a second managed session. If the
+`yolobox` tmux session already exists, terminal invocations attach to it; a
+non-terminal interactive invocation fails clearly instead of silently ignoring
+the requested command.
+
 Preview access is backend-owned. When `YOLOBOX_PREVIEW_BASE_DOMAIN` is configured,
 each machine receives a stable generated hostname under that domain. Hosted
 deployments proxy that hostname to the machine's standard preview service; custom
@@ -66,7 +71,6 @@ yolobox remote run foo codex
 yolobox remote connect foo
 yolobox remote sync up foo
 yolobox remote sync down foo --force
-yolobox remote stop foo
 yolobox remote list
 yolobox remote status foo
 yolobox remote destroy foo --force

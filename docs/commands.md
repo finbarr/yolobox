@@ -51,7 +51,6 @@ yolobox remote run <env> <cmd...> # Sync, then run on a named remote machine
 yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
 yolobox remote sync up <env> # Copy the current folder to the remote machine
 yolobox remote sync down <env> --force # Copy the remote project back locally
-yolobox remote stop <env> # Stop the remote tmux session
 yolobox remote list             # List backend machines
 yolobox remote status <env>     # Show backend machine state
 yolobox remote destroy <env> --force # Release the backend machine
