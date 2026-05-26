@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { createServer } from "node:http";
+import { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
@@ -15,6 +17,7 @@ class FakeProvider implements MachineProvider {
   ensured: EnsureMachineRequest[] = [];
   released: string[] = [];
   discovered: RemoteMachine[] = [];
+  publicIPv4 = "203.0.113.10";
 
   async ensureMachine(request: EnsureMachineRequest) {
     this.ensured.push(request);
@@ -25,7 +28,7 @@ class FakeProvider implements MachineProvider {
         provider_name: request.provider_name,
         provider: this.name,
         provider_id: `fake-${request.provider_name || request.name}`,
-        public_ipv4: "203.0.113.10",
+        public_ipv4: this.publicIPv4,
         ssh_user: request.ssh_user || "root",
       },
     };
@@ -36,7 +39,7 @@ class FakeProvider implements MachineProvider {
       status: "active",
       machine: {
         ...machine,
-        public_ipv4: machine.public_ipv4 || "203.0.113.10",
+        public_ipv4: machine.public_ipv4 || this.publicIPv4,
       },
     };
   }
@@ -81,6 +84,8 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   assert.equal(ensureBody.machine.name, "foo");
   assert.equal(ensureBody.machine.user_id.length > 0, true);
   assert.match(ensureBody.machine.provider_name, /^foo-[a-f0-9]{10}$/);
+  assert.match(ensureBody.machine.preview_hostname, /^[a-z0-9]+-[a-z0-9]+-[a-f0-9]{6}\.hosted\.test$/);
+  assert.equal(ensureBody.machine.preview_url, `https://${ensureBody.machine.preview_hostname}`);
   assert.equal(ensureBody.machine.project_path, "/opt/yolobox/project");
   assert.equal(provider.ensured.length, 1);
 
@@ -91,10 +96,14 @@ test("backend leases, updates, lists, and releases one machine", async () => {
     payload: {
       last_command: ["codex"],
       bootstrap_complete: true,
+      public_ipv4: "127.0.0.1",
+      preview_hostname: "takeover.hosted.test",
     },
   });
   assert.equal(patched.statusCode, 200);
   assert.deepEqual(patched.json().machine.last_command, ["codex"]);
+  assert.equal(patched.json().machine.public_ipv4, "203.0.113.10");
+  assert.equal(patched.json().machine.preview_hostname, ensureBody.machine.preview_hostname);
 
   const listed = await app.inject({ method: "GET", url: "/v1/machines", headers });
   assert.equal(listed.statusCode, 200);
@@ -173,6 +182,45 @@ test("backend auth supports multiple users with isolated machine names", async (
   assert.notEqual(firstEnsure.json().machine.user_id, secondEnsure.json().machine.user_id);
   assert.notEqual(firstEnsure.json().machine.provider_name, secondEnsure.json().machine.provider_name);
   assert.equal(provider.ensured.length, 2);
+});
+
+test("backend registers preview hostnames and proxies them to the machine", async () => {
+  let previewHost = "";
+  const upstream = createServer((request, response) => {
+    assert.equal(request.headers["x-forwarded-host"], previewHost);
+    response.setHeader("content-type", "text/plain");
+    response.end(`preview:${request.url}`);
+  });
+  await new Promise<void>((resolve) => upstream.listen(0, "127.0.0.1", resolve));
+  try {
+    const address = upstream.address();
+    assert.equal(typeof address, "object");
+    const { app, provider, token } = await createTestBackend("preview@example.com", "password123", { previewTargetPort: (address as AddressInfo).port });
+    provider.publicIPv4 = "127.0.0.1";
+    const headers = { authorization: `Bearer ${token}` };
+    const ensured = await app.inject({
+      method: "POST",
+      url: "/v1/machines/ensure",
+      headers,
+      payload: { name: "preview" },
+    });
+    assert.equal(ensured.statusCode, 200, ensured.body);
+    previewHost = ensured.json().machine.preview_hostname;
+    assert.equal(ensured.json().machine.preview_url, `https://${previewHost}`);
+
+    const tlsCheck = await app.inject({ method: "GET", url: `/v1/preview/tls-check?domain=${encodeURIComponent(previewHost)}` });
+    assert.equal(tlsCheck.statusCode, 200, tlsCheck.body);
+
+    const unknownTLSCheck = await app.inject({ method: "GET", url: "/v1/preview/tls-check?domain=missing.hosted.test" });
+    assert.equal(unknownTLSCheck.statusCode, 404);
+
+    const proxied = await app.inject({ method: "GET", url: `/v1/preview/proxy/${previewHost}/hello?x=1` });
+    assert.equal(proxied.statusCode, 200, proxied.body);
+    assert.equal(proxied.headers["x-yolobox-preview-machine"], "preview");
+    assert.equal(proxied.body, "preview:/hello?x=1");
+  } finally {
+    await new Promise<void>((resolve, reject) => upstream.close((error) => error ? reject(error) : resolve()));
+  }
 });
 
 test("backend login and logout are handled by Better Auth", async () => {
@@ -256,7 +304,7 @@ test("backend supports browser-approved CLI device login", async () => {
   assert.equal(whoami.json().user.email, "cli@example.com");
 });
 
-async function createTestBackend(email = "user@example.com", password = "password123") {
+async function createTestBackend(email = "user@example.com", password = "password123", options: { previewTargetPort?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "yolobox-backend-"));
   const provider = new FakeProvider();
   const store = new StateStore(join(dir, "state.json"), provider.name);
@@ -268,7 +316,13 @@ async function createTestBackend(email = "user@example.com", password = "passwor
   };
   await migrateBackendAuth(authOptions);
   const auth = createBackendAuth(authOptions);
-  const app = createBackend({ auth, provider, store });
+  const app = createBackend({
+    auth,
+    provider,
+    store,
+    previewBaseDomain: "hosted.test",
+    previewTargetPort: options.previewTargetPort,
+  });
   const token = await signUp(app, email, password);
   return { app, provider, token };
 }

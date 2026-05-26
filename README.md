@@ -226,7 +226,6 @@ yolobox remote connect foo codex
 yolobox remote resume foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
-yolobox remote forward foo 3000
 yolobox remote stop foo
 yolobox remote list
 yolobox remote status foo
@@ -247,6 +246,13 @@ knows about. `yolobox remote --name foo ...` creates or reuses a backend machine
 attaches to an existing machine without syncing the current folder. If the machine
 has no stored source path yet, connect records the current folder path and uses
 that as the remote workdir alias.
+
+When the backend is configured with a preview base domain, every remote machine
+gets a stable generated preview URL such as
+`https://amber-bridge-a1b2c3.hosted.yolobox.dev`. The CLI exposes it in
+`yolobox remote list`, `yolobox remote status foo`, and the remote session as
+`YOLOBOX_PREVIEW_URL`. Hosted deployments proxy that URL to the machine's
+standard preview service.
 
 When `remote_name` is configured, commands that take a remote target can omit `foo`.
 
@@ -272,9 +278,9 @@ DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 docker compose -f docker-compose.backend.yml up --build
 ```
 
-For the production `app.yolobox.dev` and `api.yolobox.dev` deployment on a
-DigitalOcean Droplet, use the Caddy, cloud-init, and backup bundle in
-[`deploy/digitalocean/`](deploy/digitalocean/).
+For the production `app.yolobox.dev`, `api.yolobox.dev`, and
+`*.hosted.yolobox.dev` deployment on a DigitalOcean Droplet, use the Caddy,
+cloud-init, and backup bundle in [`deploy/digitalocean/`](deploy/digitalocean/).
 
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 

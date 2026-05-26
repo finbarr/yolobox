@@ -53,6 +53,7 @@ hosted split:
 
 - `app.yolobox.dev` for the browser console
 - `api.yolobox.dev` for API and Better Auth routes
+- `*.hosted.yolobox.dev` for generated machine preview URLs
 - Caddy-managed TLS in front of the backend container
 - host-mounted backend and Caddy data under `/opt/yolobox/data`
 - a systemd timer that writes daily archives to `/opt/yolobox/backups`
@@ -77,6 +78,8 @@ Environment:
 - `YOLOBOX_APP_URL`: public app URL, default derived from `BETTER_AUTH_URL` in direct runs and `http://127.0.0.1:8787` in Compose.
 - `YOLOBOX_API_URL`: public API URL, default derived from `BETTER_AUTH_URL` in direct runs and `http://127.0.0.1:8787` in Compose.
 - `YOLOBOX_BACKEND_CORS_ORIGINS`: comma-separated browser origins allowed to call the API.
+- `YOLOBOX_PREVIEW_BASE_DOMAIN`: optional base domain for generated machine preview hosts, such as `hosted.yolobox.dev`.
+- `YOLOBOX_PREVIEW_TARGET_PORT`: machine port that preview hosts proxy to, default `80`.
 - `YOLOBOX_BACKEND_AUTH_DB`: SQLite auth database path.
 - `YOLOBOX_BACKEND_LISTEN`: listen address, default `127.0.0.1:8787`.
 - `YOLOBOX_BACKEND_STATE`: JSON state file path.
@@ -113,6 +116,8 @@ Routes:
 - `POST /v1/auth/device/token`
 - `GET /v1/auth/whoami`
 - `GET /v1/providers`
+- `GET /v1/preview/tls-check`
+- `ANY /v1/preview/proxy/:hostname/*`
 - `POST /v1/machines`
 - `POST /v1/machines/ensure`
 - `GET /v1/machines`

@@ -10,6 +10,8 @@ export type RemoteMachine = {
   size?: string;
   image?: string;
   ssh_user?: string;
+  preview_hostname?: string;
+  preview_url?: string;
   source_path?: string;
   project_path?: string;
   repo_url?: string;

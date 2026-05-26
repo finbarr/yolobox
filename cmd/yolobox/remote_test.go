@@ -395,22 +395,6 @@ func TestSaveGlobalConfigRemote(t *testing.T) {
 	}
 }
 
-func TestParseRemoteForwardUsesConfiguredTargetForPortOnly(t *testing.T) {
-	cfg := defaultConfig()
-	cfg.RemoteName = "foo"
-
-	name, localPort, remotePort, err := parseRemoteForwardArgs([]string{"3000", "--local-port", "13000"}, cfg)
-	if err != nil {
-		t.Fatalf("parseRemoteForwardArgs failed: %v", err)
-	}
-	if name != "foo" {
-		t.Fatalf("unexpected remote name: %s", name)
-	}
-	if localPort != 13000 || remotePort != 3000 {
-		t.Fatalf("unexpected ports: local=%d remote=%d", localPort, remotePort)
-	}
-}
-
 func TestRemoteSyncDownRequiresForce(t *testing.T) {
 	projectDir := t.TempDir()
 	cfg := `remote_name = "foo"
@@ -427,26 +411,10 @@ token = "secret-token"
 	}
 }
 
-func TestRunSSHForwardUsesLocalPortMapping(t *testing.T) {
-	tmpDir := t.TempDir()
-	sshPath := filepath.Join(tmpDir, "ssh")
-	logPath := filepath.Join(tmpDir, "ssh.log")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + shellQuote(logPath) + "\n"
-	if err := os.WriteFile(sshPath, []byte(script), 0755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", tmpDir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	machine := remoteMachine{PublicIPv4: "203.0.113.10", SSHUser: "root"}
-	if err := runSSHForward(machine, 13000, 3000); err != nil {
-		t.Fatalf("runSSHForward failed: %v", err)
-	}
-	data, err := os.ReadFile(logPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := string(data)
-	if !strings.Contains(got, "127.0.0.1:13000:127.0.0.1:3000") {
-		t.Fatalf("expected local port forward mapping, got %s", got)
+func TestRemoteForwardCommandIsRemoved(t *testing.T) {
+	err := runRemote([]string{"forward", "foo", "3000"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "has been removed") {
+		t.Fatalf("expected removed-command error, got %v", err)
 	}
 }
 

@@ -17,7 +17,7 @@ Implemented in the CLI:
 - one persistent tmux session per VM: `yolobox`
 - VM-native agent execution with Docker Engine and Compose on the host
 - full-folder `remote sync up` and forced `remote sync down --force`
-- local SSH preview forwarding with `remote forward`
+- backend-generated preview URLs for deployments with a preview base domain
 - yolobox VM runtime bootstrap fallback when the backend returns an unprepared machine
 
 Implemented in the open-source backend package under `backend/`:
@@ -28,13 +28,14 @@ Implemented in the open-source backend package under `backend/`:
 - per-user machine ownership and isolation
 - DigitalOcean provider adapter for self-hosted provisioning
 - machine metadata updates from the CLI
+- preview hostname generation plus backend preview proxy endpoints
 - TanStack browser console for signup, signin, machine list, create, destroy, and CLI grant approval
 
 Not implemented in this repo:
 
 - managed billing, quotas, team roles, and audit logs
 - yolobox-owned paid VM pools
-- public preview URLs
+- custom preview hostnames
 - provider adapters beyond DigitalOcean
 
 ## Mental Model
@@ -45,7 +46,10 @@ Project bytes live at `/opt/yolobox/project` on the remote VM. The CLI also crea
 
 That is intentional. Multiple workspaces and multiple named sessions on one VM replicated fork-mode concepts remotely and made state ownership unclear. If you want another remote environment, create another named remote machine.
 
-Port access remains explicit. The open-source CLI supports local SSH forwarding; public preview URLs belong behind a hosted backend.
+Preview access is backend-owned. When `YOLOBOX_PREVIEW_BASE_DOMAIN` is configured,
+each machine receives a stable generated hostname under that domain. Hosted
+deployments proxy that hostname to the machine's standard preview service; custom
+names are a separate product layer.
 
 ## CLI Contract
 
@@ -62,18 +66,10 @@ yolobox remote resume foo codex
 yolobox remote attach foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
-yolobox remote forward foo 3000
-yolobox remote forward foo 3000 --local-port 13000
 yolobox remote stop foo
 yolobox remote list
 yolobox remote status foo
 yolobox remote destroy foo --force
-```
-
-If `remote_name` is configured, commands that take a remote name can omit it:
-
-```bash
-yolobox remote forward 3000
 ```
 
 Names are lowercased and must use lowercase letters, numbers, and hyphens. They must start with a letter or number and are capped at 63 characters.
@@ -150,14 +146,15 @@ When you publish it on a different host or port, set `BETTER_AUTH_URL`,
 browser login links are correct.
 
 For the hosted production split, use `deploy/digitalocean/`. It runs the API and
-frontend on one Droplet behind Caddy, publishes `app.yolobox.dev` and
-`api.yolobox.dev`, stores backend state in `/opt/yolobox/data/backend`, and
+frontend on one Droplet behind Caddy, publishes `app.yolobox.dev`,
+`api.yolobox.dev`, and wildcard preview hosts such as
+`*.hosted.yolobox.dev`, stores backend state in `/opt/yolobox/data/backend`, and
 installs a daily backup timer under systemd. Pair that with DigitalOcean Droplet
 backups so both the machine and app state have recovery coverage.
 
 The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 
-The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames.
+The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames. Set `YOLOBOX_PREVIEW_BASE_DOMAIN` when the deployment has wildcard DNS for generated preview hosts, and `YOLOBOX_PREVIEW_TARGET_PORT` when machines should receive preview traffic on a port other than `80`.
 
 The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI can prepare that plain host over SSH. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
@@ -173,7 +170,7 @@ After the backend leases a host, the CLI:
 - runs setup commands from the source-path workdir after upward sync
 - starts or attaches to the single `yolobox` tmux session for interactive VM-native commands
 - runs noninteractive commands directly over SSH
-- forwards local preview ports with SSH
+- exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
 - patches backend machine metadata after bootstrap, sync, and command execution
 
 The client requires local `ssh` and `rsync`.
@@ -247,6 +244,8 @@ Successful response:
     "provider_id": "123456",
     "public_ipv4": "203.0.113.10",
     "ssh_user": "root",
+    "preview_hostname": "amber-bridge-a1b2c3.hosted.yolobox.dev",
+    "preview_url": "https://amber-bridge-a1b2c3.hosted.yolobox.dev",
     "source_path": "/Users/example/project",
     "project_path": "/opt/yolobox/project",
     "bootstrap_complete": false
@@ -276,6 +275,18 @@ Accept CLI-owned metadata updates such as source path, repo URL, branch, last co
 ### `DELETE /v1/machines/{name}`
 
 Release the backend lease and delete backend state for the machine.
+
+### `GET /v1/preview/tls-check?domain={hostname}`
+
+Unauthenticated Caddy on-demand TLS allow-list endpoint. It returns success only
+when the requested hostname matches a generated preview hostname in backend
+state.
+
+### `ANY /v1/preview/proxy/{hostname}/{path}`
+
+Unauthenticated preview proxy endpoint used by the production Caddy wildcard
+route. It validates that `{hostname}` belongs to a leased machine and forwards
+the request to that machine on `YOLOBOX_PREVIEW_TARGET_PORT`.
 
 ## Sync Semantics
 
@@ -313,7 +324,7 @@ Use `sync down` only when the remote copy should overwrite local files. For Git 
 
 ## Security
 
-Remote machines are outside the local container trust boundary. Anyone with SSH access can inspect synced files, running containers, tmux contents, forwarded preview traffic, and any secrets you place there.
+Remote machines are outside the local container trust boundary. Anyone with SSH access can inspect synced files, running containers, tmux contents, preview traffic, and any secrets you place there.
 
 Backend session tokens authorize machine leasing, release, and metadata updates for one Better Auth user. Treat `remote.token` and `YOLOBOX_TOKEN` like cloud credentials. A self-hosted backend should listen behind TLS or on a private network, and `BETTER_AUTH_SECRET` must be a long random secret.
 

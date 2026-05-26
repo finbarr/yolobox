@@ -43,6 +43,8 @@ const app = createBackend({
   apiPublicURL,
   appPublicURL,
   corsOrigins: splitList(process.env.YOLOBOX_BACKEND_CORS_ORIGINS || process.env.BETTER_AUTH_TRUSTED_ORIGINS),
+  previewBaseDomain: process.env.YOLOBOX_PREVIEW_BASE_DOMAIN,
+  previewTargetPort: Number(process.env.YOLOBOX_PREVIEW_TARGET_PORT || 80),
 });
 
 await app.listen({ host, port });

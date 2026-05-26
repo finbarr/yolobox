@@ -15,11 +15,18 @@ export type BackendOptions = {
   apiPublicURL?: string;
   appPublicURL?: string;
   corsOrigins?: string[];
+  previewBaseDomain?: string;
+  previewTargetPort?: number;
 };
 
 type AuthContext = {
   userID: string;
   email: string;
+};
+
+type PreviewOptions = {
+  baseDomain: string;
+  targetPort: number;
 };
 
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
@@ -33,6 +40,18 @@ export function createBackend(options: BackendOptions): FastifyInstance {
   app.get("/v1/providers", async () => ({
     providers: [providerInfo(options.provider)],
   }));
+
+  app.get<{ Querystring: { domain?: string } }>("/v1/preview/tls-check", async (request, reply) => {
+    const hostname = normalizeHostname(request.query.domain || "");
+    if (!hostname || !(await findMachineByPreviewHostname(options, hostname))) {
+      return reply.code(404).send({ id: "not_found", message: "preview hostname is not registered" });
+    }
+    return "ok\n";
+  });
+
+  app.all<{ Params: { hostname: string; "*": string } }>("/v1/preview/proxy/:hostname/*", async (request, reply) => {
+    return proxyPreviewRequest(options, request, reply);
+  });
 
   app.get("/v1/auth/whoami", async (request, reply) => {
     const auth = await requireAuth(options, request, reply);
@@ -96,7 +115,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     }
     if (!existing) return reply.code(404).send({ id: "not_found", message: "machine is not leased" });
     const refreshed = await options.provider.getMachine(existing);
-    const machine = normalizeMachine(options.provider, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
+    const machine = normalizeMachine(options, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
     await options.store.putMachine(machine);
     return { machine, status: refreshed.status || "leased" };
   });
@@ -114,7 +133,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     }
     if (!existing) return reply.code(404).send({ id: "not_found", message: "machine is not leased" });
     const refreshed = await options.provider.getMachine(existing);
-    const machine = normalizeMachine(options.provider, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
+    const machine = normalizeMachine(options, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
     await options.store.putMachine(machine);
     const target = sshTarget(machine);
     return {
@@ -135,7 +154,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     const error = validateName(name);
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
     try {
-      const machine = normalizeMachine(options.provider, await options.store.patchMachine(auth.userID, name, request.body));
+      const machine = normalizeMachine(options, await options.store.patchMachine(auth.userID, name, request.body));
       return { machine };
     } catch (err) {
       return reply.code(404).send({ id: "not_found", message: (err as Error).message });
@@ -173,7 +192,7 @@ async function leaseMachine(options: BackendOptions, auth: AuthContext, body: En
   const existing = await options.store.getMachine(auth.userID, body.name);
   if (existing) {
     const refreshed = await options.provider.getMachine(existing);
-    const machine = normalizeMachine(options.provider, {
+    const machine = normalizeMachine(options, {
       ...existing,
       ...refreshed.machine,
       user_id: auth.userID,
@@ -187,7 +206,7 @@ async function leaseMachine(options: BackendOptions, auth: AuthContext, body: En
   }
 
   const provisioned = await options.provider.ensureMachine(body);
-  const machine = normalizeMachine(options.provider, {
+  const machine = normalizeMachine(options, {
     ...provisioned.machine,
     name: body.name,
     user_id: auth.userID,
@@ -203,7 +222,7 @@ async function leaseMachine(options: BackendOptions, auth: AuthContext, body: En
 
 async function listAccountMachines(options: BackendOptions, auth: AuthContext): Promise<RemoteMachine[]> {
   await syncProviderMachines(options, auth);
-  return (await options.store.listMachinesForUser(auth.userID)).map((machine) => normalizeMachine(options.provider, machine));
+  return (await options.store.listMachinesForUser(auth.userID)).map((machine) => normalizeMachine(options, machine));
 }
 
 async function syncProviderMachines(options: BackendOptions, auth: AuthContext): Promise<void> {
@@ -213,7 +232,7 @@ async function syncProviderMachines(options: BackendOptions, auth: AuthContext):
   });
   for (const item of discovered) {
     const existing = await options.store.getMachine(auth.userID, item.machine.name);
-    const machine = normalizeMachine(options.provider, {
+    const machine = normalizeMachine(options, {
       ...existing,
       ...item.machine,
       name: item.machine.name,
@@ -237,15 +256,21 @@ function normalizeEnsureRequest(body: EnsureMachineRequest | undefined, provider
   };
 }
 
-function normalizeMachine(provider: MachineProvider, machine: RemoteMachine): RemoteMachine {
+function normalizeMachine(options: BackendOptions, machine: RemoteMachine): RemoteMachine {
   const now = new Date().toISOString();
+  const name = machine.name.trim().toLowerCase();
+  const preview = previewOptions(options);
+  const previewHostname = preview && machine.user_id
+    ? normalizeHostname(machine.preview_hostname || generatedPreviewHostname(machine.user_id, name, preview.baseDomain))
+    : normalizeHostname(machine.preview_hostname || "");
   return {
     ...machine,
-    name: machine.name.trim().toLowerCase(),
-    provider: machine.provider || provider.name,
-    provider_label: machine.provider_label || provider.label || provider.name,
+    name,
+    provider: machine.provider || options.provider.name,
+    provider_label: machine.provider_label || options.provider.label || options.provider.name,
     project_path: machine.project_path || defaultProjectPath,
     ssh_user: machine.ssh_user || "root",
+    ...(previewHostname ? { preview_hostname: previewHostname, preview_url: `https://${previewHostname}` } : {}),
     created_at: machine.created_at || now,
     updated_at: now,
   };
@@ -337,6 +362,158 @@ function providerMachineName(userID: string, machineName: string): string {
 function providerUserHash(userID: string): string {
   return createHash("sha256").update(userID).digest("hex").slice(0, 10);
 }
+
+const previewLeftWords = [
+  "amber",
+  "atlas",
+  "banana",
+  "cedar",
+  "cobalt",
+  "delta",
+  "ember",
+  "frost",
+  "golden",
+  "harbor",
+  "indigo",
+  "juniper",
+  "lunar",
+  "maple",
+  "nova",
+  "opal",
+];
+
+const previewRightWords = [
+  "arc",
+  "beacon",
+  "bridge",
+  "cloud",
+  "dune",
+  "field",
+  "forge",
+  "grove",
+  "haven",
+  "lane",
+  "orbit",
+  "path",
+  "ridge",
+  "signal",
+  "stone",
+  "vault",
+];
+
+function previewOptions(options: BackendOptions): PreviewOptions | undefined {
+  const baseDomain = normalizeHostname(options.previewBaseDomain || "");
+  if (!baseDomain) return undefined;
+  const targetPort = Number(options.previewTargetPort || 80);
+  return {
+    baseDomain,
+    targetPort: Number.isInteger(targetPort) && targetPort > 0 && targetPort <= 65535 ? targetPort : 80,
+  };
+}
+
+function generatedPreviewHostname(userID: string, machineName: string, baseDomain: string): string {
+  const hash = createHash("sha256").update(`${userID}:${machineName}`).digest("hex");
+  const left = previewLeftWords[Number.parseInt(hash.slice(0, 8), 16) % previewLeftWords.length];
+  const right = previewRightWords[Number.parseInt(hash.slice(8, 16), 16) % previewRightWords.length];
+  return `${left}-${right}-${hash.slice(16, 22)}.${baseDomain}`;
+}
+
+function normalizeHostname(value: string): string {
+  return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "").replace(/:\d+$/, "").replace(/^\.+|\.+$/g, "");
+}
+
+async function findMachineByPreviewHostname(options: BackendOptions, hostname: string): Promise<RemoteMachine | undefined> {
+  const preview = previewOptions(options);
+  const normalized = normalizeHostname(hostname);
+  if (!preview || !normalized.endsWith(`.${preview.baseDomain}`)) return undefined;
+  for (const machine of await options.store.listMachines()) {
+    const normalizedMachine = normalizeMachine(options, machine);
+    if (normalizedMachine.preview_hostname === normalized) return normalizedMachine;
+  }
+  return undefined;
+}
+
+async function proxyPreviewRequest(
+  options: BackendOptions,
+  request: { method: string; url: string; headers: Record<string, string | string[] | undefined>; params: { hostname: string }; body?: unknown },
+  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown }; header: (name: string, value: string) => unknown; send: (payload: Buffer | string) => unknown },
+): Promise<unknown> {
+  const preview = previewOptions(options);
+  const hostname = normalizeHostname(request.params.hostname);
+  const machine = await findMachineByPreviewHostname(options, hostname);
+  if (!preview || !machine) {
+    return reply.code(404).send({ id: "not_found", message: "preview hostname is not registered" });
+  }
+  if (!machine.public_ipv4) {
+    return reply.code(503).send({ id: "not_ready", message: "preview machine does not have a public IPv4 yet" });
+  }
+
+  const targetURL = new URL(previewTargetSuffix(request.url, hostname), `http://${machine.public_ipv4}:${preview.targetPort}`);
+  const headers = previewProxyHeaders(request.headers, hostname);
+  const init: RequestInit = {
+    method: request.method,
+    headers,
+  };
+  if (request.method !== "GET" && request.method !== "HEAD" && request.body !== undefined) {
+    init.body = previewProxyBody(request.body);
+  }
+
+  let upstream: Response;
+  try {
+    upstream = await fetch(targetURL, init);
+  } catch (error) {
+    return reply.code(502).send({ id: "preview_unreachable", message: `preview upstream is unreachable: ${(error as Error).message}` });
+  }
+
+  reply.code(upstream.status);
+  upstream.headers.forEach((value, name) => {
+    if (!hopByHopHeaders.has(name.toLowerCase())) {
+      reply.header(name, value);
+    }
+  });
+  reply.header("x-yolobox-preview-machine", machine.name);
+  if (request.method === "HEAD") return reply.send("");
+  return reply.send(Buffer.from(await upstream.arrayBuffer()));
+}
+
+function previewTargetSuffix(requestURL: string, hostname: string): string {
+  const marker = `/v1/preview/proxy/${hostname}`;
+  const index = requestURL.indexOf(marker);
+  let suffix = index === -1 ? "/" : requestURL.slice(index + marker.length);
+  if (suffix === "") suffix = "/";
+  if (!suffix.startsWith("/")) suffix = `/${suffix}`;
+  return suffix;
+}
+
+function previewProxyHeaders(input: Record<string, string | string[] | undefined>, hostname: string): Headers {
+  const headers = new Headers();
+  for (const [name, rawValue] of Object.entries(input)) {
+    const lower = name.toLowerCase();
+    if (hopByHopHeaders.has(lower) || lower === "host") continue;
+    const values = Array.isArray(rawValue) ? rawValue : rawValue === undefined ? [] : [rawValue];
+    for (const value of values) headers.append(name, value);
+  }
+  headers.set("x-forwarded-host", hostname);
+  headers.set("x-forwarded-proto", "https");
+  return headers;
+}
+
+function previewProxyBody(body: unknown): BodyInit {
+  if (typeof body === "string") return body;
+  if (body instanceof Uint8Array) return body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength) as BodyInit;
+  return JSON.stringify(body);
+}
+
+const hopByHopHeaders = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 function sshTarget(machine: RemoteMachine): string {
   if (!machine.public_ipv4) return "";

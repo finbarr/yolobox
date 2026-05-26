@@ -26,6 +26,8 @@ type Machine = {
   size?: string;
   image?: string;
   ssh_user?: string;
+  preview_hostname?: string;
+  preview_url?: string;
   source_path?: string;
   project_path?: string;
   repo_url?: string;
@@ -392,7 +394,7 @@ function Dashboard({ token, user }: { token: string; user?: AuthUser }) {
                 <strong>{machine.name}</strong>
                 <small>{machine.provider_label || machine.provider || "provider"} / {machine.region || "region"}</small>
               </span>
-              <code>{machine.public_ipv4 || "pending"}</code>
+              <code>{machine.preview_hostname || machine.public_ipv4 || "pending"}</code>
             </button>
           ))}
           {!machineList.length ? <div className="empty">No machines yet.</div> : null}
@@ -444,6 +446,7 @@ function MachineDetail({ machine, connect, loading, onDestroy, destroying }: {
         <Metric label="Image" value={machine.image || "-"} />
       </div>
       <CommandBlock label="SSH" value={connect?.connect.ssh || sshFallback(machine)} />
+      <CommandBlock label="Preview URL" value={machine.preview_url || ""} />
       <CommandBlock label="CLI attach" value={connect?.connect.cli || `yolobox remote connect ${machine.name}`} />
       <CommandBlock label="CLI run/sync" value={connect?.connect.cli_run || `yolobox remote --name ${machine.name}`} />
       <dl className="meta">

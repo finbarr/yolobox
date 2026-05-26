@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -29,6 +28,8 @@ type remoteMachine struct {
 	Size              string    `json:"size,omitempty"`
 	Image             string    `json:"image,omitempty"`
 	SSHUser           string    `json:"ssh_user,omitempty"`
+	PreviewHostname   string    `json:"preview_hostname,omitempty"`
+	PreviewURL        string    `json:"preview_url,omitempty"`
 	SourcePath        string    `json:"source_path,omitempty"`
 	ProjectPath       string    `json:"project_path,omitempty"`
 	RepoURL           string    `json:"repo_url,omitempty"`
@@ -60,7 +61,7 @@ func runRemote(args []string, projectDir string) error {
 	case "stop":
 		return runRemoteStop(args[1:], projectDir)
 	case "forward":
-		return runRemoteForward(args[1:], projectDir)
+		return fmt.Errorf("yolobox remote forward has been removed; use the machine preview_url from `yolobox remote status`")
 	case "list":
 		return runRemoteList(args[1:], projectDir)
 	case "status":
@@ -80,7 +81,6 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox remote attach [<env>] [cmd...]     Alias for connect")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync [up] [<env>]           Copy the current folder to the remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync down [<env>] --force   Copy the remote project back locally")
-	fmt.Fprintln(os.Stderr, "  yolobox remote forward [<env>] <port>      Forward a remote preview port to localhost")
 	fmt.Fprintln(os.Stderr, "  yolobox remote stop [<env>]                Stop the remote tmux session")
 	fmt.Fprintln(os.Stderr, "  yolobox remote list                        List backend machines")
 	fmt.Fprintln(os.Stderr, "  yolobox remote status [<env>]              Show backend machine state")
@@ -97,7 +97,6 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo codex")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up foo")
-	fmt.Fprintln(os.Stderr, "  yolobox remote forward foo 3000")
 }
 
 func runRemoteDefault(cfg Config, projectDir string) error {
@@ -284,11 +283,11 @@ func runRemoteList(args []string, projectDir string) error {
 	sort.Slice(machines, func(i, j int) bool {
 		return machines[i].Name < machines[j].Name
 	})
-	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", "NAME", "PROVIDER", "IP", "REGION", "STORAGE"); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-32s %s\n", "NAME", "PROVIDER", "IP", "REGION", "PREVIEW", "STORAGE"); err != nil {
 		return err
 	}
 	for _, m := range machines {
-		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %s\n", m.Name, configValueOrNotSet(m.Provider), m.PublicIPv4, m.Region, m.ProjectPath); err != nil {
+		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-32s %s\n", m.Name, configValueOrNotSet(m.Provider), m.PublicIPv4, m.Region, configValueOrNotSet(m.PreviewHostname), m.ProjectPath); err != nil {
 			return err
 		}
 	}
@@ -319,6 +318,7 @@ func runRemoteStatus(args []string, projectDir string) error {
 	fmt.Printf("%sprovider_id:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProviderID))
 	fmt.Printf("%spublic_ipv4:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PublicIPv4))
 	fmt.Printf("%sssh_user:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SSHUser))
+	fmt.Printf("%spreview_url:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PreviewURL))
 	fmt.Printf("%ssource_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SourcePath))
 	fmt.Printf("%srepo:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.RepoURL))
 	fmt.Printf("%sbranch:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Branch))
@@ -390,23 +390,6 @@ func runRemoteStop(args []string, projectDir string) error {
 	return nil
 }
 
-func runRemoteForward(args []string, projectDir string) error {
-	cfg, err := loadConfig(projectDir)
-	if err != nil {
-		return err
-	}
-	name, localPort, remotePort, err := parseRemoteForwardArgs(args, cfg)
-	if err != nil {
-		return err
-	}
-	machine, _, err := getRemoteBackendMachine(cfg, name)
-	if err != nil {
-		return err
-	}
-	info("Forwarding http://127.0.0.1:%d to %s port %d. Press Ctrl+C to stop.", localPort, machine.Name, remotePort)
-	return runSSHForward(machine, localPort, remotePort)
-}
-
 func parseRemoteNameAndCommand(command string, args []string, cfg Config) (string, []string, error) {
 	if len(args) == 0 {
 		name := strings.TrimSpace(cfg.RemoteName)
@@ -421,65 +404,6 @@ func parseRemoteNameAndCommand(command string, args []string, cfg Config) (strin
 		return "", nil, err
 	}
 	return name, args[1:], nil
-}
-
-func parseRemoteForwardArgs(args []string, cfg Config) (string, int, int, error) {
-	localPort := 0
-	positionals := make([]string, 0, len(args))
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--local-port":
-			if i+1 >= len(args) {
-				return "", 0, 0, fmt.Errorf("--local-port requires a value")
-			}
-			port, err := parsePort(args[i+1])
-			if err != nil {
-				return "", 0, 0, fmt.Errorf("invalid local port: %w", err)
-			}
-			localPort = port
-			i++
-		default:
-			positionals = append(positionals, args[i])
-		}
-	}
-
-	if len(positionals) == 1 && strings.TrimSpace(cfg.RemoteName) != "" {
-		if remotePort, err := parsePort(positionals[0]); err == nil {
-			if localPort == 0 {
-				localPort = remotePort
-			}
-			name := strings.ToLower(strings.TrimSpace(cfg.RemoteName))
-			return name, localPort, remotePort, validateRemoteName(name)
-		}
-	}
-
-	name, rest, err := parseRemoteNameAndCommand("forward", positionals, cfg)
-	if err != nil {
-		return "", 0, 0, err
-	}
-	if len(rest) == 0 {
-		return "", 0, 0, fmt.Errorf("yolobox remote forward requires a remote port")
-	}
-	if len(rest) > 1 {
-		return "", 0, 0, fmt.Errorf("unexpected remote forward args: %v", rest[1:])
-	}
-	remotePort, err := parsePort(rest[0])
-	if err != nil {
-		return "", 0, 0, err
-	}
-	if localPort == 0 {
-		localPort = remotePort
-	}
-	return name, localPort, remotePort, nil
-}
-
-func parsePort(value string) (int, error) {
-	value = strings.TrimSpace(value)
-	port, err := strconv.Atoi(value)
-	if err != nil || port < 1 || port > 65535 {
-		return 0, fmt.Errorf("invalid port %q", value)
-	}
-	return port, nil
 }
 
 func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
@@ -513,7 +437,11 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
 		return machine, err
 	}
-	success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
+	if machine.PreviewURL != "" {
+		success("Remote %s is ready at %s via backend; preview %s", machine.Name, machine.PublicIPv4, machine.PreviewURL)
+	} else {
+		success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
+	}
 	return machine, nil
 }
 
@@ -904,9 +832,17 @@ func remoteCommandPrefix(machine remoteMachine) string {
 		"export YOLOBOX_REMOTE=1",
 		"export YOLOBOX_PROJECT_PATH=" + shellQuote(workPath),
 		"export YOLOBOX_CONTEXT_FILE=" + shellQuote(yoloboxContextFile),
-		"if [ -x " + shellQuote(remoteRuntimeSessionScript) + " ]; then " + shellQuote(remoteRuntimeSessionScript) + " " + shellQuote(workPath) + "; fi",
-		"cd " + shellQuote(workPath),
 	}
+	if strings.TrimSpace(machine.PreviewURL) != "" {
+		parts = append(parts, "export YOLOBOX_PREVIEW_URL="+shellQuote(machine.PreviewURL))
+	}
+	if strings.TrimSpace(machine.PreviewHostname) != "" {
+		parts = append(parts, "export YOLOBOX_PREVIEW_HOSTNAME="+shellQuote(machine.PreviewHostname))
+	}
+	parts = append(parts,
+		"if [ -x "+shellQuote(remoteRuntimeSessionScript)+" ]; then "+shellQuote(remoteRuntimeSessionScript)+" "+shellQuote(workPath)+"; fi",
+		"cd "+shellQuote(workPath),
+	)
 	return strings.Join(parts, "; ") + "; "
 }
 
@@ -942,19 +878,6 @@ func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwar
 	} else {
 		cmd.Stdin = os.Stdin
 	}
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-func runSSHForward(machine remoteMachine, localPort int, remotePort int) error {
-	if err := requireRemoteClientTools("ssh"); err != nil {
-		return err
-	}
-	forwardSpec := fmt.Sprintf("127.0.0.1:%d:127.0.0.1:%d", localPort, remotePort)
-	args := append(remoteSSHOptions(false), "-N", "-L", forwardSpec, machine.sshTarget())
-	cmd := exec.Command("ssh", args...)
-	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()

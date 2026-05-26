@@ -1,5 +1,8 @@
 {
 	email {$ACME_EMAIL}
+	on_demand_tls {
+		ask http://backend:8787/v1/preview/tls-check
+	}
 }
 
 {$YOLOBOX_APP_HOST} {
@@ -10,4 +13,18 @@
 {$YOLOBOX_API_HOST} {
 	encode zstd gzip
 	reverse_proxy backend:8787
+}
+
+:443 {
+	tls {
+		on_demand
+	}
+
+	@preview host *.{$YOLOBOX_PREVIEW_BASE_DOMAIN}
+	handle @preview {
+		rewrite * /v1/preview/proxy/{host}{uri}
+		reverse_proxy backend:8787
+	}
+
+	respond "not found" 404
 }
