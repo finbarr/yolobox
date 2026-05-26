@@ -44,6 +44,7 @@ type remoteProvisionOptions struct {
 	Name       string
 	SSHUser    string
 	BackendURL string
+	Tier       string
 }
 
 func runRemote(args []string, projectDir string) error {
@@ -74,7 +75,8 @@ func runRemote(args []string, projectDir string) error {
 
 func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
-	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> [--no-sync]    Create or reuse a machine and sync this folder")
+	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> [--tier <tier>] [--no-sync]")
+	fmt.Fprintln(os.Stderr, "                                             Create or reuse a machine and sync this folder")
 	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd...>          Sync this folder, then run a command")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>               Connect to a shell without syncing")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up <env>               Copy the current folder to the remote machine")
@@ -85,6 +87,7 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintln(os.Stderr, "OPTIONS:")
 	fmt.Fprintln(os.Stderr, "  --no-sync            Skip the create command's initial project sync")
+	fmt.Fprintln(os.Stderr, "  --tier <tier>        Machine size tier for create: small, medium, or large")
 	fmt.Fprintln(os.Stderr, "  --ssh-user <user>    SSH user for create")
 	fmt.Fprintln(os.Stderr, "  --backend-url <url>  Remote backend API URL for create")
 	fmt.Fprintln(os.Stderr, "")
@@ -169,6 +172,14 @@ func parseRemoteCreateArgs(args []string, cfg Config) (remoteProvisionOptions, b
 			opts.SSHUser = args[i]
 		case strings.HasPrefix(arg, "--ssh-user="):
 			opts.SSHUser = strings.TrimPrefix(arg, "--ssh-user=")
+		case arg == "--tier":
+			i++
+			if i >= len(args) {
+				return opts, noSync, fmt.Errorf("remote create --tier requires a value")
+			}
+			opts.Tier = args[i]
+		case strings.HasPrefix(arg, "--tier="):
+			opts.Tier = strings.TrimPrefix(arg, "--tier=")
 		case arg == "--backend-url":
 			i++
 			if i >= len(args) {
@@ -188,6 +199,11 @@ func parseRemoteCreateArgs(args []string, cfg Config) (remoteProvisionOptions, b
 	}
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
 	opts.SSHUser = strings.TrimSpace(opts.SSHUser)
+	tier, err := normalizeRemoteMachineTier(opts.Tier)
+	if err != nil {
+		return opts, noSync, err
+	}
+	opts.Tier = tier
 	opts.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
 	if opts.Name == "" {
 		return opts, noSync, fmt.Errorf("yolobox remote create requires a remote name")
@@ -196,6 +212,19 @@ func parseRemoteCreateArgs(args []string, cfg Config) (remoteProvisionOptions, b
 		return opts, noSync, err
 	}
 	return opts, noSync, nil
+}
+
+func normalizeRemoteMachineTier(tier string) (string, error) {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "" {
+		return "", nil
+	}
+	switch tier {
+	case "small", "medium", "large":
+		return tier, nil
+	default:
+		return "", fmt.Errorf("invalid remote machine tier %q; expected small, medium, or large", tier)
+	}
 }
 
 func remoteConfigForProvision(cfg Config, opts remoteProvisionOptions) (Config, error) {
@@ -312,11 +341,11 @@ func runRemoteList(args []string, projectDir string) error {
 	sort.Slice(machines, func(i, j int) bool {
 		return machines[i].Name < machines[j].Name
 	})
-	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-32s %s\n", "NAME", "PROVIDER", "IP", "REGION", "PREVIEW", "STORAGE"); err != nil {
+	if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-18s %-32s %s\n", "NAME", "PROVIDER", "IP", "REGION", "SIZE", "PREVIEW", "STORAGE"); err != nil {
 		return err
 	}
 	for _, m := range machines {
-		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-32s %s\n", m.Name, configValueOrNotSet(m.Provider), m.PublicIPv4, m.Region, configValueOrNotSet(m.PreviewHostname), m.ProjectPath); err != nil {
+		if _, err := fmt.Fprintf(os.Stdout, "%-18s %-14s %-15s %-12s %-18s %-32s %s\n", m.Name, configValueOrNotSet(m.Provider), m.PublicIPv4, m.Region, configValueOrNotSet(m.Size), configValueOrNotSet(m.PreviewHostname), m.ProjectPath); err != nil {
 			return err
 		}
 	}
@@ -346,6 +375,7 @@ func runRemoteStatus(args []string, projectDir string) error {
 	fmt.Printf("%sprovider:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Provider))
 	fmt.Printf("%sprovider_id:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.ProviderID))
 	fmt.Printf("%spublic_ipv4:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PublicIPv4))
+	fmt.Printf("%ssize:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.Size))
 	fmt.Printf("%sssh_user:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SSHUser))
 	fmt.Printf("%spreview_url:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.PreviewURL))
 	fmt.Printf("%ssource_path:%s %s\n", colorBold, colorReset, configValueOrNotSet(machine.SourcePath))

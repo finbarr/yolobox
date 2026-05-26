@@ -86,7 +86,8 @@ Environment:
 - `YOLOBOX_BACKEND_PROVIDER`: provider adapter, default `digitalocean`.
 - `DIGITALOCEAN_ACCESS_TOKEN`: DigitalOcean token for self-hosted provisioning.
 - `DIGITALOCEAN_REGION`: default `nyc3`.
-- `DIGITALOCEAN_SIZE`: default `s-2vcpu-4gb`.
+- `DIGITALOCEAN_SIZE`: default provider size for creates without an explicit tier, default `s-2vcpu-4gb-amd`.
+- Create-time tiers map to DigitalOcean AMD sizes: `small` is 2 vCPU / 4 GB, `medium` is 4 vCPU / 8 GB, and `large` is 8 vCPU / 16 GB.
 - `YOLOBOX_REMOTE_IMAGE`: provider image id or slug for a prebuilt yolobox VM image. When unset, DigitalOcean falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`.
 - `DIGITALOCEAN_IMAGE`: DigitalOcean image fallback, default `ubuntu-24-04-x64`.
 - `DIGITALOCEAN_SSH_KEYS`: comma-separated SSH key ids or fingerprints.
@@ -119,7 +120,6 @@ Routes:
 - `GET /v1/preview/tls-check`
 - `ANY /v1/preview/proxy/:hostname/*`
 - `POST /v1/machines`
-- `POST /v1/machines/ensure`
 - `GET /v1/machines`
 - `GET /v1/machines/:name`
 - `GET /v1/machines/:name/connect`

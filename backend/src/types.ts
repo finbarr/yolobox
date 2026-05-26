@@ -27,6 +27,7 @@ export type EnsureMachineRequest = {
   name: string;
   provider?: string;
   provider_name?: string;
+  tier?: string;
   ssh_user?: string;
   source_path?: string;
   repo_url?: string;

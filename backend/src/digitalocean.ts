@@ -6,6 +6,12 @@ import { homedir } from "node:os";
 import { EnsureMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
 
 const apiBaseURL = "https://api.digitalocean.com";
+const digitalOceanDefaultSize = "s-2vcpu-4gb-amd";
+const digitalOceanTierSizes: Record<string, string> = {
+  small: "s-2vcpu-4gb-amd",
+  medium: "s-4vcpu-8gb-amd",
+  large: "s-8vcpu-16gb-amd",
+};
 
 type DigitalOceanConfig = {
   token: string;
@@ -75,7 +81,7 @@ export class DigitalOceanProvider implements MachineProvider {
       body: {
         name: machineResourceName(providerName),
         region: this.config.region,
-        size: this.config.size,
+        size: digitalOceanSizeForRequest(request, this.config),
         image: this.config.image,
         ssh_keys: sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
         tags: this.machineTags(providerName),
@@ -212,13 +218,22 @@ export function digitalOceanProviderFromEnv(env = process.env): DigitalOceanProv
   return new DigitalOceanProvider({
     token,
     region: env.DIGITALOCEAN_REGION || "nyc3",
-    size: env.DIGITALOCEAN_SIZE || "s-2vcpu-4gb",
+    size: env.DIGITALOCEAN_SIZE || digitalOceanDefaultSize,
     image: env.YOLOBOX_REMOTE_IMAGE || env.DIGITALOCEAN_IMAGE || "ubuntu-24-04-x64",
     sshKeys: splitList(env.DIGITALOCEAN_SSH_KEYS),
     tags: splitList(env.DIGITALOCEAN_TAGS, ["yolobox"]),
     vpcUUID: env.DIGITALOCEAN_VPC_UUID,
     apiURL: env.YOLOBOX_DIGITALOCEAN_API_URL,
   });
+}
+
+function digitalOceanSizeForRequest(request: EnsureMachineRequest, config: DigitalOceanConfig): string {
+  const tierSize = request.tier ? digitalOceanSizeForTier(request.tier) : "";
+  return tierSize || config.size || digitalOceanDefaultSize;
+}
+
+export function digitalOceanSizeForTier(tier: string): string | undefined {
+  return digitalOceanTierSizes[tier];
 }
 
 function publicIPv4(droplet: Droplet): string {

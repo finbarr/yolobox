@@ -49,6 +49,7 @@ Log in through the browser, then create or reuse a named remote machine. The hos
 yolobox login
 yolobox login --backend-url http://127.0.0.1:8787
 yolobox remote create foo
+yolobox remote create foo --tier medium
 yolobox remote run foo codex
 ```
 

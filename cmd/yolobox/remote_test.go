@@ -371,16 +371,24 @@ func TestParseRemoteCreateArgsBackendOnly(t *testing.T) {
 		"Foo",
 		"--ssh-user", "ubuntu",
 		"--backend-url", "https://remote.example.com/",
+		"--tier", "Medium",
 		"--no-sync",
 	}, defaultConfig())
 	if err != nil {
 		t.Fatalf("parseRemoteCreateArgs failed: %v", err)
 	}
-	if opts.Name != "foo" || opts.SSHUser != "ubuntu" || opts.BackendURL != "https://remote.example.com" {
+	if opts.Name != "foo" || opts.SSHUser != "ubuntu" || opts.BackendURL != "https://remote.example.com" || opts.Tier != "medium" {
 		t.Fatalf("unexpected opts: %+v", opts)
 	}
 	if !noSync {
 		t.Fatal("expected --no-sync to be parsed")
+	}
+}
+
+func TestParseRemoteCreateArgsRejectsUnknownTier(t *testing.T) {
+	_, _, err := parseRemoteCreateArgs([]string{"foo", "--tier", "enormous"}, defaultConfig())
+	if err == nil || !strings.Contains(err.Error(), "invalid remote machine tier") {
+		t.Fatalf("expected invalid tier error, got %v", err)
 	}
 }
 

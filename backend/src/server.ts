@@ -79,6 +79,8 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     }
     const error = validateName(body.name);
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
+    const tierError = validateMachineTier(body.tier);
+    if (tierError) return reply.code(400).send({ id: "bad_request", message: tierError });
     return leaseMachine(options, auth, body);
   });
 
@@ -237,6 +239,7 @@ function normalizeEnsureRequest(body: EnsureMachineRequest | undefined, provider
     name: (input.name || "").trim().toLowerCase(),
     provider: input.provider?.trim().toLowerCase() || providerName,
     provider_name: input.provider_name?.trim(),
+    tier: input.tier?.trim().toLowerCase(),
     ssh_user: input.ssh_user?.trim() || "root",
     source_path: input.source_path?.trim(),
     repo_url: input.repo_url?.trim(),
@@ -277,6 +280,12 @@ function validateName(name: string): string | undefined {
     return "invalid machine name; expected lowercase letters, numbers, and hyphens";
   }
   return undefined;
+}
+
+function validateMachineTier(tier: string | undefined): string | undefined {
+  if (!tier) return undefined;
+  if (tier === "small" || tier === "medium" || tier === "large") return undefined;
+  return "invalid machine tier; expected small, medium, or large";
 }
 
 async function requireAuth(options: BackendOptions, request: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }): Promise<AuthContext | undefined> {

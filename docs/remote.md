@@ -66,6 +66,7 @@ yolobox login --backend-url https://remote.example.com --token <existing-session
 yolobox logout
 
 yolobox remote create foo
+yolobox remote create foo --tier medium
 yolobox remote create foo --no-sync
 yolobox remote run foo codex
 yolobox remote connect foo
@@ -160,13 +161,13 @@ The backend stores Better Auth users and sessions in SQLite at `~/.local/state/y
 
 The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames. Set `YOLOBOX_PREVIEW_BASE_DOMAIN` when the deployment has wildcard DNS for generated preview hosts, and `YOLOBOX_PREVIEW_TARGET_PORT` when machines should receive preview traffic on a port other than `80`.
 
-The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI can prepare that plain host over SSH. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
+The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI can prepare that plain host over SSH. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
 ## Client Responsibilities
 
 After the backend leases a host, the CLI:
 
-- sends the machine name, preferred SSH user, local source path, repo URL, and branch to the backend
+- sends the machine name, requested size tier, preferred SSH user, local source path, repo URL, and branch to the backend
 - waits for SSH when the backend returns an unbootstrapped host
 - prepares the VM-native yolobox runtime when the image does not already contain it
 - mirrors the local folder to `/opt/yolobox/project`
@@ -177,14 +178,16 @@ After the backend leases a host, the CLI:
 - exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
 - patches backend machine metadata after bootstrap, sync, and command execution
 
-Remote create, run, connect, status, stop, and destroy require local `ssh` when
+Remote create, run, connect, status, and destroy require local `ssh` when
 they need to reach a machine. Commands that copy project files also require
 local `rsync`.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
 `yolobox remote create foo` creates or reuses one, prepares the VM runtime, and
-syncs the current folder by default. Pass `--no-sync` to skip the initial copy.
+syncs the current folder by default. Pass `--no-sync` to skip the initial copy,
+or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size when
+the backend provisions a new machine. Existing machines are reused as-is.
 `yolobox remote run foo ...` syncs the folder and then runs the command.
 `yolobox remote connect foo` prepares a backend-known machine and opens a shell
 without syncing the local folder. If a machine has no stored source path yet,
@@ -228,6 +231,7 @@ Request:
 ```json
 {
   "name": "foo",
+  "tier": "medium",
   "ssh_user": "root",
   "source_path": "/Users/example/project",
   "repo_url": "git@github.com:example/project.git",

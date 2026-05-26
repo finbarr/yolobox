@@ -20,6 +20,7 @@ const (
 type remoteBackendEnsureRequest struct {
 	Name       string `json:"name"`
 	SSHUser    string `json:"ssh_user,omitempty"`
+	Tier       string `json:"tier,omitempty"`
 	SourcePath string `json:"source_path,omitempty"`
 	RepoURL    string `json:"repo_url,omitempty"`
 	Branch     string `json:"branch,omitempty"`
@@ -43,6 +44,7 @@ func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 	req := remoteBackendEnsureRequest{
 		Name:       opts.Name,
 		SSHUser:    firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root"),
+		Tier:       opts.Tier,
 		SourcePath: sourcePath,
 		RepoURL:    repo.URL,
 		Branch:     repo.Branch,

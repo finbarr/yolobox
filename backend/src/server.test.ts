@@ -74,6 +74,7 @@ test("backend leases, updates, lists, and releases one machine", async () => {
     payload: {
       name: "Foo",
       ssh_user: "ubuntu",
+      tier: "Medium",
       source_path: "/Users/example/project",
       repo_url: "git@example.com:repo.git",
       branch: "main",
@@ -88,6 +89,7 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   assert.equal(ensureBody.machine.preview_url, `https://${ensureBody.machine.preview_hostname}`);
   assert.equal(ensureBody.machine.project_path, "/opt/yolobox/project");
   assert.equal(provider.ensured.length, 1);
+  assert.equal(provider.ensured[0].tier, "medium");
 
   const patched = await app.inject({
     method: "PATCH",
@@ -118,6 +120,21 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   const deleted = await app.inject({ method: "DELETE", url: "/v1/machines/foo", headers });
   assert.equal(deleted.statusCode, 204);
   assert.deepEqual(provider.released, ["foo"]);
+});
+
+test("backend rejects unknown machine tiers", async () => {
+  const { app, token } = await createTestBackend();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers: { authorization: `Bearer ${token}` },
+    payload: {
+      name: "foo",
+      tier: "enormous",
+    },
+  });
+  assert.equal(response.statusCode, 400, response.body);
+  assert.match(response.body, /invalid machine tier/);
 });
 
 test("backend imports provider machines for the authenticated user", async () => {

@@ -184,7 +184,7 @@ yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox login               # Open browser login and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
-yolobox remote create <env> # Create or reuse a named remote machine and sync this folder
+yolobox remote create <env> [--tier small|medium|large] # Create or reuse a named remote machine
 yolobox remote run <env> <cmd...> # Sync, then run on a named remote machine
 yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
 yolobox setup               # Configure yolobox settings
@@ -223,6 +223,7 @@ Remote mode gives Claude, Codex, and other harnesses a named Linux machine that 
 yolobox login
 yolobox login --backend-url https://remote.example.com
 yolobox remote create foo
+yolobox remote create foo --tier medium
 yolobox remote run foo codex
 yolobox remote connect foo
 yolobox remote sync up foo
@@ -243,9 +244,11 @@ The CLI does not keep a local machine registry. It stores only auth/config and
 asks the backend for the account's machines. `yolobox remote create foo` creates
 or reuses a backend machine, prepares the yolobox VM runtime, and syncs the
 current folder by default; pass `--no-sync` to create the machine without copying
-the folder yet. `yolobox remote run foo ...` syncs the current folder, then runs
-the command. `yolobox remote connect foo` prepares an existing machine and opens
-a shell without syncing the current folder. If the machine has no stored source
+the folder yet. Pass `--tier small`, `--tier medium`, or `--tier large` when a
+new machine should use a non-default VM size; existing machines are reused
+as-is. `yolobox remote run foo ...` syncs the current folder, then runs the
+command. `yolobox remote connect foo` prepares an existing machine and opens a
+shell without syncing the current folder. If the machine has no stored source
 path yet, connect records the current folder path and uses that as the remote
 workdir alias. If the managed tmux session already exists, `remote run` and
 `remote connect` attach to that session instead of starting another one or
