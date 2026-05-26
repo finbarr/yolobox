@@ -271,11 +271,15 @@ machine name so typos in command names fail instead of becoming machine names.
 Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM, then maps the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
 
 Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
-yolobox VM image or provider snapshot. Plain Ubuntu machines still work as a
+yolobox VM image or provider snapshot id. Plain Ubuntu machines still work as a
 fallback because the CLI sends the VM runtime installer over SSH and marks the
 host ready at `/opt/yolobox/remote/ready`. Installer command output is written
 on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints high-level
-setup steps and shows recent log output only if installation fails.
+setup steps and shows recent log output only if installation fails. The
+DigitalOcean deployment bundle includes
+[`build-remote-image.sh`](deploy/digitalocean/build-remote-image.sh), which
+creates and optionally activates a new golden snapshot from a committed checkout
+or pushed release ref.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free
@@ -294,7 +298,8 @@ docker compose -f docker-compose.backend.yml up --build
 
 For the production `app.yolobox.dev`, `api.yolobox.dev`, and
 `*.hosted.yolobox.dev` deployment on a DigitalOcean Droplet, use the Caddy,
-cloud-init, and backup bundle in [`deploy/digitalocean/`](deploy/digitalocean/).
+cloud-init, backup, and remote-image bundle in
+[`deploy/digitalocean/`](deploy/digitalocean/).
 
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
@@ -634,7 +639,8 @@ This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the local conta
 
 Remote VMs use a VM image or snapshot rather than this Docker image. The VM
 runtime installer used for those images lives at
-`cmd/yolobox/assets/remote-vm-install.sh`.
+`cmd/yolobox/assets/remote-vm-install.sh`. For DigitalOcean, build and rotate
+that snapshot with `deploy/digitalocean/build-remote-image.sh`.
 
 ## Customizing the Image
 

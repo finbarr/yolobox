@@ -82,7 +82,7 @@ export class DigitalOceanProvider implements MachineProvider {
         name: machineResourceName(providerName),
         region: this.config.region,
         size: digitalOceanSizeForRequest(request, this.config),
-        image: this.config.image,
+        image: digitalOceanImageForCreate(this.config.image),
         ssh_keys: sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
         tags: this.machineTags(providerName),
         monitoring: true,
@@ -234,6 +234,11 @@ function digitalOceanSizeForRequest(request: CreateMachineRequest, config: Digit
 
 export function digitalOceanSizeForTier(tier: string): string | undefined {
   return digitalOceanTierSizes[tier];
+}
+
+export function digitalOceanImageForCreate(image: string): string | number {
+  const value = image.trim();
+  return /^\d+$/.test(value) ? Number(value) : value;
 }
 
 function publicIPv4(droplet: Droplet): string {

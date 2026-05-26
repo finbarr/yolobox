@@ -90,6 +90,8 @@ yolobox remote destroy foo --force
 
 The remote path depends on backend auth plus `ssh`, `rsync`, and SSH access to the returned host. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, then runs VM-native sessions from a source-path alias matching the local project path. Each remote machine has one managed tmux session named `yolobox`; if it already exists, terminal `run` and `connect` attach instead of starting another session. The remote VM is the sandbox: commands do not run inside a nested yolobox container, and Docker Compose talks to the VM's Docker daemon. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
+For hosted DigitalOcean backends, build or rotate the remote VM golden snapshot with `deploy/digitalocean/build-remote-image.sh`, set `YOLOBOX_REMOTE_IMAGE` to the snapshot id, and restart the backend before testing new remote creates.
+
 ## Isolation controls
 
 Use a fresh home/cache state:

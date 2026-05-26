@@ -161,7 +161,7 @@ The backend stores Better Auth users and sessions in SQLite at `~/.local/state/y
 
 The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames. Set `YOLOBOX_PREVIEW_BASE_DOMAIN` when the deployment has wildcard DNS for generated preview hosts, and `YOLOBOX_PREVIEW_TARGET_PORT` when machines should receive preview traffic on a port other than `80`.
 
-The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI can prepare that plain host over SSH. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
+The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot id so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI can prepare that plain host over SSH. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
 ## Client Responsibilities
 
@@ -317,6 +317,33 @@ When building an image from this repository checkout, run:
 ```bash
 sudo env YOLOBOX_SOURCE_DIR="$PWD" ./cmd/yolobox/assets/remote-vm-install.sh
 ```
+
+For the hosted DigitalOcean deployment, use the image builder:
+
+```bash
+deploy/digitalocean/build-remote-image.sh \
+  --env-file deploy/digitalocean/.env.production \
+  --set-active
+```
+
+The builder creates a temporary Droplet, installs the remote VM runtime from the
+committed checkout, cleans cloud-init and SSH host identity so cloned machines
+receive fresh instance metadata, powers the Droplet off, snapshots it, deletes
+the builder, and writes the new snapshot id to `YOLOBOX_REMOTE_IMAGE` when
+`--set-active` is passed. For release-grade images, build from a pushed tag or
+commit:
+
+```bash
+deploy/digitalocean/build-remote-image.sh \
+  --env-file deploy/digitalocean/.env.production \
+  --ref v0.19.0 \
+  --set-active
+```
+
+After changing `YOLOBOX_REMOTE_IMAGE`, restart the backend so future remote
+creates use the new snapshot. Keep the previous snapshot id until a smoke create
+passes; rollback is setting `YOLOBOX_REMOTE_IMAGE` back to that id and
+recreating the backend container.
 
 The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or connecting. Installer command output is written on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints only high-level setup steps unless installation fails.
 

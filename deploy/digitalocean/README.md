@@ -51,6 +51,50 @@ Install and start the backup timer:
 sudo deploy/digitalocean/install-backups.sh
 ```
 
+## Build the Remote VM Image
+
+New remote machines should come from a prebuilt yolobox snapshot instead of a
+plain Ubuntu image. The image builder creates a temporary Droplet, installs the
+remote VM runtime, cleans cloud-init and SSH host identity, powers it off,
+snapshots it, deletes the builder Droplet, and prints the snapshot id.
+
+From a clean, committed checkout:
+
+```bash
+deploy/digitalocean/build-remote-image.sh \
+  --env-file deploy/digitalocean/.env.production \
+  --set-active
+```
+
+`--set-active` writes `YOLOBOX_REMOTE_IMAGE=<snapshot-id>` plus metadata back to
+the env file. Restart the backend after that so future creates use the snapshot:
+
+```bash
+docker compose --env-file deploy/digitalocean/.env.production \
+  -f deploy/digitalocean/docker-compose.yml up -d --build --force-recreate backend
+```
+
+For a release-grade image, build from a pushed tag or commit:
+
+```bash
+deploy/digitalocean/build-remote-image.sh \
+  --env-file deploy/digitalocean/.env.production \
+  --ref v0.19.0 \
+  --set-active
+```
+
+When running the builder on the production Droplet, use SSH agent forwarding if
+the matching private key lives on your laptop:
+
+```bash
+ssh -A root@<control-plane-ip> \
+  'cd /opt/yolobox/app && deploy/digitalocean/build-remote-image.sh --env-file deploy/digitalocean/.env.production --set-active'
+```
+
+Keep at least the previous snapshot id until a production smoke create succeeds.
+Rollback is just setting `YOLOBOX_REMOTE_IMAGE` back to the previous snapshot id
+and recreating the backend container.
+
 ## Verify
 
 ```bash
