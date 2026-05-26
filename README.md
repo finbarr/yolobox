@@ -272,6 +272,10 @@ DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
 docker compose -f docker-compose.backend.yml up --build
 ```
 
+For the production `app.yolobox.dev` and `api.yolobox.dev` deployment on a
+DigitalOcean Droplet, use the Caddy, cloud-init, and backup bundle in
+[`deploy/digitalocean/`](deploy/digitalocean/).
+
 See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
 
 ## Configuration

@@ -46,6 +46,22 @@ state in the `yolobox-backend-data` Docker volume. Override the host bind with
 When the public URL changes, also set `BETTER_AUTH_URL`, `YOLOBOX_APP_URL`, and
 `YOLOBOX_API_URL` so browser login links point at the reachable host.
 
+## Production DigitalOcean Deployment
+
+The repository includes a production bundle in `deploy/digitalocean/` for the
+hosted split:
+
+- `app.yolobox.dev` for the browser console
+- `api.yolobox.dev` for API and Better Auth routes
+- Caddy-managed TLS in front of the backend container
+- host-mounted backend and Caddy data under `/opt/yolobox/data`
+- a systemd timer that writes daily archives to `/opt/yolobox/backups`
+
+Enable DigitalOcean Droplet backups for machine-level recovery, then install the
+repo backup timer for application state recovery. The backend data backup uses
+SQLite's online backup command for `auth.sqlite` and includes `backend.json` plus
+Caddy data.
+
 Then sign up or sign in from another shell. The CLI prints a browser URL, tries
 to open it, and waits for the web app to grant access:
 

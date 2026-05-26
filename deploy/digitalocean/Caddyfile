@@ -1,0 +1,13 @@
+{
+	email {$ACME_EMAIL}
+}
+
+{$YOLOBOX_APP_HOST} {
+	encode zstd gzip
+	reverse_proxy backend:8787
+}
+
+{$YOLOBOX_API_HOST} {
+	encode zstd gzip
+	reverse_proxy backend:8787
+}

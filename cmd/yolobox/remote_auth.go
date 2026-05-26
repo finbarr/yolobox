@@ -317,7 +317,7 @@ func remoteAuthExchangeDeviceToken(backendURL string, deviceCode string) (remote
 	if err != nil {
 		return remoteAuthDeviceTokenResponse{}, nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var buf bytes.Buffer
@@ -409,7 +409,7 @@ func remoteAuthRequest(backendURL string, endpoint string, token string, body an
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var buf bytes.Buffer
 		_, _ = buf.ReadFrom(resp.Body)

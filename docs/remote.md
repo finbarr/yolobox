@@ -149,6 +149,12 @@ When you publish it on a different host or port, set `BETTER_AUTH_URL`,
 `YOLOBOX_APP_URL`, and `YOLOBOX_API_URL` to the reachable public URLs so
 browser login links are correct.
 
+For the hosted production split, use `deploy/digitalocean/`. It runs the API and
+frontend on one Droplet behind Caddy, publishes `app.yolobox.dev` and
+`api.yolobox.dev`, stores backend state in `/opt/yolobox/data/backend`, and
+installs a daily backup timer under systemd. Pair that with DigitalOcean Droplet
+backups so both the machine and app state have recovery coverage.
+
 The backend stores Better Auth users and sessions in SQLite at `~/.local/state/yolobox/auth.sqlite` by default. Override that with `YOLOBOX_BACKEND_AUTH_DB`. `BETTER_AUTH_URL` should point at the auth base URL, for example `https://api.example.com/v1/auth`, when running behind a public hostname.
 
 The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames.

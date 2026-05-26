@@ -134,3 +134,4 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Release tags must only be created from a clean, up-to-date `master` branch. Push `master` and the specific release tag together, for example `git push origin master refs/tags/v0.1.2`; avoid broad `git push --tags` from feature branches.
 - Remote mode should keep the backend authoritative. Do not reintroduce CLI-side provider provisioning, local remote registry state, or multiple workspaces/sessions per remote VM unless there is an explicit product reason.
 - Remote backend auth should use Better Auth for users, passwords, and sessions. Do not hand-roll password hashing, session token storage, or multi-user auth flows in the backend.
+- The public `yolobox.dev` DNS zone is managed at Dynu (`ns1.dyna-ns.net`, `ns2.dyna-ns.net`), not DigitalOcean DNS. DigitalOcean compute deploys still need Dynu access for `app.yolobox.dev` and `api.yolobox.dev` record changes.
