@@ -5,7 +5,7 @@ import cors from "@fastify/cors";
 import Fastify, { FastifyInstance } from "fastify";
 import { BackendAuth } from "./auth.js";
 import { StateStore } from "./state.js";
-import { EnsureMachineRequest, MachineProvider, MachineProviderInfo, RemoteMachine, defaultProjectPath } from "./types.js";
+import { CreateMachineRequest, MachineProvider, MachineProviderInfo, RemoteMachine, defaultProjectPath } from "./types.js";
 
 export type BackendOptions = {
   auth: BackendAuth;
@@ -70,10 +70,10 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     await sendAuthResponse(reply, await options.auth.handler(toWebRequest(request)));
   });
 
-  app.post<{ Body: EnsureMachineRequest }>("/v1/machines", async (request, reply) => {
+  app.post<{ Body: CreateMachineRequest }>("/v1/machines", async (request, reply) => {
     const auth = await requireAuth(options, request, reply);
     if (!auth) return;
-    const body = normalizeEnsureRequest(request.body, options.provider.name);
+    const body = normalizeCreateRequest(request.body, options.provider.name);
     if (body.provider && body.provider !== options.provider.name) {
       return reply.code(400).send({ id: "bad_request", message: `provider ${body.provider} is not configured` });
     }
@@ -81,7 +81,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
     const tierError = validateMachineTier(body.tier);
     if (tierError) return reply.code(400).send({ id: "bad_request", message: tierError });
-    return leaseMachine(options, auth, body);
+    return createMachine(options, auth, body, reply);
   });
 
   app.get("/v1/machines", async (request, reply) => {
@@ -103,7 +103,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       await syncProviderMachines(options, auth);
       existing = await options.store.getMachine(auth.userID, name);
     }
-    if (!existing) return reply.code(404).send({ id: "not_found", message: "machine is not leased" });
+    if (!existing) return reply.code(404).send({ id: "not_found", message: "machine does not exist" });
     const refreshed = await options.provider.getMachine(existing);
     const machine = normalizeMachine(options, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
     await options.store.putMachine(machine);
@@ -121,7 +121,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       await syncProviderMachines(options, auth);
       existing = await options.store.getMachine(auth.userID, name);
     }
-    if (!existing) return reply.code(404).send({ id: "not_found", message: "machine is not leased" });
+    if (!existing) return reply.code(404).send({ id: "not_found", message: "machine does not exist" });
     const refreshed = await options.provider.getMachine(existing);
     const machine = normalizeMachine(options, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
     await options.store.putMachine(machine);
@@ -176,26 +176,24 @@ export function createBackend(options: BackendOptions): FastifyInstance {
   return app;
 }
 
-async function leaseMachine(options: BackendOptions, auth: AuthContext, body: EnsureMachineRequest) {
+async function createMachine(options: BackendOptions, auth: AuthContext, body: CreateMachineRequest, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }) {
   body.provider_name = providerMachineName(auth.userID, body.name);
 
+  await syncProviderMachines(options, auth);
   const existing = await options.store.getMachine(auth.userID, body.name);
   if (existing) {
-    const refreshed = await options.provider.getMachine(existing);
-    const machine = normalizeMachine(options, {
-      ...existing,
-      ...refreshed.machine,
-      user_id: auth.userID,
-      source_path: body.source_path || existing.source_path,
-      repo_url: body.repo_url || existing.repo_url,
-      branch: body.branch || existing.branch,
-      ssh_user: refreshed.machine.ssh_user || body.ssh_user || existing.ssh_user || "root",
-    });
-    await options.store.putMachine(machine);
-    return { machine, status: refreshed.status || "leased" };
+    return reply.code(409).send(machineNameConflict(body.name));
   }
 
-  const provisioned = await options.provider.ensureMachine(body);
+  let provisioned: { machine: RemoteMachine; status?: string };
+  try {
+    provisioned = await options.provider.createMachine(body);
+  } catch (err) {
+    if ((err as Error).message.includes("already exists")) {
+      return reply.code(409).send(machineNameConflict(body.name));
+    }
+    throw err;
+  }
   const machine = normalizeMachine(options, {
     ...provisioned.machine,
     name: body.name,
@@ -207,7 +205,7 @@ async function leaseMachine(options: BackendOptions, auth: AuthContext, body: En
     ssh_user: provisioned.machine.ssh_user || body.ssh_user || "root",
   });
   await options.store.putMachine(machine);
-  return { machine, status: provisioned.status || "leased" };
+  return reply.code(201).send({ machine, status: provisioned.status || "created" });
 }
 
 async function listAccountMachines(options: BackendOptions, auth: AuthContext): Promise<RemoteMachine[]> {
@@ -232,7 +230,7 @@ async function syncProviderMachines(options: BackendOptions, auth: AuthContext):
   }
 }
 
-function normalizeEnsureRequest(body: EnsureMachineRequest | undefined, providerName: string): EnsureMachineRequest {
+function normalizeCreateRequest(body: CreateMachineRequest | undefined, providerName: string): CreateMachineRequest {
   const input = body || { name: "" };
   return {
     ...input,
@@ -286,6 +284,13 @@ function validateMachineTier(tier: string | undefined): string | undefined {
   if (!tier) return undefined;
   if (tier === "small" || tier === "medium" || tier === "large") return undefined;
   return "invalid machine tier; expected small, medium, or large";
+}
+
+function machineNameConflict(name: string) {
+  return {
+    id: "conflict",
+    message: `remote machine ${name} already exists; use yolobox remote run ${name} <cmd>, yolobox remote connect ${name}, or yolobox remote status ${name}`,
+  };
 }
 
 async function requireAuth(options: BackendOptions, request: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }): Promise<AuthContext | undefined> {

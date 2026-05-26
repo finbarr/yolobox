@@ -3,7 +3,7 @@ import { hostname } from "node:os";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
-import { EnsureMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
+import { CreateMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
 
 const apiBaseURL = "https://api.digitalocean.com";
 const digitalOceanDefaultSize = "s-2vcpu-4gb-amd";
@@ -66,11 +66,11 @@ export class DigitalOceanProvider implements MachineProvider {
     this.apiURL = (config.apiURL || apiBaseURL).replace(/\/+$/, "");
   }
 
-  async ensureMachine(request: EnsureMachineRequest): Promise<{ machine: RemoteMachine; status?: string }> {
+  async createMachine(request: CreateMachineRequest): Promise<{ machine: RemoteMachine; status?: string }> {
     const providerName = request.provider_name || request.name;
     const existing = await this.findDroplet(providerName);
     if (existing) {
-      return { machine: this.machineFromDroplet(request.name, providerName, request.ssh_user, existing), status: existing.status };
+      throw new Error(`DigitalOcean droplet for ${request.name} already exists`);
     }
 
     const sshKeys = this.config.sshKeys.length > 0
@@ -227,7 +227,7 @@ export function digitalOceanProviderFromEnv(env = process.env): DigitalOceanProv
   });
 }
 
-function digitalOceanSizeForRequest(request: EnsureMachineRequest, config: DigitalOceanConfig): string {
+function digitalOceanSizeForRequest(request: CreateMachineRequest, config: DigitalOceanConfig): string {
   const tierSize = request.tier ? digitalOceanSizeForTier(request.tier) : "";
   return tierSize || config.size || digitalOceanDefaultSize;
 }

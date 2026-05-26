@@ -235,7 +235,8 @@ label {
   gap: 7px;
 }
 
-input {
+input,
+select {
   width: 100%;
   min-height: 42px;
   border: 1px solid rgba(148, 163, 184, 0.2);
@@ -246,7 +247,8 @@ input {
   outline: none;
 }
 
-input:focus {
+input:focus,
+select:focus {
   border-color: rgba(34, 211, 238, 0.76);
   box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.12);
 }

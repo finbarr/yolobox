@@ -23,7 +23,7 @@ export type RemoteMachine = {
   bootstrap_complete?: boolean;
 };
 
-export type EnsureMachineRequest = {
+export type CreateMachineRequest = {
   name: string;
   provider?: string;
   provider_name?: string;
@@ -49,7 +49,7 @@ export type MachineProvider = {
   name: string;
   label?: string;
   info?: MachineProviderInfo;
-  ensureMachine(request: EnsureMachineRequest): Promise<{ machine: RemoteMachine; status?: string }>;
+  createMachine(request: CreateMachineRequest): Promise<{ machine: RemoteMachine; status?: string }>;
   getMachine(machine: RemoteMachine): Promise<{ machine: RemoteMachine; status?: string }>;
   listMachines(request: ListProviderMachinesRequest): Promise<Array<{ machine: RemoteMachine; status?: string }>>;
   releaseMachine(machine: RemoteMachine): Promise<void>;

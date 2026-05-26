@@ -130,4 +130,5 @@ Machines are scoped to the authenticated Better Auth user and are one-to-one wit
 a remote VM. The backend imports provider-owned machines when listing, so the UI
 and CLI can see machines already present in the authenticated account. There are
 no backend workspaces or multiple named sessions per machine; the CLI uses one
-project path and one tmux session on the VM.
+project path and one tmux session on the VM. `POST /v1/machines` creates a new
+machine and returns `409` when the authenticated user already has that name.

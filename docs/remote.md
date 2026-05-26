@@ -184,11 +184,12 @@ local `rsync`.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
-`yolobox remote create foo` creates or reuses one, prepares the VM runtime, and
+`yolobox remote create foo` creates one machine, prepares the VM runtime, and
 syncs the current folder by default. Pass `--no-sync` to skip the initial copy,
-or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size when
-the backend provisions a new machine. Existing machines are reused as-is.
-`yolobox remote run foo ...` syncs the folder and then runs the command.
+or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size.
+Create fails when the name already exists; use `remote run`, `remote connect`,
+or `remote status` for existing machines. `yolobox remote run foo ...` syncs
+the folder and then runs the command on an existing machine.
 `yolobox remote connect foo` prepares a backend-known machine and opens a shell
 without syncing the local folder. If a machine has no stored source path yet,
 connect records the current folder path and uses it for the remote workdir alias.
@@ -224,7 +225,7 @@ List configured provider adapters and their capabilities.
 
 ### `POST /v1/machines`
 
-Lease or return the host for a logical machine name. This operation is idempotent for the same authenticated owner and machine name. Different users can use the same logical machine name; the backend derives a provider-specific machine name per user.
+Create the host for a logical machine name. The backend returns `409` when that authenticated owner already has a machine with the same name. Different users can use the same logical machine name; the backend derives a provider-specific machine name per user.
 
 Request:
 
@@ -239,7 +240,7 @@ Request:
 }
 ```
 
-Successful response:
+Successful `201` response:
 
 ```json
 {
@@ -255,7 +256,7 @@ Successful response:
     "project_path": "/opt/yolobox/project",
     "bootstrap_complete": false
   },
-  "status": "leased"
+  "status": "created"
 }
 ```
 

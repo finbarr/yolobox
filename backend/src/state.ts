@@ -71,7 +71,7 @@ export class StateStore {
       };
       state.machines[key] = updated;
     });
-    if (!updated) throw new Error("machine is not leased");
+    if (!updated) throw new Error("machine does not exist");
     return updated;
   }
 

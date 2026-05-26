@@ -184,8 +184,8 @@ yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
 yolobox login               # Open browser login and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
-yolobox remote create <env> [--tier small|medium|large] # Create or reuse a named remote machine
-yolobox remote run <env> <cmd...> # Sync, then run on a named remote machine
+yolobox remote create <env> [--tier small|medium|large] # Create a named remote machine
+yolobox remote run <env> <cmd...> # Sync, then run on an existing remote machine
 yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
@@ -242,11 +242,12 @@ automation with an existing session token.
 
 The CLI does not keep a local machine registry. It stores only auth/config and
 asks the backend for the account's machines. `yolobox remote create foo` creates
-or reuses a backend machine, prepares the yolobox VM runtime, and syncs the
-current folder by default; pass `--no-sync` to create the machine without copying
-the folder yet. Pass `--tier small`, `--tier medium`, or `--tier large` when a
-new machine should use a non-default VM size; existing machines are reused
-as-is. `yolobox remote run foo ...` syncs the current folder, then runs the
+a backend machine, prepares the yolobox VM runtime, and syncs the current folder
+by default; pass `--no-sync` to create the machine without copying the folder
+yet. Pass `--tier small`, `--tier medium`, or `--tier large` when a new machine
+should use a non-default VM size. Create fails if that machine name already
+exists; use `remote run`, `remote connect`, or `remote status` for existing
+machines. `yolobox remote run foo ...` syncs the current folder, then runs the
 command. `yolobox remote connect foo` prepares an existing machine and opens a
 shell without syncing the current folder. If the machine has no stored source
 path yet, connect records the current folder path and uses that as the remote

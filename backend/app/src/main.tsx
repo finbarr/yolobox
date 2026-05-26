@@ -69,6 +69,14 @@ type ConnectResponse = MachineResponse & {
   };
 };
 
+type MachineTier = "small" | "medium" | "large";
+
+const machineTiers: Array<{ value: MachineTier; label: string }> = [
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Medium" },
+  { value: "large", label: "Large" },
+];
+
 const configuredAPIURL = (import.meta.env.VITE_YOLOBOX_API_URL || "").replace(/\/+$/, "");
 const apiBaseURL = configuredAPIURL || (window.location.hostname === "app.yolobox.dev" ? "https://api.yolobox.dev" : "");
 const tokenKey = "yolobox.backend.token";
@@ -309,6 +317,7 @@ code: ${formatUserCode(userCode)}`}</pre>
 
 function Dashboard({ token, user }: { token: string; user?: AuthUser }) {
   const [name, setName] = useState("");
+  const [tier, setTier] = useState<MachineTier>("small");
   const [selected, setSelected] = useState<string>("");
   const queryClient = useQueryClient();
   const providers = useQuery({
@@ -321,7 +330,7 @@ function Dashboard({ token, user }: { token: string; user?: AuthUser }) {
     refetchInterval: 15000,
   });
   const createMachine = useMutation({
-    mutationFn: () => apiFetch<MachineResponse>("/v1/machines", token, { method: "POST", body: { name } }),
+    mutationFn: () => apiFetch<MachineResponse>("/v1/machines", token, { method: "POST", body: { name, tier } }),
     onSuccess: (data) => {
       setName("");
       setSelected(data.machine.name);
@@ -359,6 +368,14 @@ function Dashboard({ token, user }: { token: string; user?: AuthUser }) {
           <label>
             Machine name
             <input value={name} onChange={(event) => setName(slugName(event.target.value))} placeholder="main-dev" required />
+          </label>
+          <label>
+            Size
+            <select value={tier} onChange={(event) => setTier(event.target.value as MachineTier)}>
+              {machineTiers.map((option) => (
+                <option value={option.value} key={option.value}>{option.label}</option>
+              ))}
+            </select>
           </label>
           <button className="primary-button" type="submit" disabled={createMachine.isPending}>
             <Plus size={16} />

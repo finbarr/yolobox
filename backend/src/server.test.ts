@@ -9,18 +9,18 @@ import { tmpdir } from "node:os";
 import { createBackendAuth, migrateBackendAuth } from "./auth.js";
 import { StateStore } from "./state.js";
 import { createBackend } from "./server.js";
-import { EnsureMachineRequest, MachineProvider, RemoteMachine } from "./types.js";
+import { CreateMachineRequest, MachineProvider, RemoteMachine } from "./types.js";
 
 class FakeProvider implements MachineProvider {
   readonly name = "fake";
   readonly label = "Fake Cloud";
-  ensured: EnsureMachineRequest[] = [];
+  created: CreateMachineRequest[] = [];
   released: string[] = [];
   discovered: RemoteMachine[] = [];
   publicIPv4 = "203.0.113.10";
 
-  async ensureMachine(request: EnsureMachineRequest) {
-    this.ensured.push(request);
+  async createMachine(request: CreateMachineRequest) {
+    this.created.push(request);
     return {
       status: "created",
       machine: {
@@ -60,14 +60,14 @@ class FakeProvider implements MachineProvider {
   }
 }
 
-test("backend leases, updates, lists, and releases one machine", async () => {
+test("backend creates, updates, lists, and releases one machine", async () => {
   const { app, provider, token } = await createTestBackend();
 
   const unauthorized = await app.inject({ method: "GET", url: "/v1/machines" });
   assert.equal(unauthorized.statusCode, 401);
 
   const headers = { authorization: `Bearer ${token}` };
-  const ensured = await app.inject({
+  const created = await app.inject({
     method: "POST",
     url: "/v1/machines",
     headers,
@@ -80,16 +80,16 @@ test("backend leases, updates, lists, and releases one machine", async () => {
       branch: "main",
     },
   });
-  assert.equal(ensured.statusCode, 200);
-  const ensureBody = ensured.json();
-  assert.equal(ensureBody.machine.name, "foo");
-  assert.equal(ensureBody.machine.user_id.length > 0, true);
-  assert.match(ensureBody.machine.provider_name, /^foo-[a-f0-9]{10}$/);
-  assert.match(ensureBody.machine.preview_hostname, /^[a-z0-9]+-[a-z0-9]+-[a-f0-9]{6}\.hosted\.test$/);
-  assert.equal(ensureBody.machine.preview_url, `https://${ensureBody.machine.preview_hostname}`);
-  assert.equal(ensureBody.machine.project_path, "/opt/yolobox/project");
-  assert.equal(provider.ensured.length, 1);
-  assert.equal(provider.ensured[0].tier, "medium");
+  assert.equal(created.statusCode, 201);
+  const createBody = created.json();
+  assert.equal(createBody.machine.name, "foo");
+  assert.equal(createBody.machine.user_id.length > 0, true);
+  assert.match(createBody.machine.provider_name, /^foo-[a-f0-9]{10}$/);
+  assert.match(createBody.machine.preview_hostname, /^[a-z0-9]+-[a-z0-9]+-[a-f0-9]{6}\.hosted\.test$/);
+  assert.equal(createBody.machine.preview_url, `https://${createBody.machine.preview_hostname}`);
+  assert.equal(createBody.machine.project_path, "/opt/yolobox/project");
+  assert.equal(provider.created.length, 1);
+  assert.equal(provider.created[0].tier, "medium");
 
   const patched = await app.inject({
     method: "PATCH",
@@ -105,7 +105,7 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   assert.equal(patched.statusCode, 200);
   assert.deepEqual(patched.json().machine.last_command, ["codex"]);
   assert.equal(patched.json().machine.public_ipv4, "203.0.113.10");
-  assert.equal(patched.json().machine.preview_hostname, ensureBody.machine.preview_hostname);
+  assert.equal(patched.json().machine.preview_hostname, createBody.machine.preview_hostname);
 
   const listed = await app.inject({ method: "GET", url: "/v1/machines", headers });
   assert.equal(listed.statusCode, 200);
@@ -120,6 +120,29 @@ test("backend leases, updates, lists, and releases one machine", async () => {
   const deleted = await app.inject({ method: "DELETE", url: "/v1/machines/foo", headers });
   assert.equal(deleted.statusCode, 204);
   assert.deepEqual(provider.released, ["foo"]);
+});
+
+test("backend rejects duplicate machine creates", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const headers = { authorization: `Bearer ${token}` };
+
+  const first = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers,
+    payload: { name: "foo" },
+  });
+  assert.equal(first.statusCode, 201, first.body);
+
+  const duplicate = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers,
+    payload: { name: "foo" },
+  });
+  assert.equal(duplicate.statusCode, 409, duplicate.body);
+  assert.match(duplicate.body, /remote machine foo already exists/);
+  assert.equal(provider.created.length, 1);
 });
 
 test("backend rejects unknown machine tiers", async () => {
@@ -168,6 +191,32 @@ test("backend imports provider machines for the authenticated user", async () =>
   assert.equal(connect.json().connect.cli_run, "yolobox remote run already-there");
 });
 
+test("backend rejects creates that collide with provider-owned machines", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const headers = { authorization: `Bearer ${token}` };
+  const user = await app.inject({ method: "GET", url: "/v1/auth/whoami", headers });
+  assert.equal(user.statusCode, 200);
+  const suffix = hashUserID(user.json().user.id);
+
+  provider.discovered = [{
+    name: "already-there",
+    provider_name: `already-there-${suffix}`,
+    provider: provider.name,
+    provider_id: "fake-imported",
+    public_ipv4: "203.0.113.20",
+  }];
+
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers,
+    payload: { name: "already-there" },
+  });
+  assert.equal(response.statusCode, 409, response.body);
+  assert.match(response.body, /remote machine already-there already exists/);
+  assert.equal(provider.created.length, 0);
+});
+
 test("backend auth supports multiple users with isolated machine names", async () => {
   const { app, provider, token } = await createTestBackend("first@example.com");
   const secondToken = await signUp(app, "second@example.com");
@@ -175,13 +224,13 @@ test("backend auth supports multiple users with isolated machine names", async (
   const firstHeaders = { authorization: `Bearer ${token}` };
   const secondHeaders = { authorization: `Bearer ${secondToken}` };
 
-  const firstEnsure = await app.inject({
+  const firstCreate = await app.inject({
     method: "POST",
     url: "/v1/machines",
     headers: firstHeaders,
     payload: { name: "foo" },
   });
-  assert.equal(firstEnsure.statusCode, 200);
+  assert.equal(firstCreate.statusCode, 201);
 
   const secondListBefore = await app.inject({ method: "GET", url: "/v1/machines", headers: secondHeaders });
   assert.equal(secondListBefore.statusCode, 200);
@@ -190,16 +239,16 @@ test("backend auth supports multiple users with isolated machine names", async (
   const secondFetchBefore = await app.inject({ method: "GET", url: "/v1/machines/foo", headers: secondHeaders });
   assert.equal(secondFetchBefore.statusCode, 404);
 
-  const secondEnsure = await app.inject({
+  const secondCreate = await app.inject({
     method: "POST",
     url: "/v1/machines",
     headers: secondHeaders,
     payload: { name: "foo" },
   });
-  assert.equal(secondEnsure.statusCode, 200);
-  assert.notEqual(firstEnsure.json().machine.user_id, secondEnsure.json().machine.user_id);
-  assert.notEqual(firstEnsure.json().machine.provider_name, secondEnsure.json().machine.provider_name);
-  assert.equal(provider.ensured.length, 2);
+  assert.equal(secondCreate.statusCode, 201);
+  assert.notEqual(firstCreate.json().machine.user_id, secondCreate.json().machine.user_id);
+  assert.notEqual(firstCreate.json().machine.provider_name, secondCreate.json().machine.provider_name);
+  assert.equal(provider.created.length, 2);
 });
 
 test("backend registers preview hostnames and proxies them to the machine", async () => {
@@ -216,15 +265,15 @@ test("backend registers preview hostnames and proxies them to the machine", asyn
     const { app, provider, token } = await createTestBackend("preview@example.com", "password123", { previewTargetPort: (address as AddressInfo).port });
     provider.publicIPv4 = "127.0.0.1";
     const headers = { authorization: `Bearer ${token}` };
-    const ensured = await app.inject({
+    const created = await app.inject({
       method: "POST",
       url: "/v1/machines",
       headers,
       payload: { name: "preview" },
     });
-    assert.equal(ensured.statusCode, 200, ensured.body);
-    previewHost = ensured.json().machine.preview_hostname;
-    assert.equal(ensured.json().machine.preview_url, `https://${previewHost}`);
+    assert.equal(created.statusCode, 201, created.body);
+    previewHost = created.json().machine.preview_hostname;
+    assert.equal(created.json().machine.preview_url, `https://${previewHost}`);
 
     const tlsCheck = await app.inject({ method: "GET", url: `/v1/preview/tls-check?domain=${encodeURIComponent(previewHost)}` });
     assert.equal(tlsCheck.statusCode, 200, tlsCheck.body);

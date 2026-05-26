@@ -309,7 +309,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox remote create <env>  Create a named remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> --tier medium")
-	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd>  Sync and run on a named remote machine")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd>  Sync and run on an existing remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>  Open a shell on an existing remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox login               Open browser login and store remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox logout              Revoke and clear remote backend auth")

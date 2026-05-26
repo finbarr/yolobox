@@ -17,7 +17,7 @@ const (
 	remoteAuthTokenEnv      = "YOLOBOX_TOKEN"
 )
 
-type remoteBackendEnsureRequest struct {
+type remoteBackendCreateRequest struct {
 	Name       string `json:"name"`
 	SSHUser    string `json:"ssh_user,omitempty"`
 	Tier       string `json:"tier,omitempty"`
@@ -35,13 +35,13 @@ type remoteBackendListResponse struct {
 	Machines []remoteMachine `json:"machines"`
 }
 
-func ensureRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
+func createRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
 	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
 		return remoteMachine{}, err
 	}
 	repo := currentGitRepo(sourcePath)
-	req := remoteBackendEnsureRequest{
+	req := remoteBackendCreateRequest{
 		Name:       opts.Name,
 		SSHUser:    firstNonEmpty(opts.SSHUser, cfg.Remote.SSHUser, "root"),
 		Tier:       opts.Tier,

@@ -43,7 +43,7 @@ yolobox remote run foo codex
 
 ## Remote machines
 
-Log in through the browser, then create or reuse a named remote machine. The hosted or self-hosted backend leases the SSH host:
+Log in through the browser, then create a named remote machine. The hosted or self-hosted backend leases the SSH host:
 
 ```bash
 yolobox login
@@ -52,6 +52,8 @@ yolobox remote create foo
 yolobox remote create foo --tier medium
 yolobox remote run foo codex
 ```
+
+`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines.
 
 Run the self-hosted backend package for a shared machine pool:
 

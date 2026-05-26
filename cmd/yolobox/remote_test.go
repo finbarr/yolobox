@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) {
+func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
 	var patched remoteMachine
 	deleted := false
@@ -24,12 +24,12 @@ func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) 
 		}
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines":
-			var req remoteBackendEnsureRequest
+			var req remoteBackendCreateRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode ensure request: %v", err)
+				t.Fatalf("decode create request: %v", err)
 			}
 			if req.Name != "foo" || req.RepoURL == "" {
-				t.Fatalf("unexpected ensure request: %+v", req)
+				t.Fatalf("unexpected create request: %+v", req)
 			}
 			_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
 				Machine: remoteMachine{
@@ -39,7 +39,7 @@ func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) 
 					PublicIPv4: "203.0.113.10",
 					SSHUser:    "root",
 				},
-				Status: "leased",
+				Status: "created",
 			})
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
 			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
@@ -65,9 +65,9 @@ func TestRemoteBackendClientEnsuresUpdatesListsAndReleasesMachine(t *testing.T) 
 	cfg := defaultConfig()
 	cfg.Remote.BackendURL = ts.URL
 	cfg.Remote.Token = token
-	machine, err := ensureRemoteBackendMachine(cfg, projectDir, remoteProvisionOptions{Name: "foo"})
+	machine, err := createRemoteBackendMachine(cfg, projectDir, remoteProvisionOptions{Name: "foo"})
 	if err != nil {
-		t.Fatalf("ensureRemoteBackendMachine failed: %v", err)
+		t.Fatalf("createRemoteBackendMachine failed: %v", err)
 	}
 	if machine.ProjectPath != remoteProjectRoot || machine.Provider != "digitalocean" || machine.ProviderID != "host-a" {
 		t.Fatalf("unexpected machine: %+v", machine)
@@ -107,6 +107,66 @@ func TestRemoteBackendClientReportsUnauthorized(t *testing.T) {
 	_, _, err := getRemoteBackendMachine(cfg, "foo")
 	if err == nil || !strings.Contains(err.Error(), "bad token") {
 		t.Fatalf("expected unauthorized detail, got %v", err)
+	}
+}
+
+func TestRemoteRunUsesExistingMachine(t *testing.T) {
+	const token = "secret-token"
+	sawPost := false
+	patches := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo":
+			_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
+				Machine: remoteMachine{
+					Name:       "foo",
+					Provider:   "digitalocean",
+					ProviderID: "host-a",
+					PublicIPv4: "203.0.113.10",
+					SSHUser:    "root",
+				},
+				Status: "active",
+			})
+		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
+			patches++
+			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines":
+			sawPost = true
+			w.WriteHeader(http.StatusConflict)
+			_, _ = w.Write([]byte("unexpected create"))
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	for _, tool := range []string{"ssh", "rsync"} {
+		if err := os.WriteFile(filepath.Join(fakeBin, tool), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+			t.Fatalf("write fake %s: %v", tool, err)
+		}
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(remoteBackendURLEnv, ts.URL)
+	t.Setenv(remoteAuthTokenEnv, token)
+
+	if err := runRemote([]string{"run", "foo", "true"}, t.TempDir()); err != nil {
+		t.Fatalf("remote run failed: %v", err)
+	}
+	if sawPost {
+		t.Fatal("remote run must not create missing machines")
+	}
+	if patches == 0 {
+		t.Fatal("expected remote run to update existing machine metadata")
 	}
 }
 

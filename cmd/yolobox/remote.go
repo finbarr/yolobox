@@ -76,8 +76,8 @@ func runRemote(args []string, projectDir string) error {
 func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> [--tier <tier>] [--no-sync]")
-	fmt.Fprintln(os.Stderr, "                                             Create or reuse a machine and sync this folder")
-	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd...>          Sync this folder, then run a command")
+	fmt.Fprintln(os.Stderr, "                                             Create a machine and sync this folder")
+	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd...>          Sync and run on an existing machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>               Connect to a shell without syncing")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync up <env>               Copy the current folder to the remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync down <env> --force     Copy the remote project back locally")
@@ -104,7 +104,7 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 		return err
 	}
 	name := strings.TrimSpace(cfg.RemoteName)
-	machine, err := ensureRemoteMachine(cfg, projectDir, remoteProvisionOptions{Name: name}, true)
+	machine, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
@@ -126,7 +126,7 @@ func runRemoteCreate(args []string, projectDir string) error {
 		return err
 	}
 
-	_, err = ensureRemoteMachine(cfg, projectDir, opts, !noSync)
+	_, err = createRemoteMachine(cfg, projectDir, opts, !noSync)
 	return err
 }
 
@@ -142,11 +142,7 @@ func runRemoteRun(args []string, projectDir string) error {
 	if len(commandArgs) == 0 {
 		return fmt.Errorf("yolobox remote run requires a command")
 	}
-	opts := remoteProvisionOptions{
-		Name:       name,
-		BackendURL: remoteBackendURL(cfg),
-	}
-	machine, err := ensureRemoteMachine(cfg, projectDir, opts, true)
+	machine, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
@@ -436,7 +432,7 @@ func parseRemoteNameAndCommand(command string, args []string) (string, []string,
 	return name, args[1:], nil
 }
 
-func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions, syncProject bool) (remoteMachine, error) {
+func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOptions, syncProject bool) (remoteMachine, error) {
 	opts.Name = strings.ToLower(strings.TrimSpace(opts.Name))
 	if err := validateRemoteName(opts.Name); err != nil {
 		return remoteMachine{}, err
@@ -447,22 +443,42 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return remoteMachine{}, err
 	}
-	machine, err := ensureRemoteBackendMachine(cfg, projectDir, opts)
+	machine, err := createRemoteBackendMachine(cfg, projectDir, opts)
 	if err != nil {
 		return remoteMachine{}, err
 	}
-	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
+	if err != nil {
 		return machine, err
 	}
-	if err := bootstrapRemoteHost(machine); err != nil {
-		return machine, err
-	}
-	if !machine.BootstrapComplete {
-		machine.BootstrapComplete = true
-		machine.UpdatedAt = time.Now().UTC()
+	if syncProject {
+		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
+			return machine, err
+		}
 		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
 			return machine, err
 		}
+	}
+	if machine.PreviewURL != "" {
+		success("Remote %s is ready at %s via backend; preview %s", machine.Name, machine.PublicIPv4, machine.PreviewURL)
+	} else {
+		success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
+	}
+	return machine, nil
+}
+
+func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, syncProject bool) (remoteMachine, error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if err := validateRemoteName(name); err != nil {
+		return remoteMachine{}, err
+	}
+	machine, _, err := getRemoteBackendMachine(cfg, name)
+	if err != nil {
+		return remoteMachine{}, err
+	}
+	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
+	if err != nil {
+		return machine, err
 	}
 	if syncProject {
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
