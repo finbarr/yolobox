@@ -60,8 +60,6 @@ func runRemote(args []string, projectDir string) error {
 		return runRemoteSync(args[1:], projectDir)
 	case "stop":
 		return runRemoteStop(args[1:], projectDir)
-	case "forward":
-		return fmt.Errorf("yolobox remote forward has been removed; use the machine preview_url from `yolobox remote status`")
 	case "list":
 		return runRemoteList(args[1:], projectDir)
 	case "status":

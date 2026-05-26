@@ -411,13 +411,6 @@ token = "secret-token"
 	}
 }
 
-func TestRemoteForwardCommandIsRemoved(t *testing.T) {
-	err := runRemote([]string{"forward", "foo", "3000"}, t.TempDir())
-	if err == nil || !strings.Contains(err.Error(), "has been removed") {
-		t.Fatalf("expected removed-command error, got %v", err)
-	}
-}
-
 func TestRunLoginCallsBackendAndLogoutRevokesSession(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)

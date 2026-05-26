@@ -21,7 +21,7 @@ Do not stop at unit tests when behavior can be exercised for real. If a change a
 
 If full end-to-end verification is blocked by the environment, state exactly what was run, what was not run, and why.
 
-When the requested change replaces an existing system, remove the old implementation and fallback paths unless there is a current, explicit compatibility reason to keep them. If compatibility requires keeping old behavior, call that tradeoff out clearly before preserving it.
+When the requested change replaces or removes an existing system, delete the old implementation, command handlers, aliases, docs, tests, fallback paths, compatibility shims, and "removed/deprecated command" error branches unless the user explicitly asks for backward compatibility. This repo is pre-production unless the user says otherwise, so do not preserve dead artifacts just in case. If compatibility might be needed, ask before keeping it and explain exactly what would remain.
 
 Any hard-earned lesson that changes how future work should be done belongs in `AGENTS.md`.
 
