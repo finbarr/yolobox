@@ -62,7 +62,7 @@ These are useful, but they are explicit trust decisions.
 
 ## Remote mode
 
-`yolobox remote` runs on a VM or host returned by the hosted or self-hosted backend. That remote host is outside the local container trust boundary. Anyone with SSH access to it can inspect synced project files, running containers, tmux contents, forwarded preview traffic, and any files or secrets you place there.
+`yolobox remote` runs directly on a VM or host returned by the hosted or self-hosted backend. That remote host is outside the local container trust boundary. Remote mode intentionally treats the VM as the sandbox: agents can install packages on the host, run Docker Engine and Compose against the VM daemon, publish services on the VM, and keep those changes across sessions. Anyone with SSH access to it can inspect synced project files, installed packages, running containers, tmux contents, forwarded preview traffic, and any files or secrets you place there.
 
 Remote session tokens authorize host leasing, release, and machine metadata updates for one Better Auth user. Treat `remote.token` and `YOLOBOX_TOKEN` like cloud credentials. Provider credentials such as `DIGITALOCEAN_ACCESS_TOKEN` belong to the backend, not the CLI; hosted bring-your-own-infra flows should store those credentials server-side and scope them to the smallest permissions practical. A self-hosted backend should listen behind TLS or on a private network, use a long random `BETTER_AUTH_SECRET`, and dedicate its machine pool to yolobox workloads.
 

@@ -1,6 +1,6 @@
 # What's in the Box
 
-The base image is meant to be useful immediately without turning into a giant kitchen-sink image.
+The local base image is meant to be useful immediately without turning into a giant kitchen-sink image. Remote machines use the same tool philosophy, but as a VM runtime rather than a nested container.
 
 ## Preinstalled tools
 
@@ -45,6 +45,8 @@ npm is upgraded during the image build using npm's date-based `--before` filter.
 - RTK
 
 Need something else? The agent has sudo inside the container. If it needs a package manager, runtime, database client, or build dependency, it can install it.
+
+Remote mode puts these tools directly on the VM image. Installs made by the agent persist on that VM, and Docker Compose runs against the VM's Docker daemon instead of a nested container runtime.
 
 ## YOLO mode
 

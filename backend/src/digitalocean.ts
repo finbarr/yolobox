@@ -213,7 +213,7 @@ export function digitalOceanProviderFromEnv(env = process.env): DigitalOceanProv
     token,
     region: env.DIGITALOCEAN_REGION || "nyc3",
     size: env.DIGITALOCEAN_SIZE || "s-2vcpu-4gb",
-    image: env.DIGITALOCEAN_IMAGE || "ubuntu-24-04-x64",
+    image: env.YOLOBOX_REMOTE_IMAGE || env.DIGITALOCEAN_IMAGE || "ubuntu-24-04-x64",
     sshKeys: splitList(env.DIGITALOCEAN_SSH_KEYS),
     tags: splitList(env.DIGITALOCEAN_TAGS, ["yolobox"]),
     vpcUUID: env.DIGITALOCEAN_VPC_UUID,

@@ -233,7 +233,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-Remote support is intentionally one machine, one project, and one tmux session. A named remote maps to one VM with project storage at `/opt/yolobox/project`, a workdir alias at the original local source path, and the session named `yolobox`. The inner yolobox runs from that source-path alias so Codex, Claude, and other harness session files keep seeing the same project path they saw locally. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
+Remote support is intentionally one machine, one project, and one tmux session. A named remote maps to one VM with project storage at `/opt/yolobox/project`, a workdir alias at the original local source path, and the session named `yolobox`. Remote mode runs Codex, Claude, shells, and `docker compose` directly on the VM with yolobox wrappers on `PATH`; it does not start a nested yolobox container. That keeps session paths stable while making host installs and Docker workloads persist on the remote machine. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
 
 `yolobox login` starts a browser approval flow, prints the URL to copy/paste,
 tries to open it, and then waits for approval from the web app. Use
@@ -243,13 +243,19 @@ automation with an existing session token.
 The CLI does not keep a local machine registry. It stores only auth/config, asks
 the backend for the account's machines, and connects to any machine the backend
 knows about. `yolobox remote --name foo ...` creates or reuses a backend machine;
-`yolobox remote connect foo ...` bootstraps and attaches to an existing machine
-without syncing the current folder. If the machine has no stored source path yet,
-connect records the current folder path and uses that as the remote workdir alias.
+`yolobox remote connect foo ...` prepares the yolobox VM runtime when needed and
+attaches to an existing machine without syncing the current folder. If the machine
+has no stored source path yet, connect records the current folder path and uses
+that as the remote workdir alias.
 
 When `remote_name` is configured, commands that take a remote target can omit `foo`.
 
 Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM, then maps the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
+
+Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
+yolobox VM image or provider snapshot. Plain Ubuntu machines still work as a
+fallback because the CLI sends the VM runtime installer over SSH and marks the
+host ready at `/opt/yolobox/remote/ready`.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free
@@ -600,7 +606,11 @@ yolobox doesn't currently expose this as a flag, but you can achieve it by runni
 make image
 ```
 
-This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the remote image.
+This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the local container image.
+
+Remote VMs use a VM image or snapshot rather than this Docker image. The VM
+runtime installer used for those images lives at
+`cmd/yolobox/assets/remote-vm-install.sh`.
 
 ## Customizing the Image
 

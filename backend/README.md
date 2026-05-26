@@ -68,7 +68,8 @@ Environment:
 - `DIGITALOCEAN_ACCESS_TOKEN`: DigitalOcean token for self-hosted provisioning.
 - `DIGITALOCEAN_REGION`: default `nyc3`.
 - `DIGITALOCEAN_SIZE`: default `s-2vcpu-4gb`.
-- `DIGITALOCEAN_IMAGE`: default `ubuntu-24-04-x64`.
+- `YOLOBOX_REMOTE_IMAGE`: provider image id or slug for a prebuilt yolobox VM image. When unset, DigitalOcean falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`.
+- `DIGITALOCEAN_IMAGE`: DigitalOcean image fallback, default `ubuntu-24-04-x64`.
 - `DIGITALOCEAN_SSH_KEYS`: comma-separated SSH key ids or fingerprints.
 - `DIGITALOCEAN_TAGS`: comma-separated tags, default `yolobox`.
 - `DIGITALOCEAN_VPC_UUID`: optional VPC UUID.

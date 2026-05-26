@@ -174,13 +174,14 @@ func TestEnsureRemoteProjectPathScriptCreatesSourceAlias(t *testing.T) {
 	}
 }
 
-func TestRemoteTmuxCommandUsesSourcePathAsContainerWorkdir(t *testing.T) {
+func TestRemoteTmuxCommandUsesSourcePathAsVMWorkdir(t *testing.T) {
 	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteTmuxCommand(machine, []string{"yolobox", "codex", "--resume"}, true)
+	command := remoteTmuxCommand(machine, []string{"codex", "--resume"}, true)
 	for _, want := range []string{
 		"cd '/Users/example/my app'",
 		"tmux new-session -A -s 'yolobox'",
 		"-c '/Users/example/my app'",
+		"'/usr/local/bin/yolobox-remote-session' '/Users/example/my app'",
 		"codex",
 		"--resume",
 	} {
@@ -192,7 +193,7 @@ func TestRemoteTmuxCommandUsesSourcePathAsContainerWorkdir(t *testing.T) {
 
 func TestRemoteTmuxCommandFallsBackToProjectPath(t *testing.T) {
 	machine := remoteMachine{ProjectPath: "/opt/yolobox/my app"}
-	command := remoteTmuxCommand(machine, []string{"yolobox", "codex", "--resume"}, true)
+	command := remoteTmuxCommand(machine, []string{"codex", "--resume"}, true)
 	for _, want := range []string{
 		"cd '/opt/yolobox/my app'",
 		"-c '/opt/yolobox/my app'",
@@ -203,11 +204,54 @@ func TestRemoteTmuxCommandFallsBackToProjectPath(t *testing.T) {
 	}
 }
 
-func TestRemoteDirectCommandUsesSourcePathAsContainerWorkdir(t *testing.T) {
+func TestRemoteDirectCommandUsesSourcePathAsVMWorkdir(t *testing.T) {
 	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteDirectCommand(machine, []string{"yolobox", "run", "echo", "ok"})
-	if !strings.Contains(command, "cd '/Users/example/my app'; exec 'yolobox' 'run' 'echo' 'ok'") {
+	command := remoteDirectCommand(machine, remoteHostCommand([]string{"run", "echo", "ok"}))
+	if !strings.Contains(command, "cd '/Users/example/my app'; exec 'echo' 'ok'") {
 		t.Fatalf("unexpected direct command: %s", command)
+	}
+}
+
+func TestRemoteHostCommandMapsYoloboxSubcommandsToVMCommands(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		in   []string
+		want []string
+	}{
+		{name: "empty", in: nil, want: []string{"bash"}},
+		{name: "shell", in: []string{"shell"}, want: []string{"bash"}},
+		{name: "run", in: []string{"run", "make", "test"}, want: []string{"make", "test"}},
+		{name: "run empty", in: []string{"run"}, want: []string{"bash"}},
+		{name: "agent", in: []string{"codex", "--resume"}, want: []string{"codex", "--resume"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			expectSliceEqual(t, remoteHostCommand(tt.in), tt.want)
+		})
+	}
+}
+
+func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
+	script := buildRemoteBootstrapScript()
+	for _, want := range []string{
+		remoteRuntimeReadyMarker,
+		remoteRuntimeSessionScript,
+		"@openai/codex",
+		"docker network create yolobox-net",
+		"YOLOBOX_REMOTE=1",
+	} {
+		if !strings.Contains(script, want) {
+			t.Fatalf("expected remote VM installer to contain %q", want)
+		}
+	}
+	for _, notWant := range []string{
+		"ghcr.io/finbarr/yolobox",
+		"raw.githubusercontent.com/finbarr/yolobox/master/install.sh",
+		"docker pull",
+		"exec 'yolobox'",
+	} {
+		if strings.Contains(script, notWant) {
+			t.Fatalf("remote VM installer should not contain nested yolobox path %q", notWant)
+		}
 	}
 }
 

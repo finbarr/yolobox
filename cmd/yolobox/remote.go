@@ -494,13 +494,13 @@ func ensureRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if err != nil {
 		return remoteMachine{}, err
 	}
+	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+		return machine, err
+	}
+	if err := bootstrapRemoteHost(machine); err != nil {
+		return machine, err
+	}
 	if !machine.BootstrapComplete {
-		if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
-			return machine, err
-		}
-		if err := bootstrapRemoteHost(machine); err != nil {
-			return machine, err
-		}
 		machine.BootstrapComplete = true
 		machine.UpdatedAt = time.Now().UTC()
 		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
@@ -524,13 +524,13 @@ func prepareRemoteMachineForAttach(cfg Config, machine remoteMachine, projectDir
 	if err := ensureRemoteMachineSourcePath(&machine, projectDir); err != nil {
 		return machine, err
 	}
+	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+		return machine, err
+	}
+	if err := bootstrapRemoteHost(machine); err != nil {
+		return machine, err
+	}
 	if !machine.BootstrapComplete {
-		if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
-			return machine, err
-		}
-		if err := bootstrapRemoteHost(machine); err != nil {
-			return machine, err
-		}
 		machine.BootstrapComplete = true
 		machine.UpdatedAt = time.Now().UTC()
 	}
@@ -609,25 +609,8 @@ func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
 }
 
 func bootstrapRemoteHost(machine remoteMachine) error {
-	info("Bootstrapping remote host %s...", machine.Name)
-	script := `set -euo pipefail
-export DEBIAN_FRONTEND=noninteractive
-if command -v cloud-init >/dev/null 2>&1; then
-  cloud-init status --wait >/dev/null 2>&1 || true
-fi
-apt-get update
-apt-get install -y ca-certificates curl git rsync tmux
-if ! command -v docker >/dev/null 2>&1; then
-  curl -fsSL https://get.docker.com | sh
-fi
-if ! command -v yolobox >/dev/null 2>&1; then
-  curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
-fi
-docker pull ghcr.io/finbarr/yolobox:latest || true
-mkdir -p /opt/yolobox
-chmod 755 /opt /opt/yolobox
-`
-	return runRemoteScript(machine, script, false)
+	info("Preparing remote host %s...", machine.Name)
+	return runRemoteScript(machine, buildRemoteBootstrapScript(), false)
 }
 
 func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) error {
@@ -849,15 +832,15 @@ func attachRemoteMachine(cfg Config, machine remoteMachine, commandArgs []string
 
 	if interactive {
 		if stdinTTY && stdoutTTY {
-			remoteCommand = remoteTmuxCommand(machine, append([]string{"yolobox"}, commandArgs...), true)
+			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
 			sshTTY = true
 			info("Attaching to remote %s (%s)", machine.Name, machine.PublicIPv4)
 		} else {
-			remoteCommand = remoteTmuxCommand(machine, append([]string{"yolobox"}, commandArgs...), false)
+			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), false)
 			info("Starting detached remote session %s (%s); run from a terminal to attach", machine.Name, machine.PublicIPv4)
 		}
 	} else {
-		remoteCommand = remoteDirectCommand(machine, append([]string{"yolobox"}, commandArgs...))
+		remoteCommand = remoteDirectCommand(machine, remoteHostCommand(commandArgs))
 		info("Running on remote %s (%s)", machine.Name, machine.PublicIPv4)
 	}
 
@@ -895,8 +878,36 @@ func remoteCommandNeedsTTY(command []string) bool {
 	}
 }
 
+func remoteHostCommand(command []string) []string {
+	if len(command) == 0 {
+		return []string{"bash"}
+	}
+	switch filepath.Base(command[0]) {
+	case "shell":
+		return []string{"bash"}
+	case "run":
+		if len(command) == 1 {
+			return []string{"bash"}
+		}
+		return append([]string{}, command[1:]...)
+	default:
+		return append([]string{}, command...)
+	}
+}
+
 func remoteCommandPrefix(machine remoteMachine) string {
-	return "export PATH=\"/root/.local/bin:$PATH\"; cd " + shellQuote(remoteWorkPath(machine)) + "; "
+	workPath := remoteWorkPath(machine)
+	parts := []string{
+		"export PATH=\"/opt/yolobox/bin:/root/.npm-global/bin:/home/yolo/.npm-global/bin:/root/.local/bin:/home/yolo/.local/bin:/usr/local/go/bin:$PATH\"",
+		"export NPM_CONFIG_PREFIX=\"${NPM_CONFIG_PREFIX:-$HOME/.npm-global}\"",
+		"export YOLOBOX=1",
+		"export YOLOBOX_REMOTE=1",
+		"export YOLOBOX_PROJECT_PATH=" + shellQuote(workPath),
+		"export YOLOBOX_CONTEXT_FILE=" + shellQuote(yoloboxContextFile),
+		"if [ -x " + shellQuote(remoteRuntimeSessionScript) + " ]; then " + shellQuote(remoteRuntimeSessionScript) + " " + shellQuote(workPath) + "; fi",
+		"cd " + shellQuote(workPath),
+	}
+	return strings.Join(parts, "; ") + "; "
 }
 
 func remoteDirectCommand(machine remoteMachine, command []string) string {
@@ -905,7 +916,7 @@ func remoteDirectCommand(machine remoteMachine, command []string) string {
 
 func remoteTmuxCommand(machine remoteMachine, command []string, attach bool) string {
 	workPath := remoteWorkPath(machine)
-	sessionCommand := "cd " + shellQuote(workPath) + "; exec " + shellJoin(command)
+	sessionCommand := remoteCommandPrefix(machine) + "exec " + shellJoin(command)
 	if attach {
 		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
 	}
