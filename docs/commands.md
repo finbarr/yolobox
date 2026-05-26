@@ -48,7 +48,6 @@ yolobox login [--backend-url <url>] --no-open # Print browser URL without openin
 yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> [cmd...] # Create or reuse a named remote machine
 yolobox remote connect [<env>] [cmd...] # Connect to a backend-known machine
-yolobox remote resume [<env>] [cmd...] # Reattach to the remote tmux session
 yolobox remote sync up [<env>] # Copy the current folder to the remote machine
 yolobox remote sync down [<env>] --force # Copy the remote project back locally
 yolobox remote stop [<env>] # Stop the remote tmux session
@@ -125,13 +124,12 @@ See [Recipes](/recipes) for common fork workflows, including webapp routing.
 yolobox login
 yolobox remote --name foo codex
 yolobox remote connect foo codex
-yolobox remote resume foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote status foo # shows the generated preview URL when the backend has one
 ```
 
-Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. Plain `yolobox login` prints a browser URL, tries to open it, and waits while the web app grants CLI access; use `--no-open` on SSH/headless hosts. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, maps the original local source path to that storage directory on the VM, prepares the yolobox VM runtime when the image is not already ready, then starts the requested command over SSH from the source-path workdir. Remote commands run directly on the VM with yolobox wrappers on `PATH`, not inside a nested yolobox container, so Docker Compose and installed packages persist on the machine. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote connect foo` prepares and attaches to an existing machine without syncing the current folder. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Backends with a preview base domain attach a generated HTTPS URL to each machine and export it inside remote sessions as `YOLOBOX_PREVIEW_URL`. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
+Remote mode requires a Better Auth session from `yolobox login` or `YOLOBOX_TOKEN`. Plain `yolobox login` prints a browser URL, tries to open it, and waits while the web app grants CLI access; use `--no-open` on SSH/headless hosts. The CLI defaults to the hosted backend at `https://api.yolobox.dev`; set `remote.backend_url`, `YOLOBOX_BACKEND_URL`, or `yolobox login --backend-url` for a self-hosted backend. The hosted browser console is intended for `https://app.yolobox.dev`. The backend leases an SSH host for the authenticated user; yolobox mirrors the current folder to `/opt/yolobox/project` with `rsync`, maps the original local source path to that storage directory on the VM, prepares the yolobox VM runtime when the image is not already ready, then starts the requested command over SSH from the source-path workdir. Remote commands run directly on the VM with yolobox wrappers on `PATH`, not inside a nested yolobox container, so Docker Compose and installed packages persist on the machine. The CLI stores no local machine registry; list, status, create, destroy, and connect all come from the backend. `yolobox remote connect foo` prepares and connects to an existing machine without syncing the current folder. Use `yolobox remote sync up foo` when you want the remote host to get the latest local folder contents. Backends with a preview base domain assign a generated HTTPS URL to each machine and export it inside remote sessions as `YOLOBOX_PREVIEW_URL`. Use `yolobox remote sync down foo --force` only when the remote copy should overwrite local files.
 
 The MVP copies the whole current folder. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches.
 

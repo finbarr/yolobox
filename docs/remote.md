@@ -62,8 +62,6 @@ yolobox logout
 
 yolobox remote --name foo codex
 yolobox remote connect foo codex
-yolobox remote resume foo codex
-yolobox remote attach foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote stop foo
@@ -168,7 +166,7 @@ After the backend leases a host, the CLI:
 - mirrors the local folder to `/opt/yolobox/project`
 - maps the original local source path to that storage directory on the VM
 - runs setup commands from the source-path workdir after upward sync
-- starts or attaches to the single `yolobox` tmux session for interactive VM-native commands
+- starts or connects to the single `yolobox` tmux session for interactive VM-native commands
 - runs noninteractive commands directly over SSH
 - exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
 - patches backend machine metadata after bootstrap, sync, and command execution
@@ -177,9 +175,9 @@ The client requires local `ssh` and `rsync`.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
-`yolobox remote connect foo` attaches to a backend-known machine; `yolobox remote
+`yolobox remote connect foo` connects to a backend-known machine; `yolobox remote
 --name foo ...` creates or reuses one. Connect prepares an unready machine
-before attaching, but it does not sync the local folder; use `remote --name` or
+before connecting, but it does not sync the local folder; use `remote --name` or
 `remote sync up` when the remote needs the current project. If a machine has no
 stored source path yet, connect records the current folder path and uses it for
 the remote workdir alias.
@@ -312,7 +310,7 @@ When building an image from this repository checkout, run:
 sudo env YOLOBOX_SOURCE_DIR="$PWD" ./cmd/yolobox/assets/remote-vm-install.sh
 ```
 
-The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or attaching.
+The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or connecting.
 
 `sync down` copies the remote project back into the current local folder and requires `--force`:
 

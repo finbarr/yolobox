@@ -185,7 +185,7 @@ yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose
 yolobox login               # Open browser login and store remote backend auth
 yolobox logout              # Revoke and clear remote backend auth
 yolobox remote --name <env> <cmd...> # Run on a named remote machine
-yolobox remote connect <env> <cmd...> # Attach to a backend-known machine
+yolobox remote connect <env> <cmd...> # Connect to a backend-known machine
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -223,7 +223,6 @@ yolobox login
 yolobox login --backend-url https://remote.example.com
 yolobox remote --name foo codex
 yolobox remote connect foo codex
-yolobox remote resume foo codex
 yolobox remote sync up foo
 yolobox remote sync down foo --force
 yolobox remote stop foo
@@ -243,7 +242,7 @@ The CLI does not keep a local machine registry. It stores only auth/config, asks
 the backend for the account's machines, and connects to any machine the backend
 knows about. `yolobox remote --name foo ...` creates or reuses a backend machine;
 `yolobox remote connect foo ...` prepares the yolobox VM runtime when needed and
-attaches to an existing machine without syncing the current folder. If the machine
+connects to an existing machine without syncing the current folder. If the machine
 has no stored source path yet, connect records the current folder path and uses
 that as the remote workdir alias.
 

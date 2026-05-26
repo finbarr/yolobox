@@ -291,6 +291,13 @@ func TestValidateRemoteDefaultsRequiresLogin(t *testing.T) {
 	}
 }
 
+func TestRunRemoteUnknownCommandDoesNotFallThroughToCreate(t *testing.T) {
+	err := runRemote([]string{"resume"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "unknown remote command: resume") {
+		t.Fatalf("expected unknown command error, got %v", err)
+	}
+}
+
 func TestParseRemoteCreateFlagsBackendOnly(t *testing.T) {
 	opts, command, err := parseRemoteCreateFlags([]string{
 		"--name", "Foo",

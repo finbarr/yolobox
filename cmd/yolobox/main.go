@@ -1044,7 +1044,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default run mode").
-				Description("Choose remote to make bare yolobox attach to a named remote machine").
+				Description("Choose remote to make bare yolobox connect to a named remote machine").
 				Options(
 					huh.NewOption("Local container", "local"),
 					huh.NewOption("Remote machine", "remote"),

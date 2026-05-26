@@ -54,8 +54,8 @@ func runRemote(args []string, projectDir string) error {
 	}
 
 	switch args[0] {
-	case "attach", "connect", "resume":
-		return runRemoteResume(args[1:], projectDir)
+	case "connect":
+		return runRemoteConnect(args[1:], projectDir)
 	case "sync":
 		return runRemoteSync(args[1:], projectDir)
 	case "stop":
@@ -67,6 +67,9 @@ func runRemote(args []string, projectDir string) error {
 	case "destroy":
 		return runRemoteDestroy(args[1:], projectDir)
 	default:
+		if !strings.HasPrefix(args[0], "-") {
+			return fmt.Errorf("unknown remote command: %s", args[0])
+		}
 		return runRemoteCreate(args, projectDir)
 	}
 }
@@ -75,8 +78,6 @@ func printRemoteUsage() {
 	fmt.Fprintln(os.Stderr, "USAGE:")
 	fmt.Fprintln(os.Stderr, "  yolobox remote --name <env> [cmd...]       Create or reuse a named remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote connect [<env>] [cmd...]    Connect to an existing backend machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote resume [<env>] [cmd...]     Reattach to the remote machine session")
-	fmt.Fprintln(os.Stderr, "  yolobox remote attach [<env>] [cmd...]     Alias for connect")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync [up] [<env>]           Copy the current folder to the remote machine")
 	fmt.Fprintln(os.Stderr, "  yolobox remote sync down [<env>] --force   Copy the remote project back locally")
 	fmt.Fprintln(os.Stderr, "  yolobox remote stop [<env>]                Stop the remote tmux session")
@@ -181,12 +182,12 @@ func remoteConfigForProvision(cfg Config, opts remoteProvisionOptions) (Config, 
 	return cfg, nil
 }
 
-func runRemoteResume(args []string, projectDir string) error {
+func runRemoteConnect(args []string, projectDir string) error {
 	cfg, err := loadConfig(projectDir)
 	if err != nil {
 		return err
 	}
-	name, commandArgs, err := parseRemoteNameAndCommand("resume", args, cfg)
+	name, commandArgs, err := parseRemoteNameAndCommand("connect", args, cfg)
 	if err != nil {
 		return err
 	}
@@ -760,10 +761,10 @@ func attachRemoteMachine(cfg Config, machine remoteMachine, commandArgs []string
 		if stdinTTY && stdoutTTY {
 			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
 			sshTTY = true
-			info("Attaching to remote %s (%s)", machine.Name, machine.PublicIPv4)
+			info("Connecting to remote %s (%s)", machine.Name, machine.PublicIPv4)
 		} else {
 			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), false)
-			info("Starting detached remote session %s (%s); run from a terminal to attach", machine.Name, machine.PublicIPv4)
+			info("Starting detached remote session %s (%s); run from a terminal to connect", machine.Name, machine.PublicIPv4)
 		}
 	} else {
 		remoteCommand = remoteDirectCommand(machine, remoteHostCommand(commandArgs))
