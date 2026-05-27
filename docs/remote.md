@@ -189,7 +189,9 @@ syncs the current folder by default. Pass `--no-sync` to skip the initial copy,
 or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size.
 Create fails when the name already exists; use `remote run`, `remote connect`,
 or `remote status` for existing machines. `yolobox remote run foo ...` syncs
-the folder and then runs the command on an existing machine.
+the folder and then runs the command on an existing machine. Remote commands
+print progress while backend provisioning and SSH startup are pending; when a
+machine is ready, any generated preview URL is shown on its own line.
 `yolobox remote connect foo` prepares a backend-known machine and opens a shell
 without syncing the local folder. If a machine has no stored source path yet,
 connect records the current folder path and uses it for the remote workdir alias.

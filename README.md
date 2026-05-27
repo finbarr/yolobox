@@ -247,9 +247,11 @@ by default; pass `--no-sync` to create the machine without copying the folder
 yet. Pass `--tier small`, `--tier medium`, or `--tier large` when a new machine
 should use a non-default VM size. Create fails if that machine name already
 exists; use `remote run`, `remote connect`, or `remote status` for existing
-machines. `yolobox remote run foo ...` syncs the current folder, then runs the
-command. `yolobox remote connect foo` prepares an existing machine and opens a
-shell without syncing the current folder. If the machine has no stored source
+machines. Remote commands print progress while backend provisioning and SSH
+startup are pending; when a machine is ready, any generated preview URL is shown
+on its own line. `yolobox remote run foo ...` syncs the current folder, then
+runs the command. `yolobox remote connect foo` prepares an existing machine and
+opens a shell without syncing the current folder. If the machine has no stored source
 path yet, connect records the current folder path and uses that as the remote
 workdir alias. If the managed tmux session already exists, `remote run` and
 `remote connect` attach to that session instead of starting another one or

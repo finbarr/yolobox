@@ -34,6 +34,18 @@ func captureStdout(t *testing.T, fn func()) string {
 	return string(out)
 }
 
+func stripOutputColors(output string) string {
+	return strings.NewReplacer(
+		colorBold, "",
+		colorRed, "",
+		colorGreen, "",
+		colorYellow, "",
+		colorBlue, "",
+		colorCyan, "",
+		colorReset, "",
+	).Replace(output)
+}
+
 func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
 	var patched remoteMachine
@@ -180,6 +192,69 @@ func TestRemoteListShowsCompactMachineTable(t *testing.T) {
 		if strings.Contains(output, notWant) {
 			t.Fatalf("remote list output should not contain %q:\n%s", notWant, output)
 		}
+	}
+}
+
+func TestPrintRemoteReadySplitsPreviewURL(t *testing.T) {
+	output := captureStderr(t, func() {
+		printRemoteReady(remoteMachine{
+			Name:       "boom",
+			PublicIPv4: "203.0.113.10",
+			PreviewURL: "https://ember-bridge-15e1e3.hosted.yolobox.dev",
+		})
+	})
+	clean := stripOutputColors(output)
+	lines := strings.Split(strings.TrimSpace(clean), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected ready and preview lines, got %q", clean)
+	}
+	if lines[0] != "✓ Remote boom is ready" {
+		t.Fatalf("unexpected ready line %q", lines[0])
+	}
+	if lines[1] != "↗ Preview: https://ember-bridge-15e1e3.hosted.yolobox.dev" {
+		t.Fatalf("unexpected preview line %q", lines[1])
+	}
+	for _, notWant := range []string{"203.0.113.10", "via backend"} {
+		if strings.Contains(clean, notWant) {
+			t.Fatalf("ready output should not contain %q:\n%s", notWant, clean)
+		}
+	}
+}
+
+func TestPrintRemoteReadyOmitsEmptyPreviewURL(t *testing.T) {
+	output := captureStderr(t, func() {
+		printRemoteReady(remoteMachine{Name: "boom", PublicIPv4: "203.0.113.10"})
+	})
+	clean := stripOutputColors(output)
+	if strings.TrimSpace(clean) != "✓ Remote boom is ready" {
+		t.Fatalf("unexpected ready output %q", clean)
+	}
+	if strings.Contains(clean, "203.0.113.10") || strings.Contains(clean, "Preview:") {
+		t.Fatalf("ready output should not include IP or empty preview:\n%s", clean)
+	}
+}
+
+func TestRunWithSpinnerFallsBackToStableProgressWhenNotTerminal(t *testing.T) {
+	called := false
+	var runErr error
+	output := captureStderr(t, func() {
+		runErr = runWithSpinner("Waiting for backend", "Backend ready", func() error {
+			called = true
+			return nil
+		})
+	})
+	if runErr != nil {
+		t.Fatalf("runWithSpinner returned error: %v", runErr)
+	}
+	if !called {
+		t.Fatal("expected callback to run")
+	}
+	clean := stripOutputColors(output)
+	if !strings.Contains(clean, "→ Waiting for backend...\n") {
+		t.Fatalf("expected waiting line, got %q", clean)
+	}
+	if !strings.Contains(clean, "✓ Backend ready\n") {
+		t.Fatalf("expected done line, got %q", clean)
 	}
 }
 

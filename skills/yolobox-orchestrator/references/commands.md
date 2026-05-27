@@ -53,7 +53,7 @@ yolobox remote create foo --tier medium
 yolobox remote run foo codex
 ```
 
-`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines.
+`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines. Remote commands print progress while backend provisioning and SSH startup are pending, then print the ready state and any generated preview URL on separate lines.
 
 Run the self-hosted backend package for a shared machine pool:
 

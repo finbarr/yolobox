@@ -455,10 +455,19 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return remoteMachine{}, err
 	}
-	machine, err := createRemoteBackendMachine(cfg, projectDir, opts)
-	if err != nil {
+	var machine remoteMachine
+	if err := runWithSpinner(
+		fmt.Sprintf("Creating remote %s via backend", opts.Name),
+		fmt.Sprintf("Remote %s created", opts.Name),
+		func() error {
+			var err error
+			machine, err = createRemoteBackendMachine(cfg, projectDir, opts)
+			return err
+		},
+	); err != nil {
 		return remoteMachine{}, err
 	}
+	var err error
 	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
 	if err != nil {
 		return machine, err
@@ -471,11 +480,7 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 			return machine, err
 		}
 	}
-	if machine.PreviewURL != "" {
-		success("Remote %s is ready at %s via backend; preview %s", machine.Name, machine.PublicIPv4, machine.PreviewURL)
-	} else {
-		success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
-	}
+	printRemoteReady(machine)
 	return machine, nil
 }
 
@@ -500,11 +505,7 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 			return machine, err
 		}
 	}
-	if machine.PreviewURL != "" {
-		success("Remote %s is ready at %s via backend; preview %s", machine.Name, machine.PublicIPv4, machine.PreviewURL)
-	} else {
-		success("Remote %s is ready at %s via backend", machine.Name, machine.PublicIPv4)
-	}
+	printRemoteReady(machine)
 	return machine, nil
 }
 
@@ -518,7 +519,13 @@ func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDi
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return machine, err
 	}
-	if err := waitForRemoteSSH(machine, 5*time.Minute); err != nil {
+	if err := runWithSpinner(
+		fmt.Sprintf("Waiting for SSH on remote %s", machine.Name),
+		fmt.Sprintf("SSH ready on remote %s", machine.Name),
+		func() error {
+			return waitForRemoteSSH(machine, 5*time.Minute)
+		},
+	); err != nil {
 		return machine, err
 	}
 	if err := bootstrapRemoteHost(machine); err != nil {
@@ -535,6 +542,13 @@ func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDi
 		return machine, err
 	}
 	return machine, nil
+}
+
+func printRemoteReady(machine remoteMachine) {
+	success("Remote %s is ready", machine.Name)
+	if previewURL := strings.TrimSpace(machine.PreviewURL); previewURL != "" {
+		link("Preview: %s", previewURL)
+	}
 }
 
 func validateRemoteDefaults(cfg Config) error {

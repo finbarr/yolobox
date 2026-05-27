@@ -2190,6 +2190,10 @@ func info(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, colorBlue+"→ "+colorReset+format+"\n", args...)
 }
 
+func link(format string, args ...interface{}) {
+	fmt.Fprintf(os.Stderr, colorCyan+"↗ "+colorReset+format+"\n", args...)
+}
+
 func warn(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, colorYellow+"⚠ "+colorReset+format+"\n", args...)
 }
