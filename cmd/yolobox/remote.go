@@ -1144,7 +1144,7 @@ func remoteSSHCommand(machine remoteMachine, forwardAgent bool) (string, error) 
 		return "", err
 	}
 	args := append([]string{"ssh"}, options...)
-	return strings.Join(args, " "), nil
+	return shellJoin(args), nil
 }
 
 func (m remoteMachine) sshTarget() string {
