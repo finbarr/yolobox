@@ -66,7 +66,15 @@ that stream to the token-authenticated VM agent, and the VM agent connects to
 `127.0.0.1:22` on the machine. There is no direct droplet-IP SSH path in normal
 remote operations. If the tunnel key is missing, the VM agent is disconnected, or
 the backend cannot open the VM-side SSH connection, `remote run`, `remote
-connect`, and `remote sync` fail.
+connect`, and `remote sync` fail. The CLI stores remote SSH host keys in
+`~/.yolobox/remote_known_hosts` with one host identity per named remote, accepts
+new host keys on first contact, and rejects changed keys on later connects.
+
+Tunnels are live connections, not resumable sessions. Restarting or redeploying
+the backend closes active `remote run`, `remote connect`, and `remote sync`
+transport connections. The remote VM, project files, containers, and managed
+`yolobox` tmux session remain on the machine; the VM agent reconnects to the
+backend and new CLI commands work again after the backend is healthy.
 
 ## CLI Contract
 
@@ -193,7 +201,9 @@ After the backend leases a host, the CLI:
 
 Remote create, run, connect, and sync require local `ssh` because SSH is still
 the client protocol inside the backend tunnel. Commands that copy project files
-also require local `rsync`.
+also require local `rsync`. SSH host keys are pinned in
+`~/.yolobox/remote_known_hosts`; if you intentionally destroy and recreate a
+machine with the same name, remove that name from the file before reconnecting.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.

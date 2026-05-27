@@ -240,7 +240,9 @@ The CLI still uses local `ssh` and `rsync`, but `ssh` is invoked with a
 `ProxyCommand` that opens a backend WebSocket tunnel to the VM agent. There is no
 direct droplet-IP SSH fallback. If the machine agent is disconnected, the
 machine lacks backend-issued tunnel credentials, or the backend cannot open the
-tunnel to SSH on the VM, the command fails.
+tunnel to SSH on the VM, the command fails. Remote SSH host keys are stored in
+`~/.yolobox/remote_known_hosts`; a named remote is accepted on first contact and
+then pinned, so repeated connects do not re-accept the same host key.
 
 `yolobox login` starts a browser approval flow, prints the URL to copy/paste,
 tries to open it, and then waits for approval from the web app. Use
@@ -296,6 +298,12 @@ token and never trust a machine name claimed by the VM. The backend also creates
 per-machine tunnel SSH credentials, stores the private key in backend state, and
 puts the public key in root's `authorized_keys` through provider user data so
 authenticated CLI sessions can SSH only through the tunnel.
+
+Active SSH tunnels are live WebSocket connections through the backend. Restarting
+or redeploying the backend drops those connections, so the local SSH command
+exits and any in-flight sync or noninteractive command can fail. The VM and its
+managed `yolobox` tmux session keep running, the VM agent reconnects to the
+backend, and new CLI commands can connect again after the backend is healthy.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free

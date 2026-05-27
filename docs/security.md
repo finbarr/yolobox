@@ -80,8 +80,10 @@ and puts the public key in root's `authorized_keys` through provider user data.
 An authenticated CLI fetches that private key into a temporary file and uses
 local `ssh` with a backend WebSocket `ProxyCommand`; the VM agent must already be
 connected to the backend and must open `127.0.0.1:22` on that VM. There is no
-normal direct-IP SSH fallback. Protect backend state backups accordingly because
-they include the machine tunnel private keys.
+normal direct-IP SSH fallback. The CLI pins remote host keys in
+`~/.yolobox/remote_known_hosts` instead of using the user's normal SSH
+`known_hosts` file. Protect backend state backups accordingly because they
+include the machine tunnel private keys.
 
 The MVP mirrors the entire current folder to `/opt/yolobox/project` with `rsync` on `remote sync up`, then maps the original local source path to that storage directory on the VM for the running session. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop. `remote sync down ... --force` copies remote files back into the local folder and can overwrite local changes.
 

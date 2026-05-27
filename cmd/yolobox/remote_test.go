@@ -46,6 +46,13 @@ func stripOutputColors(output string) string {
 	).Replace(output)
 }
 
+func isolateRemoteSSHHome(t *testing.T) string {
+	t.Helper()
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	return home
+}
+
 func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
 	var patched remoteMachine
@@ -260,6 +267,7 @@ func TestRunWithSpinnerFallsBackToStableProgressWhenNotTerminal(t *testing.T) {
 
 func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	const token = "secret-token"
+	isolateRemoteSSHHome(t)
 	sawPost := false
 	patches := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -469,6 +477,7 @@ func TestRemoteTmuxAttachCommandAttachesWithoutCommand(t *testing.T) {
 
 func TestRemoteManagedSessionExistsHandlesSSHExitCodes(t *testing.T) {
 	root := t.TempDir()
+	isolateRemoteSSHHome(t)
 	fakeBin := filepath.Join(root, "bin")
 	if err := os.MkdirAll(fakeBin, 0755); err != nil {
 		t.Fatalf("create fake bin: %v", err)
@@ -499,6 +508,45 @@ func TestRemoteManagedSessionExistsHandlesSSHExitCodes(t *testing.T) {
 	exists, err = remoteManagedSessionExists(machine)
 	if err == nil || exists {
 		t.Fatalf("unexpected SSH failure should be an error, exists=%v err=%v", exists, err)
+	}
+}
+
+func TestRemoteSSHOptionsUsePersistentKnownHosts(t *testing.T) {
+	home := isolateRemoteSSHHome(t)
+	machine := remoteMachine{Name: "foo", SSHKeyPath: filepath.Join(t.TempDir(), "id_ed25519")}
+
+	args, err := remoteSSHOptions(machine, false)
+	if err != nil {
+		t.Fatalf("remoteSSHOptions failed: %v", err)
+	}
+	joined := strings.Join(args, "\n")
+	knownHostsPath := filepath.Join(home, ".yolobox", remoteKnownHostsFileName)
+	for _, want := range []string{
+		"UserKnownHostsFile=" + knownHostsPath,
+		"StrictHostKeyChecking=accept-new",
+		"CheckHostIP=no",
+		"HashKnownHosts=no",
+		"ProxyCommand=",
+		"__remote-ssh-proxy",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("expected SSH options to contain %q, got:\n%s", want, joined)
+		}
+	}
+	for _, unwanted := range []string{
+		"UserKnownHostsFile=/dev/null",
+		"StrictHostKeyChecking=no",
+	} {
+		if strings.Contains(joined, unwanted) {
+			t.Fatalf("SSH options must not contain %q:\n%s", unwanted, joined)
+		}
+	}
+	info, err := os.Stat(knownHostsPath)
+	if err != nil {
+		t.Fatalf("expected known hosts file to be created: %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0600 {
+		t.Fatalf("known hosts file mode = %o, want 600", got)
 	}
 }
 
@@ -762,6 +810,7 @@ token = "secret-token"
 
 func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
 	const token = "secret-token"
+	isolateRemoteSSHHome(t)
 	patches := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {

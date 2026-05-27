@@ -17,6 +17,7 @@ import (
 const (
 	remoteDefaultSessionName = "yolobox"
 	remoteProjectRoot        = "/opt/yolobox/project"
+	remoteKnownHostsFileName = "remote_known_hosts"
 )
 
 type remoteMachine struct {
@@ -1124,11 +1125,17 @@ func remoteSSHOptions(machine remoteMachine, forwardAgent bool) ([]string, error
 	if strings.TrimSpace(machine.SSHKeyPath) == "" {
 		return nil, fmt.Errorf("remote %s has no tunnel SSH key; remote operations require the backend tunnel", machine.Name)
 	}
+	knownHostsPath, err := remoteKnownHostsPath()
+	if err != nil {
+		return nil, err
+	}
 	args := []string{
 		"-i", machine.SSHKeyPath,
 		"-o", "IdentitiesOnly=yes",
-		"-o", "UserKnownHostsFile=/dev/null",
-		"-o", "StrictHostKeyChecking=no",
+		"-o", "UserKnownHostsFile=" + knownHostsPath,
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-o", "CheckHostIP=no",
+		"-o", "HashKnownHosts=no",
 		"-o", "ServerAliveInterval=30",
 		"-o", "ProxyCommand=" + remoteSSHProxyCommand(machine),
 	}
@@ -1136,6 +1143,33 @@ func remoteSSHOptions(machine remoteMachine, forwardAgent bool) ([]string, error
 		args = append(args, "-A")
 	}
 	return args, nil
+}
+
+func remoteKnownHostsPath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home directory for remote SSH known hosts: %w", err)
+	}
+	if strings.TrimSpace(home) == "" {
+		return "", fmt.Errorf("resolve home directory for remote SSH known hosts: home directory is empty")
+	}
+	dir := filepath.Join(home, ".yolobox")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		return "", fmt.Errorf("create remote SSH state directory: %w", err)
+	}
+	path := filepath.Join(dir, remoteKnownHostsFileName)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		file, createErr := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600)
+		if createErr != nil {
+			return "", fmt.Errorf("create remote SSH known hosts file: %w", createErr)
+		}
+		if closeErr := file.Close(); closeErr != nil {
+			return "", fmt.Errorf("close remote SSH known hosts file: %w", closeErr)
+		}
+	} else if err != nil {
+		return "", fmt.Errorf("stat remote SSH known hosts file: %w", err)
+	}
+	return path, nil
 }
 
 func remoteSSHCommand(machine remoteMachine, forwardAgent bool) (string, error) {

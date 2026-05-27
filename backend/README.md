@@ -160,4 +160,5 @@ only after authenticating as the machine owner, writes it to a temporary file,
 and uses it with local `ssh` plus a `ProxyCommand` that dials
 `GET /v1/machines/:name/tunnel/ssh`. That WebSocket endpoint relays SSH bytes to
 the connected `/v1/agent/tunnel` VM agent, which opens `127.0.0.1:22` on the VM.
-There is no direct SSH command in the backend API or browser console.
+There is no direct SSH command in the backend API or browser console. CLI-side
+host-key pinning lives in `~/.yolobox/remote_known_hosts`.
