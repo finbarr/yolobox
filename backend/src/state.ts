@@ -114,6 +114,5 @@ function safeMachinePatch(patch: RemoteMachine): Partial<RemoteMachine> {
   if (patch.branch !== undefined) safe.branch = patch.branch;
   if (patch.last_command !== undefined) safe.last_command = patch.last_command;
   if (patch.last_synced_at !== undefined) safe.last_synced_at = patch.last_synced_at;
-  if (patch.bootstrap_complete !== undefined) safe.bootstrap_complete = patch.bootstrap_complete;
   return safe;
 }

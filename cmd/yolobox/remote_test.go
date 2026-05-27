@@ -272,11 +272,12 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo":
 			_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
 				Machine: remoteMachine{
-					Name:       "foo",
-					Provider:   "digitalocean",
-					ProviderID: "host-a",
-					PublicIPv4: "203.0.113.10",
-					SSHUser:    "root",
+					Name:              "foo",
+					Provider:          "digitalocean",
+					ProviderID:        "host-a",
+					PublicIPv4:        "203.0.113.10",
+					SSHUser:           "root",
+					BootstrapComplete: true,
 				},
 				Status: "active",
 			})
@@ -516,7 +517,11 @@ func TestRemoteHostCommandMapsYoloboxSubcommandsToVMCommands(t *testing.T) {
 }
 
 func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
-	script := buildRemoteBootstrapScript()
+	data, err := os.ReadFile(filepath.Join("assets", "remote-vm-install.sh"))
+	if err != nil {
+		t.Fatalf("read remote VM installer: %v", err)
+	}
+	script := string(data)
 	for _, want := range []string{
 		remoteRuntimeReadyMarker,
 		remoteRuntimeSessionScript,
@@ -738,6 +743,130 @@ token = "secret-token"
 	err := runRemoteConnect([]string{"foo", "codex"}, projectDir)
 	if err == nil || !strings.Contains(err.Error(), "unexpected remote connect args") {
 		t.Fatalf("expected connect args rejection before backend request, got %v", err)
+	}
+}
+
+func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
+	const token = "secret-token"
+	patches := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo":
+			_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
+				Machine: remoteMachine{
+					Name:              "foo",
+					Provider:          "digitalocean",
+					ProviderID:        "host-a",
+					PublicIPv4:        "203.0.113.10",
+					SSHUser:           "root",
+					SourcePath:        "/Users/example/project",
+					ProjectPath:       remoteProjectRoot,
+					BootstrapComplete: true,
+				},
+				Status: "active",
+			})
+		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
+			patches++
+			w.WriteHeader(http.StatusNoContent)
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer ts.Close()
+
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	sshLog := filepath.Join(root, "ssh.log")
+	fakeSSH := `#!/bin/sh
+printf '%s\n' "$*" >> "$YOLOBOX_FAKE_SSH_LOG"
+case "$*" in
+  *"tmux has-session"*) exit 1 ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte(fakeSSH), 0755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "rsync"), []byte("#!/bin/sh\nexit 42\n"), 0755); err != nil {
+		t.Fatalf("write fake rsync: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("YOLOBOX_FAKE_SSH_LOG", sshLog)
+	t.Setenv(remoteBackendURLEnv, ts.URL)
+	t.Setenv(remoteAuthTokenEnv, token)
+
+	if err := runRemoteConnect([]string{"foo"}, t.TempDir()); err != nil {
+		t.Fatalf("remote connect failed: %v", err)
+	}
+	if patches != 1 {
+		t.Fatalf("expected connect to record last command once, got %d patches", patches)
+	}
+	logBytes, err := os.ReadFile(sshLog)
+	if err != nil {
+		t.Fatalf("read ssh log: %v", err)
+	}
+	sshLogContent := string(logBytes)
+	if strings.Contains(sshLogContent, "bash -s") {
+		t.Fatalf("connect should not run bootstrap or workspace setup scripts:\n%s", sshLogContent)
+	}
+	if !strings.Contains(sshLogContent, "tmux has-session -t 'yolobox'") {
+		t.Fatalf("connect should check for the managed tmux session:\n%s", sshLogContent)
+	}
+	if !strings.Contains(sshLogContent, "tmux new-session -d -s 'yolobox'") {
+		t.Fatalf("connect should create the managed tmux session when missing:\n%s", sshLogContent)
+	}
+}
+
+func TestRemoteConnectFailsWhenBackendHasNotBootstrappedMachine(t *testing.T) {
+	const token = "secret-token"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/machines/foo" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
+			Machine: remoteMachine{
+				Name:       "foo",
+				PublicIPv4: "203.0.113.10",
+				SSHUser:    "root",
+			},
+			Status: "active",
+		})
+	}))
+	defer ts.Close()
+
+	root := t.TempDir()
+	fakeBin := filepath.Join(root, "bin")
+	if err := os.MkdirAll(fakeBin, 0755); err != nil {
+		t.Fatalf("create fake bin: %v", err)
+	}
+	sshLog := filepath.Join(root, "ssh.log")
+	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$YOLOBOX_FAKE_SSH_LOG\"\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
+	}
+	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("YOLOBOX_FAKE_SSH_LOG", sshLog)
+	t.Setenv(remoteBackendURLEnv, ts.URL)
+	t.Setenv(remoteAuthTokenEnv, token)
+
+	err := runRemoteConnect([]string{"foo"}, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "remote foo is not bootstrapped") {
+		t.Fatalf("expected unbootstrapped error, got %v", err)
+	}
+	if data, readErr := os.ReadFile(sshLog); readErr == nil && len(data) > 0 {
+		t.Fatalf("connect should fail before SSH when backend has not bootstrapped the machine:\n%s", data)
 	}
 }
 

@@ -30,6 +30,7 @@ class FakeProvider implements MachineProvider {
         provider_id: `fake-${request.provider_name || request.name}`,
         public_ipv4: this.publicIPv4,
         ssh_user: request.ssh_user || "root",
+        bootstrap_complete: true,
       },
     };
   }
@@ -97,13 +98,13 @@ test("backend creates, updates, lists, and releases one machine", async () => {
     headers,
     payload: {
       last_command: ["codex"],
-      bootstrap_complete: true,
       public_ipv4: "127.0.0.1",
       preview_hostname: "takeover.hosted.test",
     },
   });
   assert.equal(patched.statusCode, 200);
   assert.deepEqual(patched.json().machine.last_command, ["codex"]);
+  assert.equal(patched.json().machine.bootstrap_complete, true);
   assert.equal(patched.json().machine.public_ipv4, "203.0.113.10");
   assert.equal(patched.json().machine.preview_hostname, createBody.machine.preview_hostname);
 

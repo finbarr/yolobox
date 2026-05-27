@@ -18,7 +18,6 @@ Implemented in the CLI:
 - VM-native agent execution with Docker Engine and Compose on the host
 - full-folder `remote sync up` and forced `remote sync down --force`
 - backend-generated preview URLs for deployments with a preview base domain
-- yolobox VM runtime bootstrap fallback when the backend returns an unprepared machine
 
 Implemented in the open-source backend package under `backend/`:
 
@@ -168,15 +167,15 @@ The backend reads provider settings from environment variables. The current prov
 After the backend leases a host, the CLI:
 
 - sends the machine name, requested size tier, preferred SSH user, local source path, repo URL, and branch to the backend
-- waits for SSH when the backend returns an unbootstrapped host
-- prepares the VM-native yolobox runtime when the image does not already contain it
+- waits for SSH after the backend returns a bootstrapped host
+- fails loudly when backend machine metadata says bootstrap has not completed
 - mirrors the local folder to `/opt/yolobox/project`
 - maps the original local source path to that storage directory on the VM
 - runs setup commands from the source-path workdir after upward sync
 - starts or connects to the single `yolobox` tmux session for interactive VM-native commands
 - runs noninteractive commands directly over SSH
 - exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
-- patches backend machine metadata after bootstrap, sync, and command execution
+- patches backend machine metadata after sync and command execution
 
 Remote create, run, connect, status, and destroy require local `ssh` when
 they need to reach a machine. Commands that copy project files also require
@@ -184,17 +183,18 @@ local `rsync`.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
-`yolobox remote create foo` creates one machine, prepares the VM runtime, and
-syncs the current folder by default. Pass `--no-sync` to skip the initial copy,
+`yolobox remote create foo` creates one backend-bootstrapped machine and syncs
+the current folder by default. Pass `--no-sync` to skip the initial copy,
 or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size.
 Create fails when the name already exists; use `remote run`, `remote connect`,
 or `remote status` for existing machines. `yolobox remote run foo ...` syncs
 the folder and then runs the command on an existing machine. Remote commands
 print progress while backend provisioning and SSH startup are pending; when a
 machine is ready, any generated preview URL is shown on its own line.
-`yolobox remote connect foo` prepares a backend-known machine and opens a shell
-without syncing the local folder. If a machine has no stored source path yet,
-connect records the current folder path and uses it for the remote workdir alias.
+`yolobox remote connect foo` opens or attaches to the managed tmux session on a
+backend-bootstrapped machine without syncing, bootstrapping, or changing the
+remote workdir alias. If backend metadata says bootstrap has not completed,
+connect fails instead of trying to repair the VM from the CLI.
 
 ## Backend HTTP API
 
@@ -278,7 +278,7 @@ Return refreshed machine state plus SSH and CLI connect commands for the UI.
 
 ### `PATCH /v1/machines/{name}`
 
-Accept CLI-owned metadata updates such as source path, repo URL, branch, last command, sync timestamp, project storage path, and bootstrap status.
+Accept CLI-owned metadata updates such as source path, repo URL, branch, last command, sync timestamp, and project storage path. Bootstrap status is provider/backend-owned.
 
 ### `DELETE /v1/machines/{name}`
 
@@ -347,7 +347,9 @@ creates use the new snapshot. Keep the previous snapshot id until a smoke create
 passes; rollback is setting `YOLOBOX_REMOTE_IMAGE` back to that id and
 recreating the backend container.
 
-The CLI still sends the installer over SSH when a backend returns a plain or older host. If `/opt/yolobox/remote/ready` already exists, the installer exits immediately; otherwise it upgrades the host in place before syncing or connecting. Installer command output is written on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints only high-level setup steps unless installation fails.
+The backend should return machines that are already bootstrapped. The CLI no
+longer sends the VM installer over SSH during create, run, or connect; if
+backend metadata says bootstrap has not completed, the command fails instead.
 
 `sync down` copies the remote project back into the current local folder and requires `--force`:
 

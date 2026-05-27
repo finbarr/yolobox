@@ -253,7 +253,7 @@ func runRemoteConnect(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
-	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
+	machine, err = checkRemoteMachineForConnect(machine)
 	if err != nil {
 		return err
 	}
@@ -468,7 +468,7 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	var err error
-	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
+	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
 	if err != nil {
 		return machine, err
 	}
@@ -493,7 +493,7 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 	if err != nil {
 		return remoteMachine{}, err
 	}
-	machine, err = prepareRemoteMachineForConnect(cfg, machine, projectDir)
+	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
 	if err != nil {
 		return machine, err
 	}
@@ -509,7 +509,7 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 	return machine, nil
 }
 
-func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
+func prepareRemoteMachineForWorkspace(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
 	if machine.ProjectPath == "" {
 		machine.ProjectPath = remoteProjectPath()
 	}
@@ -519,21 +519,11 @@ func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDi
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return machine, err
 	}
-	if err := runWithSpinner(
-		fmt.Sprintf("Waiting for SSH on remote %s", machine.Name),
-		fmt.Sprintf("SSH ready on remote %s", machine.Name),
-		func() error {
-			return waitForRemoteSSH(machine, 5*time.Minute)
-		},
-	); err != nil {
+	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return machine, err
 	}
-	if err := bootstrapRemoteHost(machine); err != nil {
+	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
 		return machine, err
-	}
-	if !machine.BootstrapComplete {
-		machine.BootstrapComplete = true
-		machine.UpdatedAt = time.Now().UTC()
 	}
 	if err := ensureRemoteProjectPath(machine); err != nil {
 		return machine, err
@@ -542,6 +532,39 @@ func prepareRemoteMachineForConnect(cfg Config, machine remoteMachine, projectDi
 		return machine, err
 	}
 	return machine, nil
+}
+
+func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) {
+	if machine.ProjectPath == "" {
+		machine.ProjectPath = remoteProjectPath()
+	}
+	if err := requireRemoteClientTools("ssh"); err != nil {
+		return machine, err
+	}
+	if err := requireRemoteMachineBootstrapped(machine); err != nil {
+		return machine, err
+	}
+	if err := waitForRemoteMachineSSH(machine, "Checking SSH on remote"); err != nil {
+		return machine, err
+	}
+	return machine, nil
+}
+
+func requireRemoteMachineBootstrapped(machine remoteMachine) error {
+	if machine.BootstrapComplete {
+		return nil
+	}
+	return fmt.Errorf("remote %s is not bootstrapped; backend setup has not completed for this machine", machine.Name)
+}
+
+func waitForRemoteMachineSSH(machine remoteMachine, messagePrefix string) error {
+	return runWithSpinner(
+		fmt.Sprintf("%s %s", messagePrefix, machine.Name),
+		fmt.Sprintf("SSH ready on remote %s", machine.Name),
+		func() error {
+			return waitForRemoteSSH(machine, 5*time.Minute)
+		},
+	)
 }
 
 func printRemoteReady(machine remoteMachine) {
@@ -614,11 +637,6 @@ func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
 		}
 		time.Sleep(5 * time.Second)
 	}
-}
-
-func bootstrapRemoteHost(machine remoteMachine) error {
-	info("Preparing remote host %s...", machine.Name)
-	return runRemoteScript(machine, buildRemoteBootstrapScript(), false)
 }
 
 func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) error {

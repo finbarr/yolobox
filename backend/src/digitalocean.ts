@@ -18,6 +18,7 @@ type DigitalOceanConfig = {
   region: string;
   size: string;
   image: string;
+  imageBootstrapped: boolean;
   sshKeys: string[];
   tags: string[];
   vpcUUID?: string;
@@ -31,7 +32,7 @@ type Droplet = {
   tags?: string[];
   size_slug?: string;
   region?: { slug?: string };
-  image?: { slug?: string; name?: string };
+  image?: { id?: number; slug?: string; name?: string };
   networks?: { v4?: Array<{ ip_address?: string; type?: string }> };
   created_at?: string;
 };
@@ -187,7 +188,21 @@ export class DigitalOceanProvider implements MachineProvider {
       ssh_user: sshUser || "root",
       created_at: droplet.created_at || now,
       updated_at: now,
+      bootstrap_complete: this.dropletBootstrapComplete(droplet),
     };
+  }
+
+  private dropletBootstrapComplete(droplet: Droplet): boolean {
+    if (digitalOceanImageIsYoloboxRemote(droplet.image?.slug) || digitalOceanImageIsYoloboxRemote(droplet.image?.name)) {
+      return true;
+    }
+    if (digitalOceanImageIsYoloboxRemote(this.config.image)) {
+      return true;
+    }
+    if (this.config.imageBootstrapped && droplet.image?.id && String(droplet.image.id) === this.config.image) {
+      return true;
+    }
+    return false;
   }
 
   private machineTags(name: string): string[] {
@@ -220,6 +235,7 @@ export function digitalOceanProviderFromEnv(env = process.env): DigitalOceanProv
     region: env.DIGITALOCEAN_REGION || "nyc3",
     size: env.DIGITALOCEAN_SIZE || digitalOceanDefaultSize,
     image: env.YOLOBOX_REMOTE_IMAGE || env.DIGITALOCEAN_IMAGE || "ubuntu-24-04-x64",
+    imageBootstrapped: Boolean(env.YOLOBOX_REMOTE_IMAGE),
     sshKeys: splitList(env.DIGITALOCEAN_SSH_KEYS),
     tags: splitList(env.DIGITALOCEAN_TAGS, ["yolobox"]),
     vpcUUID: env.DIGITALOCEAN_VPC_UUID,
@@ -239,6 +255,10 @@ export function digitalOceanSizeForTier(tier: string): string | undefined {
 export function digitalOceanImageForCreate(image: string): string | number {
   const value = image.trim();
   return /^\d+$/.test(value) ? Number(value) : value;
+}
+
+export function digitalOceanImageIsYoloboxRemote(image: string | undefined): boolean {
+  return Boolean(image?.trim().toLowerCase().startsWith("yolobox-remote-"));
 }
 
 function publicIPv4(droplet: Droplet): string {

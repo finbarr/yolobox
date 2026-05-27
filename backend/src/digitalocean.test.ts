@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { digitalOceanImageForCreate, digitalOceanProviderFromEnv, digitalOceanSizeForTier } from "./digitalocean.js";
+import { digitalOceanImageForCreate, digitalOceanImageIsYoloboxRemote, digitalOceanProviderFromEnv, digitalOceanSizeForTier } from "./digitalocean.js";
 
 test("DigitalOcean provider prefers generic yolobox remote image override", () => {
   const provider = digitalOceanProviderFromEnv({
@@ -10,6 +10,7 @@ test("DigitalOcean provider prefers generic yolobox remote image override", () =
   });
 
   assert.equal((provider as unknown as { config: { image: string } }).config.image, "yolobox-remote-snapshot");
+  assert.equal((provider as unknown as { config: { imageBootstrapped: boolean } }).config.imageBootstrapped, true);
 });
 
 test("DigitalOcean provider keeps DigitalOcean image fallback", () => {
@@ -19,11 +20,18 @@ test("DigitalOcean provider keeps DigitalOcean image fallback", () => {
   });
 
   assert.equal((provider as unknown as { config: { image: string } }).config.image, "ubuntu-24-04-x64");
+  assert.equal((provider as unknown as { config: { imageBootstrapped: boolean } }).config.imageBootstrapped, false);
 });
 
 test("DigitalOcean provider sends numeric snapshot image IDs as numbers", () => {
   assert.equal(digitalOceanImageForCreate("123456789"), 123456789);
   assert.equal(digitalOceanImageForCreate("ubuntu-24-04-x64"), "ubuntu-24-04-x64");
+});
+
+test("DigitalOcean provider recognizes yolobox remote image names as bootstrapped", () => {
+  assert.equal(digitalOceanImageIsYoloboxRemote("yolobox-remote-504361a46b0a-20260526234009"), true);
+  assert.equal(digitalOceanImageIsYoloboxRemote("ubuntu-24-04-x64"), false);
+  assert.equal(digitalOceanImageIsYoloboxRemote(undefined), false);
 });
 
 test("DigitalOcean provider defaults to the small AMD size", () => {
