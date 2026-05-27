@@ -37,6 +37,10 @@ type remoteBackendListResponse struct {
 	Machines []remoteMachine `json:"machines"`
 }
 
+type remoteBackendTunnelKeyResponse struct {
+	PrivateKey string `json:"private_key"`
+}
+
 func createRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
 	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
@@ -70,9 +74,6 @@ func createRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvis
 		machine.CreatedAt = time.Now().UTC()
 	}
 	machine.UpdatedAt = time.Now().UTC()
-	if machine.PublicIPv4 == "" {
-		return remoteMachine{}, fmt.Errorf("remote backend returned no SSH host for %s", opts.Name)
-	}
 	return machine, nil
 }
 
@@ -114,6 +115,17 @@ func updateRemoteBackendMachine(cfg Config, machine remoteMachine) error {
 
 func releaseRemoteBackendMachine(cfg Config, name string) error {
 	return remoteBackendRequest(cfg, http.MethodDelete, "/v1/machines/"+url.PathEscape(name), nil, nil)
+}
+
+func getRemoteBackendTunnelKey(cfg Config, name string) (string, error) {
+	var response remoteBackendTunnelKeyResponse
+	if err := remoteBackendRequest(cfg, http.MethodGet, "/v1/machines/"+url.PathEscape(name)+"/tunnel-key", nil, &response); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(response.PrivateKey) == "" {
+		return "", fmt.Errorf("remote backend returned no tunnel SSH key for %s", name)
+	}
+	return response.PrivateKey, nil
 }
 
 func remoteBackendRequest(cfg Config, method string, endpoint string, body any, out any) error {

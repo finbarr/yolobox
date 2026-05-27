@@ -427,33 +427,110 @@ install_yolobox_agent() {
   if [ ! -f /etc/yolobox/agent.env ]; then
     install -m 0600 /dev/null /etc/yolobox/agent.env
   fi
-  cat > /usr/local/bin/yolobox-agent <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+  install -d -m 0755 /usr/local/lib/yolobox
+  cat > /usr/local/lib/yolobox/agent.mjs <<'EOF'
+#!/usr/bin/env node
+import net from "node:net";
 
-env_file="${YOLOBOX_AGENT_ENV_FILE:-/etc/yolobox/agent.env}"
-if [ -f "$env_file" ]; then
-  set -a
-  # shellcheck disable=SC1090
-  . "$env_file"
-  set +a
-fi
+const backendURL = (process.env.YOLOBOX_AGENT_BACKEND_URL || "").replace(/\/+$/, "");
+const token = process.env.YOLOBOX_AGENT_TOKEN || "";
+const heartbeatInterval = Number(process.env.YOLOBOX_AGENT_HEARTBEAT_INTERVAL || 30_000);
 
-backend_url="${YOLOBOX_AGENT_BACKEND_URL:-}"
-agent_token="${YOLOBOX_AGENT_TOKEN:-}"
-if [ -z "$backend_url" ] || [ -z "$agent_token" ]; then
-  echo "yolobox agent token/backend URL is not configured" >&2
-  exit 0
-fi
+if (!backendURL || !token) {
+  console.error("yolobox agent token/backend URL is not configured");
+  process.exit(0);
+}
 
-backend_url="${backend_url%/}"
-interval="${YOLOBOX_AGENT_HEARTBEAT_INTERVAL:-30}"
-while true; do
-  curl -fsS -X POST -H "Authorization: Bearer ${agent_token}" "${backend_url}/v1/agent/heartbeat" >/dev/null || true
-  sleep "$interval"
-done
+const streams = new Map();
+let socket;
+
+connect();
+
+function tunnelURL() {
+  const url = new URL(backendURL);
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  url.pathname = "/v1/agent/tunnel";
+  url.search = "";
+  return url;
+}
+
+function connect(delay = 1000) {
+  socket = new WebSocket(tunnelURL(), {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+
+  let heartbeat;
+  socket.addEventListener("open", () => {
+    heartbeat = setInterval(() => send({ type: "ping" }), heartbeatInterval);
+    send({ type: "ping" });
+  });
+
+  socket.addEventListener("message", (event) => {
+    handleMessage(event.data).catch((error) => {
+      console.error(`yolobox agent message failed: ${error.message}`);
+    });
+  });
+
+  socket.addEventListener("close", () => {
+    if (heartbeat) clearInterval(heartbeat);
+    for (const stream of streams.values()) stream.destroy();
+    streams.clear();
+    setTimeout(() => connect(Math.min(delay * 2, 15000)), delay);
+  });
+
+  socket.addEventListener("error", () => {});
+}
+
+async function handleMessage(data) {
+  const message = JSON.parse(typeof data === "string" ? data : Buffer.from(await data.arrayBuffer()).toString("utf8"));
+  const id = message.stream_id || "";
+  switch (message.type) {
+  case "open":
+    openStream(id, message.host || "127.0.0.1", Number(message.port || 22));
+    return;
+  case "data": {
+    const stream = streams.get(id);
+    if (stream) stream.write(Buffer.from(message.data || "", "base64"));
+    return;
+  }
+  case "eof": {
+    const stream = streams.get(id);
+    if (stream) stream.end();
+    return;
+  }
+  case "close": {
+    const stream = streams.get(id);
+    if (stream) stream.destroy();
+    streams.delete(id);
+    return;
+  }
+  }
+}
+
+function openStream(id, host, port) {
+  if (!id) return;
+  const stream = net.connect({ host, port });
+  streams.set(id, stream);
+  stream.on("connect", () => send({ type: "opened", stream_id: id }));
+  stream.on("data", (chunk) => send({ type: "data", stream_id: id, data: chunk.toString("base64") }));
+  stream.on("end", () => send({ type: "eof", stream_id: id }));
+  stream.on("close", () => {
+    send({ type: "close", stream_id: id });
+    streams.delete(id);
+  });
+  stream.on("error", (error) => {
+    send({ type: "error", stream_id: id, message: error.message });
+    streams.delete(id);
+  });
+}
+
+function send(message) {
+  if (socket?.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify(message));
+  }
+}
 EOF
-  chmod +x /usr/local/bin/yolobox-agent
+  chmod +x /usr/local/lib/yolobox/agent.mjs
 
   cat > /etc/systemd/system/yolobox-agent.service <<'EOF'
 [Unit]
@@ -463,7 +540,8 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/yolobox-agent
+EnvironmentFile=-/etc/yolobox/agent.env
+ExecStart=/usr/bin/env node /usr/local/lib/yolobox/agent.mjs
 Restart=on-failure
 RestartSec=5
 

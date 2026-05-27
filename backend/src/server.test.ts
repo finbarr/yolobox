@@ -157,6 +157,65 @@ test("backend authenticates machine agents only by opaque token", async () => {
   assert.equal(guessedName.statusCode, 401, guessedName.body);
 });
 
+test("backend tunnels SSH bytes through the token-authenticated machine agent", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const created = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: "foo" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const agentToken = provider.created[0].agent_token || "";
+  assert.match(agentToken, /^[A-Za-z0-9_-]{64}$/);
+  const heartbeat = await app.inject({
+    method: "POST",
+    url: "/v1/agent/heartbeat",
+    headers: { authorization: `Bearer ${agentToken}` },
+  });
+  assert.equal(heartbeat.statusCode, 200, heartbeat.body);
+
+  await app.ready();
+  const agent = await app.injectWS("/v1/agent/tunnel", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+  const agentOpen = nextWSMessage(agent);
+  const client = await app.injectWS("/v1/machines/foo/tunnel/ssh", { headers: { authorization: `Bearer ${token}`, host: "127.0.0.1" } });
+  const open = JSON.parse((await agentOpen).toString());
+  assert.equal(open.type, "open");
+  assert.equal(open.host, "127.0.0.1");
+  assert.equal(open.port, 22);
+  assert.equal(open.name, undefined);
+
+  const clientReady = nextWSMessage(client);
+  agent.send(JSON.stringify({ type: "opened", stream_id: open.stream_id }));
+  assert.equal(JSON.parse((await clientReady).toString()).type, "ready");
+
+  const agentData = nextWSMessage(agent);
+  client.send(Buffer.from("from-client"));
+  const data = JSON.parse((await agentData).toString());
+  assert.equal(data.type, "data");
+  assert.equal(Buffer.from(data.data, "base64").toString(), "from-client");
+
+  const clientData = nextWSMessage(client);
+  agent.send(JSON.stringify({ type: "data", stream_id: open.stream_id, data: Buffer.from("from-agent").toString("base64") }));
+  assert.equal((await clientData).toString(), "from-agent");
+
+  const patched = await app.inject({
+    method: "PATCH",
+    url: "/v1/machines/foo",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { last_command: ["codex"] },
+  });
+  assert.equal(patched.statusCode, 200, patched.body);
+  const pong = nextWSMessage(agent);
+  agent.send(JSON.stringify({ type: "ping" }));
+  assert.equal(JSON.parse((await pong).toString()).type, "pong");
+  const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers: { authorization: `Bearer ${token}` } });
+  assert.deepEqual(fetched.json().machine.last_command, ["codex"]);
+
+  client.terminate();
+  agent.terminate();
+});
+
 test("backend rejects duplicate machine creates", async () => {
   const { app, provider, token } = await createTestBackend();
   const headers = { authorization: `Bearer ${token}` };
@@ -221,7 +280,7 @@ test("backend imports provider machines for the authenticated user", async () =>
 
   const connect = await app.inject({ method: "GET", url: "/v1/machines/already-there/connect", headers });
   assert.equal(connect.statusCode, 200);
-  assert.equal(connect.json().connect.ssh, "ssh root@203.0.113.20");
+  assert.equal(connect.json().connect.transport, "backend_tunnel");
   assert.equal(connect.json().connect.cli, "yolobox remote connect already-there");
   assert.equal(connect.json().connect.cli_run, "yolobox remote run already-there");
 });
@@ -448,4 +507,11 @@ async function signUp(app: ReturnType<typeof createBackend>, email: string, pass
 
 function hashUserID(userID: string): string {
   return createHash("sha256").update(userID).digest("hex").slice(0, 10);
+}
+
+function nextWSMessage(socket: { once: (event: "message" | "error", handler: (data: Buffer | Error) => void) => void }): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    socket.once("message", (data) => resolve(Buffer.isBuffer(data) ? data : Buffer.from(data as unknown as ArrayBuffer)));
+    socket.once("error", (error) => reject(error));
+  });
 }

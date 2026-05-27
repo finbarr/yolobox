@@ -88,7 +88,7 @@ Environment:
 - `DIGITALOCEAN_REGION`: default `nyc3`.
 - `DIGITALOCEAN_SIZE`: default provider size for creates without an explicit tier, default `s-2vcpu-4gb-amd`.
 - Create-time tiers map to DigitalOcean AMD sizes: `small` is 2 vCPU / 4 GB, `medium` is 4 vCPU / 8 GB, and `large` is 8 vCPU / 16 GB.
-- `YOLOBOX_REMOTE_IMAGE`: provider image id, snapshot id, or slug for a prebuilt yolobox VM image. Numeric DigitalOcean snapshot ids are sent as image IDs when creating Droplets. Machines created from this image are treated as backend-bootstrapped. When unset, DigitalOcean falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`.
+- `YOLOBOX_REMOTE_IMAGE`: provider image id, snapshot id, or slug for a prebuilt yolobox VM image. Numeric DigitalOcean snapshot ids are sent as image IDs when creating Droplets. Machines created from this image are treated as backend-bootstrapped. When unset, DigitalOcean falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI does not bootstrap plain hosts.
 - `DIGITALOCEAN_IMAGE`: DigitalOcean image fallback, default `ubuntu-24-04-x64`.
 - `DIGITALOCEAN_SSH_KEYS`: comma-separated SSH key ids or fingerprints.
 - `DIGITALOCEAN_TAGS`: comma-separated tags, default `yolobox`.
@@ -126,10 +126,13 @@ Routes:
 - `GET /v1/preview/tls-check`
 - `ANY /v1/preview/proxy/:hostname/*`
 - `POST /v1/agent/heartbeat`
+- `GET /v1/agent/tunnel`
 - `POST /v1/machines`
 - `GET /v1/machines`
 - `GET /v1/machines/:name`
 - `GET /v1/machines/:name/connect`
+- `GET /v1/machines/:name/tunnel-key`
+- `GET /v1/machines/:name/tunnel/ssh`
 - `PATCH /v1/machines/:name`
 - `DELETE /v1/machines/:name`
 
@@ -148,3 +151,13 @@ Machine-agent endpoints authenticate only that bearer token; they do not accept
 or trust a machine name claimed by the VM. `POST /v1/agent/heartbeat` maps the
 token back to the one machine that owns it, records `agent_last_seen_at`, and
 never returns the stored token hash.
+
+Every backend-created machine also gets backend-issued ed25519 tunnel SSH
+credentials. The backend stores the private key in backend state, passes the
+public key to provider user data, and writes it to root's `authorized_keys` on
+the VM. The CLI fetches the private key from `GET /v1/machines/:name/tunnel-key`
+only after authenticating as the machine owner, writes it to a temporary file,
+and uses it with local `ssh` plus a `ProxyCommand` that dials
+`GET /v1/machines/:name/tunnel/ssh`. That WebSocket endpoint relays SSH bytes to
+the connected `/v1/agent/tunnel` VM agent, which opens `127.0.0.1:22` on the VM.
+There is no direct SSH command in the backend API or browser console.

@@ -266,6 +266,7 @@ export function digitalOceanImageIsYoloboxRemote(image: string | undefined): boo
 export function digitalOceanAgentUserData(request: CreateMachineRequest): string {
   const token = request.agent_token?.trim();
   const backendURL = request.agent_backend_url?.trim().replace(/\/+$/, "");
+  const authorizedKey = request.agent_ssh_authorized_key?.trim();
   if (!token || !backendURL) return "";
   return `#cloud-config
 write_files:
@@ -276,12 +277,26 @@ write_files:
       ${shellEnvAssignment("YOLOBOX_AGENT_TOKEN", token)}
       ${shellEnvAssignment("YOLOBOX_AGENT_BACKEND_URL", backendURL)}
 runcmd:
+  - [sh, -lc, ${cloudInitSingleQuote(rootAuthorizedKeyCommand(authorizedKey))}]
   - [sh, -lc, 'systemctl enable --now yolobox-agent || true']
 `;
 }
 
 function shellEnvAssignment(name: string, value: string): string {
   return `${name}='${value.replace(/'/g, "'\"'\"'")}'`;
+}
+
+function rootAuthorizedKeyCommand(authorizedKey: string | undefined): string {
+  if (!authorizedKey) return "true";
+  return `mkdir -p /root/.ssh && touch /root/.ssh/authorized_keys && (grep -qxF ${shellSingleQuote(authorizedKey)} /root/.ssh/authorized_keys || printf '%s\\n' ${shellSingleQuote(authorizedKey)} >> /root/.ssh/authorized_keys) && chmod 700 /root/.ssh && chmod 600 /root/.ssh/authorized_keys`;
+}
+
+function cloudInitSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
+}
+
+function shellSingleQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 function publicIPv4(droplet: Droplet): string {

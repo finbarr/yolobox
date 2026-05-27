@@ -284,6 +284,8 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
 			patches++
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
+			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines":
 			sawPost = true
 			w.WriteHeader(http.StatusConflict)
@@ -329,6 +331,12 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	}
 	if !strings.Contains(string(rsyncArgs), "--delete") {
 		t.Fatalf("expected rsync args to include --delete:\n%s", rsyncArgs)
+	}
+	if !strings.Contains(string(rsyncArgs), "__remote-ssh-proxy") || !strings.Contains(string(rsyncArgs), "'foo'") {
+		t.Fatalf("expected rsync to use backend SSH tunnel proxy:\n%s", rsyncArgs)
+	}
+	if strings.Contains(string(rsyncArgs), "203.0.113.10") {
+		t.Fatalf("rsync must not use the provider public IP directly:\n%s", rsyncArgs)
 	}
 }
 
@@ -470,7 +478,11 @@ func TestRemoteManagedSessionExistsHandlesSSHExitCodes(t *testing.T) {
 	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	machine := remoteMachine{Name: "foo", PublicIPv4: "192.0.2.1"}
+	keyFile := filepath.Join(root, "id")
+	if err := os.WriteFile(keyFile, []byte("fake-key"), 0600); err != nil {
+		t.Fatalf("write key: %v", err)
+	}
+	machine := remoteMachine{Name: "foo", PublicIPv4: "192.0.2.1", SSHKeyPath: keyFile}
 	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "0")
 	exists, err := remoteManagedSessionExists(machine)
 	if err != nil || !exists {
@@ -528,8 +540,8 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"@openai/codex",
 		"docker network create yolobox-net",
 		"YOLOBOX_REMOTE=1",
-		"/usr/local/bin/yolobox-agent",
-		"/v1/agent/heartbeat",
+		"/usr/local/lib/yolobox/agent.mjs",
+		"/v1/agent/tunnel",
 		"/var/log/yolobox-remote-install.log",
 		"step \"installing base packages\"",
 	} {
@@ -775,6 +787,8 @@ func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
 		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
 			patches++
 			w.WriteHeader(http.StatusNoContent)
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
+			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}

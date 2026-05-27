@@ -39,6 +39,8 @@ type remoteMachine struct {
 	UpdatedAt         time.Time `json:"updated_at"`
 	LastSyncedAt      time.Time `json:"last_synced_at,omitempty"`
 	BootstrapComplete bool      `json:"bootstrap_complete,omitempty"`
+	SSHPrivateKey     string    `json:"-"`
+	SSHKeyPath        string    `json:"-"`
 }
 
 type remoteProvisionOptions struct {
@@ -105,10 +107,11 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 		return err
 	}
 	name := strings.TrimSpace(cfg.RemoteName)
-	machine, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
+	machine, cleanup, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	return runRemoteMachineCommand(cfg, machine, remoteDefaultCommand(cfg))
 }
 
@@ -143,10 +146,11 @@ func runRemoteRun(args []string, projectDir string) error {
 	if len(commandArgs) == 0 {
 		return fmt.Errorf("yolobox remote run requires a command")
 	}
-	machine, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
+	machine, cleanup, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
+	defer cleanup()
 	return runRemoteMachineCommand(cfg, machine, commandArgs)
 }
 
@@ -253,6 +257,14 @@ func runRemoteConnect(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireRemoteMachineBootstrapped(machine); err != nil {
+		return err
+	}
+	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 	machine, err = checkRemoteMachineForConnect(machine)
 	if err != nil {
 		return err
@@ -298,6 +310,14 @@ func runRemoteSync(args []string, projectDir string) error {
 	if err != nil {
 		return err
 	}
+	if err := requireRemoteMachineBootstrapped(machine); err != nil {
+		return err
+	}
+	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
 
 	switch direction {
 	case "up":
@@ -468,6 +488,11 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	var err error
+	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	if err != nil {
+		return machine, err
+	}
+	defer cleanup()
 	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
 	if err != nil {
 		return machine, err
@@ -484,29 +509,39 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	return machine, nil
 }
 
-func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, syncProject bool) (remoteMachine, error) {
+func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, syncProject bool) (remoteMachine, func(), error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if err := validateRemoteName(name); err != nil {
-		return remoteMachine{}, err
+		return remoteMachine{}, func() {}, err
 	}
 	machine, _, err := getRemoteBackendMachine(cfg, name)
 	if err != nil {
-		return remoteMachine{}, err
+		return remoteMachine{}, func() {}, err
+	}
+	if err := requireRemoteMachineBootstrapped(machine); err != nil {
+		return machine, func() {}, err
+	}
+	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	if err != nil {
+		return machine, func() {}, err
 	}
 	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
 	if err != nil {
-		return machine, err
+		cleanup()
+		return machine, func() {}, err
 	}
 	if syncProject {
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
-			return machine, err
+			cleanup()
+			return machine, func() {}, err
 		}
 		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
-			return machine, err
+			cleanup()
+			return machine, func() {}, err
 		}
 	}
 	printRemoteReady(machine)
-	return machine, nil
+	return machine, cleanup, nil
 }
 
 func prepareRemoteMachineForWorkspace(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
@@ -548,6 +583,43 @@ func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) 
 		return machine, err
 	}
 	return machine, nil
+}
+
+func attachRemoteTunnelCredentials(cfg Config, machine *remoteMachine) (func(), error) {
+	privateKey := strings.TrimSpace(machine.SSHPrivateKey)
+	if privateKey == "" {
+		key, err := getRemoteBackendTunnelKey(cfg, machine.Name)
+		if err != nil {
+			return func() {}, err
+		}
+		privateKey = strings.TrimSpace(key)
+	}
+	if privateKey == "" {
+		return func() {}, fmt.Errorf("remote %s does not have backend tunnel SSH credentials", machine.Name)
+	}
+	keyFile, err := os.CreateTemp("", "yolobox-remote-key-*")
+	if err != nil {
+		return func() {}, err
+	}
+	path := keyFile.Name()
+	cleanup := func() { _ = os.Remove(path) }
+	if err := os.Chmod(path, 0600); err != nil {
+		_ = keyFile.Close()
+		cleanup()
+		return func() {}, err
+	}
+	if _, err := keyFile.WriteString(privateKey + "\n"); err != nil {
+		_ = keyFile.Close()
+		cleanup()
+		return func() {}, err
+	}
+	if err := keyFile.Close(); err != nil {
+		cleanup()
+		return func() {}, err
+	}
+	machine.SSHPrivateKey = privateKey
+	machine.SSHKeyPath = path
+	return cleanup, nil
 }
 
 func requireRemoteMachineBootstrapped(machine remoteMachine) error {
@@ -628,12 +700,16 @@ func gitOutput(dir string, args ...string) (string, error) {
 func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	for {
-		cmd := exec.Command("ssh", append(remoteSSHOptions(false), "-o", "ConnectTimeout=5", machine.sshTarget(), "true")...)
+		args, err := remoteSSHOptions(machine, false)
+		if err != nil {
+			return err
+		}
+		cmd := exec.Command("ssh", append(args, "-o", "ConnectTimeout=5", machine.sshTarget(), "true")...)
 		if err := cmd.Run(); err == nil {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for SSH on %s", machine.sshTarget())
+			return fmt.Errorf("timed out waiting for remote tunnel SSH on %s", machine.Name)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -794,10 +870,14 @@ func rsyncPathToRemote(machine remoteMachine, projectPath string, sourcePath str
 		"-az",
 		"--delete",
 		"--human-readable",
-		"-e", remoteSSHCommand(false),
 		source,
 		target,
 	}
+	sshCommand, err := remoteSSHCommand(machine, false)
+	if err != nil {
+		return err
+	}
+	args = append(args[:3], append([]string{"-e", sshCommand}, args[3:]...)...)
 	cmd := exec.Command("rsync", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -812,10 +892,14 @@ func rsyncPathFromRemote(machine remoteMachine, projectPath string, destinationP
 		"-az",
 		"--delete",
 		"--human-readable",
-		"-e", remoteSSHCommand(false),
 		source,
 		target,
 	}
+	sshCommand, err := remoteSSHCommand(machine, false)
+	if err != nil {
+		return err
+	}
+	args = append(args[:3], append([]string{"-e", sshCommand}, args[3:]...)...)
 	cmd := exec.Command("rsync", args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -838,9 +922,6 @@ func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
 }
 
 func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []string) error {
-	if machine.PublicIPv4 == "" {
-		return fmt.Errorf("remote %s has no public IPv4; run yolobox remote status %s", machine.Name, machine.Name)
-	}
 	if machine.ProjectPath == "" {
 		machine.ProjectPath = remoteProjectPath()
 	}
@@ -865,13 +946,13 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 				remoteCommand = remoteTmuxAttachCommand(machine)
 				recordCommand = false
 				if remoteShellCommand(commandArgs) {
-					info("Connecting to existing remote session %s (%s)", machine.Name, machine.PublicIPv4)
+					info("Connecting to existing remote session %s via backend tunnel", machine.Name)
 				} else {
-					info("Connecting to existing remote session %s (%s); %q was not started", machine.Name, machine.PublicIPv4, strings.Join(commandArgs, " "))
+					info("Connecting to existing remote session %s via backend tunnel; %q was not started", machine.Name, strings.Join(commandArgs, " "))
 				}
 			} else {
 				remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
-				info("Starting remote session %s (%s)", machine.Name, machine.PublicIPv4)
+				info("Starting remote session %s via backend tunnel", machine.Name)
 			}
 			sshTTY = true
 		} else {
@@ -879,11 +960,11 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 				return fmt.Errorf("remote session %s is already running; run `yolobox remote connect %s` from a terminal to attach", machine.Name, machine.Name)
 			}
 			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), false)
-			info("Starting detached remote session %s (%s); run from a terminal to connect", machine.Name, machine.PublicIPv4)
+			info("Starting detached remote session %s via backend tunnel; run from a terminal to connect", machine.Name)
 		}
 	} else {
 		remoteCommand = remoteDirectCommand(machine, remoteHostCommand(commandArgs))
-		info("Running on remote %s (%s)", machine.Name, machine.PublicIPv4)
+		info("Running on remote %s via backend tunnel", machine.Name)
 	}
 
 	if err := runSSHCommand(machine, remoteCommand, sshTTY, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
@@ -995,7 +1076,10 @@ func remoteManagedSessionExists(machine remoteMachine) (bool, error) {
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return false, err
 	}
-	args := remoteSSHOptions(false)
+	args, err := remoteSSHOptions(machine, false)
+	if err != nil {
+		return false, err
+	}
 	args = append(args, machine.sshTarget(), "tmux has-session -t "+shellQuote(remoteDefaultSessionName)+" 2>/dev/null")
 	cmd := exec.Command("ssh", args...)
 	cmd.Stderr = os.Stderr
@@ -1017,7 +1101,10 @@ func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwar
 	if err := requireRemoteClientTools("ssh"); err != nil {
 		return err
 	}
-	args := remoteSSHOptions(forwardAgent)
+	args, err := remoteSSHOptions(machine, forwardAgent)
+	if err != nil {
+		return err
+	}
 	if tty {
 		args = append(args, "-t")
 	}
@@ -1033,20 +1120,31 @@ func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwar
 	return cmd.Run()
 }
 
-func remoteSSHOptions(forwardAgent bool) []string {
+func remoteSSHOptions(machine remoteMachine, forwardAgent bool) ([]string, error) {
+	if strings.TrimSpace(machine.SSHKeyPath) == "" {
+		return nil, fmt.Errorf("remote %s has no tunnel SSH key; remote operations require the backend tunnel", machine.Name)
+	}
 	args := []string{
-		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", machine.SSHKeyPath,
+		"-o", "IdentitiesOnly=yes",
+		"-o", "UserKnownHostsFile=/dev/null",
+		"-o", "StrictHostKeyChecking=no",
 		"-o", "ServerAliveInterval=30",
+		"-o", "ProxyCommand=" + remoteSSHProxyCommand(machine),
 	}
 	if forwardAgent {
 		args = append(args, "-A")
 	}
-	return args
+	return args, nil
 }
 
-func remoteSSHCommand(forwardAgent bool) string {
-	args := append([]string{"ssh"}, remoteSSHOptions(forwardAgent)...)
-	return strings.Join(args, " ")
+func remoteSSHCommand(machine remoteMachine, forwardAgent bool) (string, error) {
+	options, err := remoteSSHOptions(machine, forwardAgent)
+	if err != nil {
+		return "", err
+	}
+	args := append([]string{"ssh"}, options...)
+	return strings.Join(args, " "), nil
 }
 
 func (m remoteMachine) sshTarget() string {
@@ -1054,7 +1152,15 @@ func (m remoteMachine) sshTarget() string {
 	if user == "" {
 		user = "root"
 	}
-	return user + "@" + m.PublicIPv4
+	return user + "@yolobox-" + m.Name
+}
+
+func remoteSSHProxyCommand(machine remoteMachine) string {
+	exe, err := os.Executable()
+	if err != nil || strings.TrimSpace(exe) == "" {
+		exe = "yolobox"
+	}
+	return shellJoin([]string{exe, "__remote-ssh-proxy", machine.Name})
 }
 
 func shouldForwardSSHAgent(repoURL string) bool {

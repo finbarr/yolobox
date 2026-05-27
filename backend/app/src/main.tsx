@@ -63,7 +63,7 @@ type DeviceStatusResponse = {
 
 type ConnectResponse = MachineResponse & {
   connect: {
-    ssh: string;
+    transport?: string;
     cli: string;
     cli_run: string;
   };
@@ -460,7 +460,6 @@ function MachineDetail({ machine, connect, loading, onDestroy, destroying }: {
         <Metric label="Size" value={machine.size || "-"} />
         <Metric label="Image" value={machine.image || "-"} />
       </div>
-      <CommandBlock label="SSH" value={connect?.connect.ssh || sshFallback(machine)} />
       <CommandBlock label="Preview URL" value={machine.preview_url || ""} />
       <CommandBlock label="CLI connect" value={connect?.connect.cli || `yolobox remote connect ${machine.name}`} />
       <CommandBlock label="CLI run" value={connect?.connect.cli_run || `yolobox remote run ${machine.name}`} />
@@ -531,10 +530,6 @@ function readError(detail: string): string {
 
 function slugName(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-+/, "").slice(0, 63);
-}
-
-function sshFallback(machine: Machine): string {
-  return machine.public_ipv4 ? `ssh ${machine.ssh_user || "root"}@${machine.public_ipv4}` : "";
 }
 
 function formatDate(value?: string): string {
