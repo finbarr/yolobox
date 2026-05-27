@@ -528,6 +528,8 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"@openai/codex",
 		"docker network create yolobox-net",
 		"YOLOBOX_REMOTE=1",
+		"/usr/local/bin/yolobox-agent",
+		"/v1/agent/heartbeat",
 		"/var/log/yolobox-remote-install.log",
 		"step \"installing base packages\"",
 	} {

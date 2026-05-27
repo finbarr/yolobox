@@ -125,6 +125,7 @@ Routes:
 - `GET /v1/providers`
 - `GET /v1/preview/tls-check`
 - `ANY /v1/preview/proxy/:hostname/*`
+- `POST /v1/agent/heartbeat`
 - `POST /v1/machines`
 - `GET /v1/machines`
 - `GET /v1/machines/:name`
@@ -139,3 +140,11 @@ no backend workspaces or multiple named sessions per machine; the CLI uses one
 project path and one tmux session on the VM. Bootstrap status is provider-owned,
 not patched by the CLI. `POST /v1/machines` creates a new machine and returns
 `409` when the authenticated user already has that name.
+
+Every machine created by the backend gets a server-generated 48-byte random
+machine-agent token. The backend stores only a hash of that token and passes the
+plaintext token to the provider as VM user data for `/etc/yolobox/agent.env`.
+Machine-agent endpoints authenticate only that bearer token; they do not accept
+or trust a machine name claimed by the VM. `POST /v1/agent/heartbeat` maps the
+token back to the one machine that owns it, records `agent_last_seen_at`, and
+never returns the stored token hash.

@@ -21,6 +21,8 @@ export type RemoteMachine = {
   updated_at?: string;
   last_synced_at?: string;
   bootstrap_complete?: boolean;
+  agent_token_hash?: string;
+  agent_last_seen_at?: string;
 };
 
 export type CreateMachineRequest = {
@@ -32,6 +34,8 @@ export type CreateMachineRequest = {
   source_path?: string;
   repo_url?: string;
   branch?: string;
+  agent_token?: string;
+  agent_backend_url?: string;
 };
 
 export type ListProviderMachinesRequest = {
@@ -62,5 +66,5 @@ export type BackendState = {
   updated_at?: string;
 };
 
-export const stateVersion = 2;
+export const stateVersion = 3;
 export const defaultProjectPath = "/opt/yolobox/project";

@@ -421,6 +421,60 @@ EOF
   chmod +x /usr/local/bin/yolobox-remote-session
 }
 
+install_yolobox_agent() {
+  step "writing yolobox machine agent"
+  install -d -m 0755 /etc/yolobox
+  if [ ! -f /etc/yolobox/agent.env ]; then
+    install -m 0600 /dev/null /etc/yolobox/agent.env
+  fi
+  cat > /usr/local/bin/yolobox-agent <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+env_file="${YOLOBOX_AGENT_ENV_FILE:-/etc/yolobox/agent.env}"
+if [ -f "$env_file" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$env_file"
+  set +a
+fi
+
+backend_url="${YOLOBOX_AGENT_BACKEND_URL:-}"
+agent_token="${YOLOBOX_AGENT_TOKEN:-}"
+if [ -z "$backend_url" ] || [ -z "$agent_token" ]; then
+  echo "yolobox agent token/backend URL is not configured" >&2
+  exit 0
+fi
+
+backend_url="${backend_url%/}"
+interval="${YOLOBOX_AGENT_HEARTBEAT_INTERVAL:-30}"
+while true; do
+  curl -fsS -X POST -H "Authorization: Bearer ${agent_token}" "${backend_url}/v1/agent/heartbeat" >/dev/null || true
+  sleep "$interval"
+done
+EOF
+  chmod +x /usr/local/bin/yolobox-agent
+
+  cat > /etc/systemd/system/yolobox-agent.service <<'EOF'
+[Unit]
+Description=Yolobox machine agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/yolobox-agent
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl daemon-reload >/dev/null 2>&1 || true
+  systemctl enable yolobox-agent >/dev/null 2>&1 || true
+  systemctl restart yolobox-agent >/dev/null 2>&1 || true
+}
+
 copy_repo_assets_if_present() {
   step "copying bundled assets"
   local source_dir="${YOLOBOX_SOURCE_DIR:-}"
@@ -478,6 +532,7 @@ install_wrappers
 install_git_credential_helper
 install_upsert_block
 install_remote_session
+install_yolobox_agent
 copy_repo_assets_if_present
 write_profile
 

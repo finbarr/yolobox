@@ -273,15 +273,19 @@ machine name so typos in command names fail instead of becoming machine names.
 Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM, then maps the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
 
 Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
-yolobox VM image or provider snapshot id. Plain Ubuntu machines still work as a
-fallback because the CLI sends the VM runtime installer over SSH and marks the
-host ready at `/opt/yolobox/remote/ready`. Installer command output is written
-on the VM to `/var/log/yolobox-remote-install.log`; the CLI prints high-level
-setup steps and shows recent log output only if installation fails. The
+yolobox VM image or provider snapshot id. The backend is responsible for
+returning bootstrapped machines; the CLI no longer sends the VM runtime
+installer over SSH as a fallback. Installer command output is written on the VM
+to `/var/log/yolobox-remote-install.log` when building the remote image. The
 DigitalOcean deployment bundle includes
 [`build-remote-image.sh`](deploy/digitalocean/build-remote-image.sh), which
 creates and optionally activates a new golden snapshot from a committed checkout
 or pushed release ref.
+
+When the backend creates a machine, it also creates a 48-byte random
+machine-agent token, stores only its hash, and passes the plaintext token to the
+VM through provider user data. VM-side agent endpoints authenticate only that
+token and never trust a machine name claimed by the VM.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free

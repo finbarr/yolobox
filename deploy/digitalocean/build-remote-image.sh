@@ -396,7 +396,7 @@ fi
 
 log "verifying remote runtime"
 ssh "${ssh_opts[@]}" "$ssh_target" \
-  "test -f /opt/yolobox/remote/ready && command -v codex >/dev/null && command -v claude >/dev/null && command -v docker >/dev/null && command -v rsync >/dev/null && test -x /usr/local/bin/yolobox-remote-session"
+  "test -f /opt/yolobox/remote/ready && command -v codex >/dev/null && command -v claude >/dev/null && command -v docker >/dev/null && command -v rsync >/dev/null && test -x /usr/local/bin/yolobox-remote-session && test -x /usr/local/bin/yolobox-agent && systemctl list-unit-files yolobox-agent.service >/dev/null"
 
 log "cleaning instance identity for reusable snapshot"
 ssh "${ssh_opts[@]}" "$ssh_target" 'bash -s' <<'REMOTE_CLEAN'

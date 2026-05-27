@@ -53,7 +53,7 @@ yolobox remote create foo --tier medium
 yolobox remote run foo codex
 ```
 
-`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines. `remote connect` opens or attaches to the managed tmux session without syncing, bootstrapping, or changing the remote workdir alias, and it fails if backend metadata says bootstrap has not completed. Remote commands print progress while backend provisioning and SSH startup are pending, then print the ready state and any generated preview URL on separate lines.
+`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines. The backend creates a per-machine agent token, stores only its hash, and authenticates VM agent calls by that token only, not by any machine name claimed by the VM. `remote connect` opens or attaches to the managed tmux session without syncing, bootstrapping, or changing the remote workdir alias, and it fails if backend metadata says bootstrap has not completed. Remote commands print progress while backend provisioning and SSH startup are pending, then print the ready state and any generated preview URL on separate lines.
 
 Run the self-hosted backend package for a shared machine pool:
 

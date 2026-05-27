@@ -89,8 +89,11 @@ test("backend creates, updates, lists, and releases one machine", async () => {
   assert.match(createBody.machine.preview_hostname, /^[a-z0-9]+-[a-z0-9]+-[a-f0-9]{6}\.hosted\.test$/);
   assert.equal(createBody.machine.preview_url, `https://${createBody.machine.preview_hostname}`);
   assert.equal(createBody.machine.project_path, "/opt/yolobox/project");
+  assert.equal(createBody.machine.agent_token_hash, undefined);
   assert.equal(provider.created.length, 1);
   assert.equal(provider.created[0].tier, "medium");
+  assert.match(provider.created[0].agent_token || "", /^[A-Za-z0-9_-]{64}$/);
+  assert.equal(provider.created[0].agent_backend_url, "https://api.hosted.test");
 
   const patched = await app.inject({
     method: "PATCH",
@@ -113,6 +116,7 @@ test("backend creates, updates, lists, and releases one machine", async () => {
   assert.equal(listed.json().machines.length, 1);
   assert.equal(listed.json().machines[0].name, "foo");
   assert.equal(listed.json().machines[0].provider_label, "Fake Cloud");
+  assert.equal(listed.json().machines[0].agent_token_hash, undefined);
 
   const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers });
   assert.equal(fetched.statusCode, 200);
@@ -121,6 +125,36 @@ test("backend creates, updates, lists, and releases one machine", async () => {
   const deleted = await app.inject({ method: "DELETE", url: "/v1/machines/foo", headers });
   assert.equal(deleted.statusCode, 204);
   assert.deepEqual(provider.released, ["foo"]);
+});
+
+test("backend authenticates machine agents only by opaque token", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const created = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: "foo" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const agentToken = provider.created[0].agent_token || "";
+  assert.match(agentToken, /^[A-Za-z0-9_-]{64}$/);
+
+  const spoofedName = await app.inject({
+    method: "POST",
+    url: "/v1/agent/heartbeat?name=not-foo",
+    headers: { authorization: `Bearer ${agentToken}` },
+  });
+  assert.equal(spoofedName.statusCode, 200, spoofedName.body);
+  assert.equal(spoofedName.json().machine.name, "foo");
+  assert.equal(typeof spoofedName.json().machine.agent_last_seen_at, "string");
+  assert.equal(spoofedName.json().machine.agent_token_hash, undefined);
+
+  const guessedName = await app.inject({
+    method: "POST",
+    url: "/v1/agent/heartbeat",
+    headers: { authorization: "Bearer foo" },
+  });
+  assert.equal(guessedName.statusCode, 401, guessedName.body);
 });
 
 test("backend rejects duplicate machine creates", async () => {
@@ -388,6 +422,7 @@ async function createTestBackend(email = "user@example.com", password = "passwor
     auth,
     provider,
     store,
+    apiPublicURL: "https://api.hosted.test",
     previewBaseDomain: "hosted.test",
     previewTargetPort: options.previewTargetPort,
   });

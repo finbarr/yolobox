@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { digitalOceanImageForCreate, digitalOceanImageIsYoloboxRemote, digitalOceanProviderFromEnv, digitalOceanSizeForTier } from "./digitalocean.js";
+import { digitalOceanAgentUserData, digitalOceanImageForCreate, digitalOceanImageIsYoloboxRemote, digitalOceanProviderFromEnv, digitalOceanSizeForTier } from "./digitalocean.js";
 
 test("DigitalOcean provider prefers generic yolobox remote image override", () => {
   const provider = digitalOceanProviderFromEnv({
@@ -46,4 +46,16 @@ test("DigitalOcean size tiers map to provider slugs", () => {
   assert.equal(digitalOceanSizeForTier("small"), "s-2vcpu-4gb-amd");
   assert.equal(digitalOceanSizeForTier("medium"), "s-4vcpu-8gb-amd");
   assert.equal(digitalOceanSizeForTier("large"), "s-8vcpu-16gb-amd");
+});
+
+test("DigitalOcean agent user data carries only token credentials", () => {
+  const userData = digitalOceanAgentUserData({
+    name: "victim-name",
+    agent_token: "test-token",
+    agent_backend_url: "https://api.example.com/",
+  });
+
+  assert.match(userData, /YOLOBOX_AGENT_TOKEN='test-token'/);
+  assert.match(userData, /YOLOBOX_AGENT_BACKEND_URL='https:\/\/api\.example\.com'/);
+  assert.doesNotMatch(userData, /victim-name/);
 });

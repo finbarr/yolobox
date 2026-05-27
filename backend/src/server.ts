@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import cors from "@fastify/cors";
@@ -30,6 +30,7 @@ type PreviewOptions = {
 };
 
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
+const agentTokenBytes = 48;
 
 export function createBackend(options: BackendOptions): FastifyInstance {
   const app = Fastify({ logger: false });
@@ -70,6 +71,18 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     await sendAuthResponse(reply, await options.auth.handler(toWebRequest(request)));
   });
 
+  app.post("/v1/agent/heartbeat", async (request, reply) => {
+    const machine = await requireAgentMachine(options, request, reply);
+    if (!machine) return;
+    const updated = {
+      ...machine,
+      agent_last_seen_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+    await options.store.putMachine(updated);
+    return { machine: publicMachine(normalizeMachine(options, updated)) };
+  });
+
   app.post<{ Body: CreateMachineRequest }>("/v1/machines", async (request, reply) => {
     const auth = await requireAuth(options, request, reply);
     if (!auth) return;
@@ -107,7 +120,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     const refreshed = await options.provider.getMachine(existing);
     const machine = normalizeMachine(options, { ...existing, ...refreshed.machine, name, user_id: auth.userID });
     await options.store.putMachine(machine);
-    return { machine, status: refreshed.status || "leased" };
+    return { machine: publicMachine(machine), status: refreshed.status || "leased" };
   });
 
   app.get<{ Params: { name: string } }>("/v1/machines/:name/connect", async (request, reply) => {
@@ -127,7 +140,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     await options.store.putMachine(machine);
     const target = sshTarget(machine);
     return {
-      machine,
+      machine: publicMachine(machine),
       status: refreshed.status || "leased",
       connect: {
         ssh: target ? `ssh ${target}` : "",
@@ -145,7 +158,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
     try {
       const machine = normalizeMachine(options, await options.store.patchMachine(auth.userID, name, request.body));
-      return { machine };
+      return { machine: publicMachine(machine) };
     } catch (err) {
       return reply.code(404).send({ id: "not_found", message: (err as Error).message });
     }
@@ -178,6 +191,13 @@ export function createBackend(options: BackendOptions): FastifyInstance {
 
 async function createMachine(options: BackendOptions, auth: AuthContext, body: CreateMachineRequest, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }) {
   body.provider_name = providerMachineName(auth.userID, body.name);
+  const agentBackendURL = (options.apiPublicURL || "").trim().replace(/\/+$/, "");
+  if (!agentBackendURL) {
+    throw new Error("backend public API URL is required to provision remote machine agent credentials");
+  }
+  const agentToken = generateAgentToken();
+  body.agent_token = agentToken;
+  body.agent_backend_url = agentBackendURL;
 
   await syncProviderMachines(options, auth);
   const existing = await options.store.getMachine(auth.userID, body.name);
@@ -203,14 +223,15 @@ async function createMachine(options: BackendOptions, auth: AuthContext, body: C
     repo_url: body.repo_url,
     branch: body.branch,
     ssh_user: provisioned.machine.ssh_user || body.ssh_user || "root",
+    agent_token_hash: hashAgentToken(agentToken),
   });
   await options.store.putMachine(machine);
-  return reply.code(201).send({ machine, status: provisioned.status || "created" });
+  return reply.code(201).send({ machine: publicMachine(machine), status: provisioned.status || "created" });
 }
 
 async function listAccountMachines(options: BackendOptions, auth: AuthContext): Promise<RemoteMachine[]> {
   await syncProviderMachines(options, auth);
-  return (await options.store.listMachinesForUser(auth.userID)).map((machine) => normalizeMachine(options, machine));
+  return (await options.store.listMachinesForUser(auth.userID)).map((machine) => publicMachine(normalizeMachine(options, machine)));
 }
 
 async function syncProviderMachines(options: BackendOptions, auth: AuthContext): Promise<void> {
@@ -265,6 +286,11 @@ function normalizeMachine(options: BackendOptions, machine: RemoteMachine): Remo
   };
 }
 
+function publicMachine(machine: RemoteMachine): RemoteMachine {
+  const { agent_token_hash: _agentTokenHash, ...safe } = machine;
+  return safe;
+}
+
 function providerInfo(provider: MachineProvider): MachineProviderInfo {
   return provider.info || {
     name: provider.name,
@@ -303,6 +329,50 @@ async function requireAuth(options: BackendOptions, request: { headers: Record<s
     userID: session.user.id,
     email: session.user.email,
   };
+}
+
+async function requireAgentMachine(options: BackendOptions, request: { headers: Record<string, string | string[] | undefined> }, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }): Promise<RemoteMachine | undefined> {
+  const token = bearerToken(request.headers);
+  if (!token) {
+    reply.code(401).send({ id: "unauthorized", message: "missing machine agent token" });
+    return undefined;
+  }
+  const tokenHash = hashAgentToken(token);
+  const machine = await findMachineByAgentTokenHash(options, tokenHash);
+  if (!machine) {
+    reply.code(401).send({ id: "unauthorized", message: "invalid machine agent token" });
+    return undefined;
+  }
+  return machine;
+}
+
+async function findMachineByAgentTokenHash(options: BackendOptions, tokenHash: string): Promise<RemoteMachine | undefined> {
+  for (const machine of await options.store.listMachines()) {
+    if (!machine.agent_token_hash) continue;
+    if (constantTimeEqual(machine.agent_token_hash, tokenHash)) return machine;
+  }
+  return undefined;
+}
+
+function bearerToken(headers: Record<string, string | string[] | undefined>): string {
+  const raw = headers.authorization;
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  const match = /^Bearer\s+(.+)$/i.exec(value || "");
+  return match ? match[1].trim() : "";
+}
+
+function generateAgentToken(): string {
+  return randomBytes(agentTokenBytes).toString("base64url");
+}
+
+export function hashAgentToken(token: string): string {
+  return createHash("sha256").update("yolobox-agent-token:v1\0").update(token).digest("hex");
+}
+
+function constantTimeEqual(left: string, right: string): boolean {
+  const leftBuffer = Buffer.from(left, "hex");
+  const rightBuffer = Buffer.from(right, "hex");
+  return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
 function toWebRequest(request: { method: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown; ip?: string }): Request {

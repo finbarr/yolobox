@@ -77,6 +77,7 @@ export class DigitalOceanProvider implements MachineProvider {
     const sshKeys = this.config.sshKeys.length > 0
       ? this.config.sshKeys
       : [String(await this.ensureDefaultSSHKey())];
+    const agentUserData = digitalOceanAgentUserData(request);
     const droplet = await this.request<{ droplet: Droplet }>("/v2/droplets", {
       method: "POST",
       body: {
@@ -87,6 +88,7 @@ export class DigitalOceanProvider implements MachineProvider {
         ssh_keys: sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
         tags: this.machineTags(providerName),
         monitoring: true,
+        ...(agentUserData ? { user_data: agentUserData } : {}),
         ...(this.config.vpcUUID ? { vpc_uuid: this.config.vpcUUID } : {}),
       },
     });
@@ -259,6 +261,27 @@ export function digitalOceanImageForCreate(image: string): string | number {
 
 export function digitalOceanImageIsYoloboxRemote(image: string | undefined): boolean {
   return Boolean(image?.trim().toLowerCase().startsWith("yolobox-remote-"));
+}
+
+export function digitalOceanAgentUserData(request: CreateMachineRequest): string {
+  const token = request.agent_token?.trim();
+  const backendURL = request.agent_backend_url?.trim().replace(/\/+$/, "");
+  if (!token || !backendURL) return "";
+  return `#cloud-config
+write_files:
+  - path: /etc/yolobox/agent.env
+    owner: root:root
+    permissions: '0600'
+    content: |
+      ${shellEnvAssignment("YOLOBOX_AGENT_TOKEN", token)}
+      ${shellEnvAssignment("YOLOBOX_AGENT_BACKEND_URL", backendURL)}
+runcmd:
+  - [sh, -lc, 'systemctl enable --now yolobox-agent || true']
+`;
+}
+
+function shellEnvAssignment(name: string, value: string): string {
+  return `${name}='${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 function publicIPv4(droplet: Droplet): string {
