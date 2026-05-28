@@ -255,6 +255,9 @@ func TestRunWithSpinnerFallsBackToStableProgressWhenNotTerminal(t *testing.T) {
 func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	const token = "secret-token"
 	isolateRemoteSSHHome(t)
+	oldRetryDelay := remoteBackendAgentRetryDelay
+	remoteBackendAgentRetryDelay = time.Millisecond
+	t.Cleanup(func() { remoteBackendAgentRetryDelay = oldRetryDelay })
 	sawPost := false
 	workspaceCalls := 0
 	syncCompleteCalls := 0
@@ -282,6 +285,11 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/workspace":
 			workspaceCalls++
+			if workspaceCalls == 1 {
+				w.WriteHeader(http.StatusConflict)
+				_, _ = w.Write([]byte(`{"id":"agent_disconnected","message":"remote machine agent is not connected"}`))
+				return
+			}
 			var req remoteBackendWorkspaceRequest
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode workspace request: %v", err)
@@ -349,7 +357,7 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	if sawPost {
 		t.Fatal("remote run must not create missing machines")
 	}
-	if workspaceCalls != 1 || syncCompleteCalls != 1 || recordCalls != 1 {
+	if workspaceCalls != 2 || syncCompleteCalls != 1 || recordCalls != 1 {
 		t.Fatalf("expected workspace/sync/record calls, got workspace=%d sync=%d record=%d", workspaceCalls, syncCompleteCalls, recordCalls)
 	}
 	rsyncArgs, err := os.ReadFile(rsyncArgsFile)

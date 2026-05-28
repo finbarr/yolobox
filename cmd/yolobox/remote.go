@@ -20,6 +20,8 @@ const (
 	remoteKnownHostsFileName = "remote_known_hosts"
 )
 
+var remoteBackendAgentRetryDelay = 5 * time.Second
+
 type remoteMachine struct {
 	Name              string    `json:"name"`
 	Provider          string    `json:"provider,omitempty"`
@@ -552,15 +554,44 @@ func prepareRemoteMachineForWorkspace(cfg Config, machine remoteMachine, project
 	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return machine, err
 	}
-	var err error
-	machine, err = prepareRemoteBackendWorkspace(cfg, machine)
-	if err != nil {
+	if err := runWithSpinner(
+		fmt.Sprintf("Preparing remote host %s", machine.Name),
+		fmt.Sprintf("Remote host %s prepared", machine.Name),
+		func() error {
+			var err error
+			machine, err = waitForRemoteBackendWorkspace(cfg, machine, 5*time.Minute)
+			return err
+		},
+	); err != nil {
 		return machine, err
 	}
 	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
 		return machine, err
 	}
 	return machine, nil
+}
+
+func waitForRemoteBackendWorkspace(cfg Config, machine remoteMachine, timeout time.Duration) (remoteMachine, error) {
+	deadline := time.Now().Add(timeout)
+	for {
+		updated, err := prepareRemoteBackendWorkspace(cfg, machine)
+		if err == nil {
+			return updated, nil
+		}
+		if !shouldRetryRemoteBackendWorkspace(err) || time.Now().After(deadline) {
+			return machine, err
+		}
+		time.Sleep(remoteBackendAgentRetryDelay)
+	}
+}
+
+func shouldRetryRemoteBackendWorkspace(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := err.Error()
+	return strings.Contains(message, "agent_disconnected") ||
+		strings.Contains(message, "remote machine agent is not connected")
 }
 
 func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) {
