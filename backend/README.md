@@ -133,16 +133,21 @@ Routes:
 - `GET /v1/machines/:name/connect`
 - `GET /v1/machines/:name/tunnel-key`
 - `GET /v1/machines/:name/tunnel/ssh`
-- `PATCH /v1/machines/:name`
+- `POST /v1/machines/:name/workspace`
+- `POST /v1/machines/:name/setup`
+- `POST /v1/machines/:name/sync-complete`
+- `POST /v1/machines/:name/sessions/yolobox/prepare`
+- `POST /v1/machines/:name/commands/ssh`
+- `POST /v1/machines/:name/commands/record`
 - `DELETE /v1/machines/:name`
 
 Machines are scoped to the authenticated Better Auth user and are one-to-one with
 a remote VM. The backend imports provider-owned machines when listing, so the UI
 and CLI can see machines already present in the authenticated account. There are
-no backend workspaces or multiple named sessions per machine; the CLI uses one
-project path and one tmux session on the VM. Bootstrap status is provider-owned,
-not patched by the CLI. `POST /v1/machines` creates a new machine and returns
-`409` when the authenticated user already has that name.
+no multiple backend workspaces or named sessions per machine; the backend and VM
+agent own one project path and one tmux session on the VM. Bootstrap status is
+provider-owned. `POST /v1/machines` creates a new machine and returns `409` when
+the authenticated user already has that name.
 
 Every machine created by the backend gets a server-generated 48-byte random
 machine-agent token. The backend stores only a hash of that token and passes the
@@ -150,7 +155,9 @@ plaintext token to the provider as VM user data for `/etc/yolobox/agent.env`.
 Machine-agent endpoints authenticate only that bearer token; they do not accept
 or trust a machine name claimed by the VM. `POST /v1/agent/heartbeat` maps the
 token back to the one machine that owns it, records `agent_last_seen_at`, and
-never returns the stored token hash.
+never returns the stored token hash. The persistent `/v1/agent/tunnel`
+connection also carries backend RPC for workspace preparation, setup commands,
+command wrapping, and the single managed tmux session.
 
 Every backend-created machine also gets backend-issued ed25519 tunnel SSH
 credentials. The backend stores the private key in backend state, passes the

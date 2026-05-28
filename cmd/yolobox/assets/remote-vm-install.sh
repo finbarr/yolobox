@@ -430,11 +430,17 @@ install_yolobox_agent() {
   install -d -m 0755 /usr/local/lib/yolobox
   cat > /usr/local/lib/yolobox/agent.mjs <<'EOF'
 #!/usr/bin/env node
+import { spawn } from "node:child_process";
 import net from "node:net";
+import path from "node:path";
 
 const backendURL = (process.env.YOLOBOX_AGENT_BACKEND_URL || "").replace(/\/+$/, "");
 const token = process.env.YOLOBOX_AGENT_TOKEN || "";
 const heartbeatInterval = Number(process.env.YOLOBOX_AGENT_HEARTBEAT_INTERVAL || 30_000);
+const defaultProjectPath = "/opt/yolobox/project";
+const remoteSessionName = "yolobox";
+const remoteSessionScript = "/usr/local/bin/yolobox-remote-session";
+const yoloboxContextFile = "/run/yolobox/context.json";
 
 if (!backendURL || !token) {
   console.error("yolobox agent token/backend URL is not configured");
@@ -485,6 +491,17 @@ async function handleMessage(data) {
   const message = JSON.parse(typeof data === "string" ? data : Buffer.from(await data.arrayBuffer()).toString("utf8"));
   const id = message.stream_id || "";
   switch (message.type) {
+  case "rpc":
+    handleRPC(message).catch((error) => {
+      send({
+        type: "rpc_result",
+        rpc_id: message.rpc_id || "",
+        ok: false,
+        code: error.code || "agent_rpc_failed",
+        message: error.message || String(error),
+      });
+    });
+    return;
   case "open":
     openStream(id, message.host || "127.0.0.1", Number(message.port || 22));
     return;
@@ -507,6 +524,43 @@ async function handleMessage(data) {
   }
 }
 
+async function handleRPC(message) {
+  const id = message.rpc_id || "";
+  if (!id) return;
+  try {
+    const payload = message.payload || {};
+    let result;
+    switch (message.action) {
+    case "prepare_workspace":
+      result = await prepareWorkspace(payload);
+      break;
+    case "run_setup":
+      result = await runSetup(payload);
+      break;
+    case "prepare_session":
+      result = await prepareSession(payload);
+      break;
+    case "direct_command":
+      result = directCommand(payload);
+      break;
+    default: {
+      const error = new Error(`unknown agent action: ${message.action || ""}`);
+      error.code = "unknown_action";
+      throw error;
+    }
+    }
+    send({ type: "rpc_result", rpc_id: id, ok: true, result });
+  } catch (error) {
+    send({
+      type: "rpc_result",
+      rpc_id: id,
+      ok: false,
+      code: error.code || "agent_rpc_failed",
+      message: error.message || String(error),
+    });
+  }
+}
+
 function openStream(id, host, port) {
   if (!id) return;
   const stream = net.connect({ host, port });
@@ -521,6 +575,198 @@ function openStream(id, host, port) {
   stream.on("error", (error) => {
     send({ type: "error", stream_id: id, message: error.message });
     streams.delete(id);
+  });
+}
+
+async function prepareWorkspace(payload) {
+  const projectPath = cleanAbsolutePath(payload.project_path) || defaultProjectPath;
+  const workPath = remoteWorkPath(payload);
+  const projectParent = path.posix.dirname(projectPath);
+  const workParent = path.posix.dirname(workPath);
+  let script = `set -euo pipefail
+if ! command -v rsync >/dev/null 2>&1; then
+  echo "rsync is missing from the yolobox remote image; rebuild the golden image" >&2
+  exit 1
+fi
+storage=${shellQuote(projectPath)}
+work=${shellQuote(workPath)}
+mkdir -p ${shellQuote(projectParent)} "$storage"
+`;
+  if (workPath !== projectPath) {
+    script += `mkdir -p ${shellQuote(workParent)}
+if [ -L "$work" ]; then
+  current="$(readlink "$work" || true)"
+  if [ "$current" != "$storage" ]; then
+    ln -sfn "$storage" "$work"
+  fi
+elif [ -e "$work" ]; then
+  if [ -d "$work" ] && [ -z "$(find "$work" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
+    rmdir "$work"
+    ln -s "$storage" "$work"
+  else
+    echo "cannot map remote project workdir $work: path already exists and is not an empty directory or symlink" >&2
+    exit 1
+  fi
+else
+  ln -s "$storage" "$work"
+fi
+`;
+  }
+  await runProcess("bash", ["-lc", script]);
+  return { project_path: projectPath, work_path: workPath };
+}
+
+async function runSetup(payload) {
+  const commands = normalizeStringArray(payload.commands);
+  if (commands.length === 0) return { skipped: true };
+  const workPath = remoteWorkPath(payload);
+  const script = `set -euo pipefail
+${remoteCommandPrefix(payload)}
+${commands.join("\n")}
+`;
+  const result = await runProcess("bash", ["-lc", script], { maxBuffer: 1024 * 1024 });
+  return { stdout: result.stdout, stderr: result.stderr };
+}
+
+async function prepareSession(payload) {
+  const attach = payload.attach === true;
+  const exists = await tmuxSessionExists();
+  if (exists) {
+    if (!attach) {
+      const error = new Error(`remote session ${remoteSessionName} is already running; run yolobox remote connect ${payload.name || ""} from a terminal to attach`);
+      error.code = "session_exists";
+      throw error;
+    }
+    return {
+      status: "exists",
+      attach_command: tmuxAttachCommand(),
+      record_command: false,
+    };
+  }
+
+  const command = normalizeRemoteCommand(payload.command);
+  const workPath = remoteWorkPath(payload);
+  const sessionCommand = `${remoteCommandPrefix(payload)}exec ${shellJoin(command)}`;
+  await runProcess("tmux", ["new-session", "-d", "-s", remoteSessionName, "-c", workPath, sessionCommand]);
+  return {
+    status: attach ? "started" : "started_detached",
+    attach_command: attach ? tmuxAttachCommand() : "",
+    record_command: true,
+  };
+}
+
+function directCommand(payload) {
+  return { command: `${remoteCommandPrefix(payload)}exec ${shellJoin(normalizeRemoteCommand(payload.command))}` };
+}
+
+async function tmuxSessionExists() {
+  const result = await runProcess("tmux", ["has-session", "-t", remoteSessionName], { reject: false });
+  if (result.code === 0) return true;
+  if (result.code === 1) return false;
+  const error = new Error(result.stderr || `tmux has-session failed with exit ${result.code}`);
+  error.code = "session_check_failed";
+  throw error;
+}
+
+function tmuxAttachCommand() {
+  return `tmux attach-session -t ${shellQuote(remoteSessionName)}`;
+}
+
+function remoteCommandPrefix(payload) {
+  const workPath = remoteWorkPath(payload);
+  const parts = [
+    "export PATH=\"/opt/yolobox/bin:/root/.npm-global/bin:/home/yolo/.npm-global/bin:/root/.local/bin:/home/yolo/.local/bin:/usr/local/go/bin:$PATH\"",
+    "export NPM_CONFIG_PREFIX=\"${NPM_CONFIG_PREFIX:-$HOME/.npm-global}\"",
+    "export YOLOBOX=1",
+    "export YOLOBOX_REMOTE=1",
+    `export YOLOBOX_PROJECT_PATH=${shellQuote(workPath)}`,
+    `export YOLOBOX_CONTEXT_FILE=${shellQuote(yoloboxContextFile)}`,
+  ];
+  if (String(payload.preview_url || "").trim()) {
+    parts.push(`export YOLOBOX_PREVIEW_URL=${shellQuote(String(payload.preview_url).trim())}`);
+  }
+  if (String(payload.preview_hostname || "").trim()) {
+    parts.push(`export YOLOBOX_PREVIEW_HOSTNAME=${shellQuote(String(payload.preview_hostname).trim())}`);
+  }
+  parts.push(`if [ -x ${shellQuote(remoteSessionScript)} ]; then ${shellQuote(remoteSessionScript)} ${shellQuote(workPath)}; fi`);
+  parts.push(`cd ${shellQuote(workPath)}`);
+  return `${parts.join("; ")}; `;
+}
+
+function remoteWorkPath(payload) {
+  return cleanAbsolutePath(payload.source_path) || cleanAbsolutePath(payload.project_path) || defaultProjectPath;
+}
+
+function cleanAbsolutePath(value) {
+  value = String(value || "").trim();
+  if (!value || !value.startsWith("/") || value === "/") return "";
+  const cleaned = path.posix.normalize(value);
+  if (!cleaned || cleaned === "/" || !cleaned.startsWith("/")) return "";
+  return cleaned;
+}
+
+function normalizeRemoteCommand(value) {
+  const command = normalizeStringArray(value);
+  if (command.length === 0) return ["bash"];
+  switch (path.posix.basename(command[0])) {
+  case "shell":
+    return ["bash"];
+  case "run":
+    return command.length === 1 ? ["bash"] : command.slice(1);
+  default:
+    return command;
+  }
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => String(item).trim()).filter(Boolean);
+}
+
+function shellJoin(args) {
+  return args.map((arg) => shellQuote(String(arg))).join(" ");
+}
+
+function shellQuote(value) {
+  value = String(value || "");
+  if (value === "") return "''";
+  return `'${value.replaceAll("'", "'\"'\"'")}'`;
+}
+
+function runProcess(command, args, options = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      env: process.env,
+      cwd: options.cwd || "/",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    const chunks = { stdout: [], stderr: [] };
+    const maxBuffer = options.maxBuffer || 256 * 1024;
+    let stdoutBytes = 0;
+    let stderrBytes = 0;
+    child.stdout.on("data", (chunk) => {
+      stdoutBytes += chunk.length;
+      if (stdoutBytes <= maxBuffer) chunks.stdout.push(chunk);
+    });
+    child.stderr.on("data", (chunk) => {
+      stderrBytes += chunk.length;
+      if (stderrBytes <= maxBuffer) chunks.stderr.push(chunk);
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      const result = {
+        code: code ?? 0,
+        stdout: Buffer.concat(chunks.stdout).toString("utf8"),
+        stderr: Buffer.concat(chunks.stderr).toString("utf8"),
+      };
+      if (result.code !== 0 && options.reject !== false) {
+        const error = new Error(result.stderr || `${command} exited with status ${result.code}`);
+        error.code = "process_failed";
+        reject(error);
+        return;
+      }
+      resolve(result);
+    });
   });
 }
 

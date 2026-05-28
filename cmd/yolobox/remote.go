@@ -322,10 +322,11 @@ func runRemoteSync(args []string, projectDir string) error {
 
 	switch direction {
 	case "up":
-		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
+		machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
+		if err != nil {
 			return err
 		}
-		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
+		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
 			return err
 		}
 	case "down":
@@ -502,9 +503,6 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
 			return machine, err
 		}
-		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
-			return machine, err
-		}
 	}
 	printRemoteReady(machine)
 	return machine, nil
@@ -536,10 +534,6 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 			cleanup()
 			return machine, func() {}, err
 		}
-		if err := updateRemoteBackendMachine(cfg, machine); err != nil {
-			cleanup()
-			return machine, func() {}, err
-		}
 	}
 	printRemoteReady(machine)
 	return machine, cleanup, nil
@@ -558,13 +552,12 @@ func prepareRemoteMachineForWorkspace(cfg Config, machine remoteMachine, project
 	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return machine, err
 	}
+	var err error
+	machine, err = prepareRemoteBackendWorkspace(cfg, machine)
+	if err != nil {
+		return machine, err
+	}
 	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
-		return machine, err
-	}
-	if err := ensureRemoteProjectPath(machine); err != nil {
-		return machine, err
-	}
-	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
 		return machine, err
 	}
 	return machine, nil
@@ -733,20 +726,16 @@ func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) er
 	}
 
 	info("Copying %s to %s:%s...", sourcePath, machine.Name, machine.ProjectPath)
-	if err := ensureRemoteProjectPath(*machine); err != nil {
-		return err
-	}
 	if err := rsyncPathToRemote(*machine, machine.ProjectPath, sourcePath); err != nil {
 		return err
 	}
-	if len(cfg.Remote.Setup) > 0 {
-		if err := runRemoteScript(*machine, buildRemoteSetupScript(*machine, cfg.Remote.Setup), false); err != nil {
-			return err
-		}
+	if err := runRemoteBackendSetup(cfg, *machine, cfg.Remote.Setup); err != nil {
+		return err
 	}
 	machine.LastSyncedAt = time.Now().UTC()
 	machine.UpdatedAt = machine.LastSyncedAt
-	return nil
+	*machine, err = completeRemoteBackendSync(cfg, *machine)
+	return err
 }
 
 func syncRemoteProjectDown(machine remoteMachine, projectDir string) error {
@@ -819,51 +808,6 @@ func remoteWorkPath(machine remoteMachine) string {
 	return cleaned
 }
 
-func ensureRemoteProjectPath(machine remoteMachine) error {
-	return runRemoteScript(machine, buildEnsureRemoteProjectPathScript(machine), false)
-}
-
-func buildEnsureRemoteProjectPathScript(machine remoteMachine) string {
-	projectPath := strings.TrimSpace(machine.ProjectPath)
-	if projectPath == "" {
-		projectPath = remoteProjectPath()
-	}
-	projectPath = filepath.Clean(projectPath)
-	workPath := remoteWorkPath(machine)
-	projectParent := filepath.Dir(projectPath)
-	workParent := filepath.Dir(workPath)
-
-	var b strings.Builder
-	b.WriteString("set -euo pipefail\n")
-	b.WriteString("if ! command -v rsync >/dev/null 2>&1; then\n")
-	b.WriteString("  apt-get update\n")
-	b.WriteString("  apt-get install -y rsync\n")
-	b.WriteString("fi\n")
-	b.WriteString("storage=" + shellQuote(projectPath) + "\n")
-	b.WriteString("work=" + shellQuote(workPath) + "\n")
-	b.WriteString("mkdir -p " + shellQuote(projectParent) + " \"$storage\"\n")
-	if workPath != projectPath {
-		b.WriteString("mkdir -p " + shellQuote(workParent) + "\n")
-		b.WriteString("if [ -L \"$work\" ]; then\n")
-		b.WriteString("  current=\"$(readlink \"$work\" || true)\"\n")
-		b.WriteString("  if [ \"$current\" != \"$storage\" ]; then\n")
-		b.WriteString("    ln -sfn \"$storage\" \"$work\"\n")
-		b.WriteString("  fi\n")
-		b.WriteString("elif [ -e \"$work\" ]; then\n")
-		b.WriteString("  if [ -d \"$work\" ] && [ -z \"$(find \"$work\" -mindepth 1 -maxdepth 1 -print -quit)\" ]; then\n")
-		b.WriteString("    rmdir \"$work\"\n")
-		b.WriteString("    ln -s \"$storage\" \"$work\"\n")
-		b.WriteString("  else\n")
-		b.WriteString("    echo \"cannot map remote project workdir $work: path already exists and is not an empty directory or symlink\" >&2\n")
-		b.WriteString("    exit 1\n")
-		b.WriteString("  fi\n")
-		b.WriteString("else\n")
-		b.WriteString("  ln -s \"$storage\" \"$work\"\n")
-		b.WriteString("fi\n")
-	}
-	return b.String()
-}
-
 func rsyncPathToRemote(machine remoteMachine, projectPath string, sourcePath string) error {
 	source := sourcePath + string(os.PathSeparator)
 	target := machine.sshTarget() + ":" + projectPath + "/"
@@ -908,20 +852,6 @@ func rsyncPathFromRemote(machine remoteMachine, projectPath string, destinationP
 	return cmd.Run()
 }
 
-func buildRemoteSetupScript(machine remoteMachine, setup []string) string {
-	var b strings.Builder
-	b.WriteString("set -euo pipefail\n")
-	b.WriteString("cd " + shellQuote(remoteWorkPath(machine)) + "\n")
-	for _, command := range setup {
-		command = strings.TrimSpace(command)
-		if command == "" {
-			continue
-		}
-		b.WriteString(command + "\n")
-	}
-	return b.String()
-}
-
 func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []string) error {
 	if machine.ProjectPath == "" {
 		machine.ProjectPath = remoteProjectPath()
@@ -933,51 +863,45 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 	stdinTTY := term.IsTerminal(int(os.Stdin.Fd()))
 	stdoutTTY := term.IsTerminal(int(os.Stdout.Fd()))
 	interactive := remoteCommandNeedsTTY(commandArgs)
-	sshTTY := false
-	recordCommand := true
-	var remoteCommand string
 
 	if interactive {
-		sessionExists, err := remoteManagedSessionExists(machine)
-		if err != nil {
-			return err
-		}
 		if stdinTTY && stdoutTTY {
-			if sessionExists {
-				remoteCommand = remoteTmuxAttachCommand(machine)
-				recordCommand = false
+			result, updated, err := prepareRemoteBackendSession(cfg, machine, commandArgs, true)
+			if err != nil {
+				return err
+			}
+			machine = updated
+			if result.Status == "exists" {
 				if remoteShellCommand(commandArgs) {
 					info("Connecting to existing remote session %s via backend tunnel", machine.Name)
 				} else {
 					info("Connecting to existing remote session %s via backend tunnel; %q was not started", machine.Name, strings.Join(commandArgs, " "))
 				}
 			} else {
-				remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), true)
 				info("Starting remote session %s via backend tunnel", machine.Name)
 			}
-			sshTTY = true
-		} else {
-			if sessionExists {
-				return fmt.Errorf("remote session %s is already running; run `yolobox remote connect %s` from a terminal to attach", machine.Name, machine.Name)
+			if strings.TrimSpace(result.AttachCommand) == "" {
+				return nil
 			}
-			remoteCommand = remoteTmuxCommand(machine, remoteHostCommand(commandArgs), false)
+			return runSSHCommand(machine, result.AttachCommand, true, false)
+		} else {
+			if _, _, err := prepareRemoteBackendSession(cfg, machine, commandArgs, false); err != nil {
+				return err
+			}
 			info("Starting detached remote session %s via backend tunnel; run from a terminal to connect", machine.Name)
+			return nil
 		}
-	} else {
-		remoteCommand = remoteDirectCommand(machine, remoteHostCommand(commandArgs))
-		info("Running on remote %s via backend tunnel", machine.Name)
 	}
 
-	if err := runSSHCommand(machine, remoteCommand, sshTTY, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
+	remoteCommand, err := remoteBackendSSHCommand(cfg, machine, commandArgs)
+	if err != nil {
 		return err
 	}
-
-	if !recordCommand {
-		return nil
+	info("Running on remote %s via backend tunnel", machine.Name)
+	if err := runSSHCommand(machine, remoteCommand, false, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
+		return err
 	}
-	machine.LastCommand = commandArgs
-	machine.UpdatedAt = time.Now().UTC()
-	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
+	if err := recordRemoteBackendCommand(cfg, machine, commandArgs); err != nil {
 		warn("Could not update remote backend machine state: %v", err)
 	}
 	return nil
@@ -1014,88 +938,6 @@ func remoteShellCommand(command []string) bool {
 	}
 	cmd := filepath.Base(command[0])
 	return cmd == "shell" || cmd == "run"
-}
-
-func remoteHostCommand(command []string) []string {
-	if len(command) == 0 {
-		return []string{"bash"}
-	}
-	switch filepath.Base(command[0]) {
-	case "shell":
-		return []string{"bash"}
-	case "run":
-		if len(command) == 1 {
-			return []string{"bash"}
-		}
-		return append([]string{}, command[1:]...)
-	default:
-		return append([]string{}, command...)
-	}
-}
-
-func remoteCommandPrefix(machine remoteMachine) string {
-	workPath := remoteWorkPath(machine)
-	parts := []string{
-		"export PATH=\"/opt/yolobox/bin:/root/.npm-global/bin:/home/yolo/.npm-global/bin:/root/.local/bin:/home/yolo/.local/bin:/usr/local/go/bin:$PATH\"",
-		"export NPM_CONFIG_PREFIX=\"${NPM_CONFIG_PREFIX:-$HOME/.npm-global}\"",
-		"export YOLOBOX=1",
-		"export YOLOBOX_REMOTE=1",
-		"export YOLOBOX_PROJECT_PATH=" + shellQuote(workPath),
-		"export YOLOBOX_CONTEXT_FILE=" + shellQuote(yoloboxContextFile),
-	}
-	if strings.TrimSpace(machine.PreviewURL) != "" {
-		parts = append(parts, "export YOLOBOX_PREVIEW_URL="+shellQuote(machine.PreviewURL))
-	}
-	if strings.TrimSpace(machine.PreviewHostname) != "" {
-		parts = append(parts, "export YOLOBOX_PREVIEW_HOSTNAME="+shellQuote(machine.PreviewHostname))
-	}
-	parts = append(parts,
-		"if [ -x "+shellQuote(remoteRuntimeSessionScript)+" ]; then "+shellQuote(remoteRuntimeSessionScript)+" "+shellQuote(workPath)+"; fi",
-		"cd "+shellQuote(workPath),
-	)
-	return strings.Join(parts, "; ") + "; "
-}
-
-func remoteDirectCommand(machine remoteMachine, command []string) string {
-	return remoteCommandPrefix(machine) + "exec " + shellJoin(command)
-}
-
-func remoteTmuxAttachCommand(machine remoteMachine) string {
-	return remoteCommandPrefix(machine) + "tmux attach-session -t " + shellQuote(remoteDefaultSessionName)
-}
-
-func remoteTmuxCommand(machine remoteMachine, command []string, joinSession bool) string {
-	workPath := remoteWorkPath(machine)
-	sessionCommand := remoteCommandPrefix(machine) + "exec " + shellJoin(command)
-	if joinSession {
-		return remoteCommandPrefix(machine) + "tmux new-session -A -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
-	}
-	return remoteCommandPrefix(machine) + "tmux new-session -d -s " + shellQuote(remoteDefaultSessionName) + " -c " + shellQuote(workPath) + " " + shellQuote(sessionCommand)
-}
-
-func remoteManagedSessionExists(machine remoteMachine) (bool, error) {
-	if err := requireRemoteClientTools("ssh"); err != nil {
-		return false, err
-	}
-	args, err := remoteSSHOptions(machine, false)
-	if err != nil {
-		return false, err
-	}
-	args = append(args, machine.sshTarget(), "tmux has-session -t "+shellQuote(remoteDefaultSessionName)+" 2>/dev/null")
-	cmd := exec.Command("ssh", args...)
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return false, nil
-		}
-		return false, fmt.Errorf("check remote session %s: %w", machine.Name, err)
-	}
-	return true, nil
-}
-
-func runRemoteScript(machine remoteMachine, script string, forwardAgent bool) error {
-	return runSSHCommand(machine, "bash -s", false, forwardAgent, strings.NewReader(script))
 }
 
 func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwardAgent bool, stdin ...*strings.Reader) error {

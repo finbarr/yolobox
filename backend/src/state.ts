@@ -56,25 +56,6 @@ export class StateStore {
     });
   }
 
-  async patchMachine(userID: string, name: string, patch: RemoteMachine): Promise<RemoteMachine> {
-    let updated: RemoteMachine | undefined;
-    await this.update((state) => {
-      const key = machineKey(userID, name);
-      const existing = state.machines[key];
-      if (!existing) return;
-      updated = {
-        ...existing,
-        ...safeMachinePatch(patch),
-        name,
-        user_id: userID,
-        updated_at: new Date().toISOString(),
-      };
-      state.machines[key] = updated;
-    });
-    if (!updated) throw new Error("machine does not exist");
-    return updated;
-  }
-
   async deleteMachine(userID: string, name: string): Promise<void> {
     await this.update((state) => {
       delete state.machines[machineKey(userID, name)];
@@ -104,15 +85,4 @@ export class StateStore {
 
 function machineKey(userID: string, name: string): string {
   return `${userID}:${name}`;
-}
-
-function safeMachinePatch(patch: RemoteMachine): Partial<RemoteMachine> {
-  const safe: Partial<RemoteMachine> = {};
-  if (patch.source_path !== undefined) safe.source_path = patch.source_path;
-  if (patch.project_path !== undefined) safe.project_path = patch.project_path;
-  if (patch.repo_url !== undefined) safe.repo_url = patch.repo_url;
-  if (patch.branch !== undefined) safe.branch = patch.branch;
-  if (patch.last_command !== undefined) safe.last_command = patch.last_command;
-  if (patch.last_synced_at !== undefined) safe.last_synced_at = patch.last_synced_at;
-  return safe;
 }

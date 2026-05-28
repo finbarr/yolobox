@@ -41,6 +41,40 @@ type remoteBackendTunnelKeyResponse struct {
 	PrivateKey string `json:"private_key"`
 }
 
+type remoteBackendWorkspaceRequest struct {
+	SourcePath  string `json:"source_path,omitempty"`
+	ProjectPath string `json:"project_path,omitempty"`
+	RepoURL     string `json:"repo_url,omitempty"`
+	Branch      string `json:"branch,omitempty"`
+}
+
+type remoteBackendSetupRequest struct {
+	Commands []string `json:"commands,omitempty"`
+}
+
+type remoteBackendSessionPrepareRequest struct {
+	Command []string `json:"command,omitempty"`
+	Attach  bool     `json:"attach,omitempty"`
+}
+
+type remoteBackendCommandRequest struct {
+	Command []string `json:"command,omitempty"`
+}
+
+type remoteBackendAgentResult struct {
+	Command       string `json:"command,omitempty"`
+	AttachCommand string `json:"attach_command,omitempty"`
+	Status        string `json:"status,omitempty"`
+	RecordCommand bool   `json:"record_command,omitempty"`
+	Stdout        string `json:"stdout,omitempty"`
+	Stderr        string `json:"stderr,omitempty"`
+}
+
+type remoteBackendAgentResponse struct {
+	Machine remoteMachine            `json:"machine"`
+	Result  remoteBackendAgentResult `json:"result,omitempty"`
+}
+
 func createRemoteBackendMachine(cfg Config, projectDir string, opts remoteProvisionOptions) (remoteMachine, error) {
 	sourcePath, err := normalizedProjectPath(projectDir)
 	if err != nil {
@@ -109,8 +143,76 @@ func listRemoteBackendMachines(cfg Config) ([]remoteMachine, error) {
 	return response.Machines, nil
 }
 
-func updateRemoteBackendMachine(cfg Config, machine remoteMachine) error {
-	return remoteBackendRequest(cfg, http.MethodPatch, "/v1/machines/"+url.PathEscape(machine.Name), machine, nil)
+func prepareRemoteBackendWorkspace(cfg Config, machine remoteMachine) (remoteMachine, error) {
+	req := remoteBackendWorkspaceRequest{
+		SourcePath:  machine.SourcePath,
+		ProjectPath: machine.ProjectPath,
+		RepoURL:     machine.RepoURL,
+		Branch:      machine.Branch,
+	}
+	var response remoteBackendAgentResponse
+	if err := remoteBackendRequestWithTimeout(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/workspace", req, &response, remoteBackendProvisionTimeout); err != nil {
+		return machine, err
+	}
+	return mergeRemoteBackendMachine(machine, response.Machine), nil
+}
+
+func completeRemoteBackendSync(cfg Config, machine remoteMachine) (remoteMachine, error) {
+	req := remoteBackendWorkspaceRequest{
+		SourcePath:  machine.SourcePath,
+		ProjectPath: machine.ProjectPath,
+		RepoURL:     machine.RepoURL,
+		Branch:      machine.Branch,
+	}
+	var response remoteBackendAgentResponse
+	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/sync-complete", req, &response); err != nil {
+		return machine, err
+	}
+	return mergeRemoteBackendMachine(machine, response.Machine), nil
+}
+
+func runRemoteBackendSetup(cfg Config, machine remoteMachine, commands []string) error {
+	if len(commands) == 0 {
+		return nil
+	}
+	var response remoteBackendAgentResponse
+	req := remoteBackendSetupRequest{Commands: commands}
+	if err := remoteBackendRequestWithTimeout(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/setup", req, &response, remoteBackendProvisionTimeout); err != nil {
+		return err
+	}
+	if response.Result.Stdout != "" {
+		_, _ = fmt.Fprint(os.Stdout, response.Result.Stdout)
+	}
+	if response.Result.Stderr != "" {
+		_, _ = fmt.Fprint(os.Stderr, response.Result.Stderr)
+	}
+	return nil
+}
+
+func prepareRemoteBackendSession(cfg Config, machine remoteMachine, command []string, attach bool) (remoteBackendAgentResult, remoteMachine, error) {
+	req := remoteBackendSessionPrepareRequest{Command: command, Attach: attach}
+	var response remoteBackendAgentResponse
+	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/sessions/yolobox/prepare", req, &response); err != nil {
+		return remoteBackendAgentResult{}, machine, err
+	}
+	return response.Result, mergeRemoteBackendMachine(machine, response.Machine), nil
+}
+
+func remoteBackendSSHCommand(cfg Config, machine remoteMachine, command []string) (string, error) {
+	req := remoteBackendCommandRequest{Command: command}
+	var response remoteBackendAgentResponse
+	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/commands/ssh", req, &response); err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(response.Result.Command) == "" {
+		return "", fmt.Errorf("remote backend returned no SSH command for %s", machine.Name)
+	}
+	return response.Result.Command, nil
+}
+
+func recordRemoteBackendCommand(cfg Config, machine remoteMachine, command []string) error {
+	req := remoteBackendCommandRequest{Command: command}
+	return remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/commands/record", req, nil)
 }
 
 func releaseRemoteBackendMachine(cfg Config, name string) error {
@@ -218,4 +320,19 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func mergeRemoteBackendMachine(local remoteMachine, remote remoteMachine) remoteMachine {
+	if remote.Name == "" {
+		return local
+	}
+	if remote.SSHUser == "" {
+		remote.SSHUser = local.SSHUser
+	}
+	if remote.ProjectPath == "" {
+		remote.ProjectPath = local.ProjectPath
+	}
+	remote.SSHPrivateKey = local.SSHPrivateKey
+	remote.SSHKeyPath = local.SSHKeyPath
+	return remote
 }

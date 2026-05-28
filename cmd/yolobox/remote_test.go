@@ -53,9 +53,8 @@ func isolateRemoteSSHHome(t *testing.T) string {
 	return home
 }
 
-func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) {
+func TestRemoteBackendClientCreatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
-	var patched remoteMachine
 	deleted := false
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
@@ -82,11 +81,6 @@ func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) 
 				},
 				Status: "created",
 			})
-		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
-			if err := json.NewDecoder(r.Body).Decode(&patched); err != nil {
-				t.Fatalf("decode patch request: %v", err)
-			}
-			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines":
 			_ = json.NewEncoder(w).Encode(remoteBackendListResponse{Machines: []remoteMachine{{Name: "foo", PublicIPv4: "203.0.113.10"}}})
 		case r.Method == http.MethodDelete && r.URL.Path == "/v1/machines/foo":
@@ -112,13 +106,6 @@ func TestRemoteBackendClientCreatesUpdatesListsAndReleasesMachine(t *testing.T) 
 	}
 	if machine.ProjectPath != remoteProjectRoot || machine.Provider != "digitalocean" || machine.ProviderID != "host-a" {
 		t.Fatalf("unexpected machine: %+v", machine)
-	}
-	machine.LastCommand = []string{"codex"}
-	if err := updateRemoteBackendMachine(cfg, machine); err != nil {
-		t.Fatalf("updateRemoteBackendMachine failed: %v", err)
-	}
-	if patched.Name != "foo" || patched.LastCommand[0] != "codex" {
-		t.Fatalf("unexpected patched machine: %+v", patched)
 	}
 	machines, err := listRemoteBackendMachines(cfg)
 	if err != nil {
@@ -269,7 +256,9 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	const token = "secret-token"
 	isolateRemoteSSHHome(t)
 	sawPost := false
-	patches := 0
+	workspaceCalls := 0
+	syncCompleteCalls := 0
+	recordCalls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -289,11 +278,44 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 				},
 				Status: "active",
 			})
-		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
-			patches++
-			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
 			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/workspace":
+			workspaceCalls++
+			var req remoteBackendWorkspaceRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode workspace request: %v", err)
+			}
+			if req.SourcePath == "" || req.ProjectPath != remoteProjectRoot {
+				t.Fatalf("unexpected workspace request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
+				Name:              "foo",
+				SSHUser:           "root",
+				SourcePath:        req.SourcePath,
+				ProjectPath:       req.ProjectPath,
+				BootstrapComplete: true,
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
+			syncCompleteCalls++
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
+				Name:              "foo",
+				SSHUser:           "root",
+				ProjectPath:       remoteProjectRoot,
+				BootstrapComplete: true,
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/commands/ssh":
+			var req remoteBackendCommandRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode command request: %v", err)
+			}
+			if strings.Join(req.Command, " ") != "true" {
+				t.Fatalf("unexpected command request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Result: remoteBackendAgentResult{Command: "true"}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/commands/record":
+			recordCalls++
+			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines":
 			sawPost = true
 			w.WriteHeader(http.StatusConflict)
@@ -327,8 +349,8 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	if sawPost {
 		t.Fatal("remote run must not create missing machines")
 	}
-	if patches == 0 {
-		t.Fatal("expected remote run to update existing machine metadata")
+	if workspaceCalls != 1 || syncCompleteCalls != 1 || recordCalls != 1 {
+		t.Fatalf("expected workspace/sync/record calls, got workspace=%d sync=%d record=%d", workspaceCalls, syncCompleteCalls, recordCalls)
 	}
 	rsyncArgs, err := os.ReadFile(rsyncArgsFile)
 	if err != nil {
@@ -348,166 +370,82 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	}
 }
 
-func TestBuildRemoteSetupScript(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	script := buildRemoteSetupScript(machine, []string{"docker compose pull"})
-	for _, want := range []string{
-		"set -euo pipefail",
-		"cd '/Users/example/my app'",
-		"docker compose pull",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("expected setup script to contain %q, got:\n%s", want, script)
+func TestRemoteSyncUpPreparesWorkspaceThroughBackend(t *testing.T) {
+	const token = "secret-token"
+	isolateRemoteSSHHome(t)
+	workspaceCalls := 0
+	syncCompleteCalls := 0
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte("unauthorized"))
+			return
 		}
-	}
-}
-
-func TestBuildEnsureRemoteProjectPathScriptCreatesSourceAlias(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	script := buildEnsureRemoteProjectPathScript(machine)
-	for _, want := range []string{
-		"storage='/opt/yolobox/project'",
-		"work='/Users/example/my app'",
-		"ln -s \"$storage\" \"$work\"",
-		"cannot map remote project workdir $work",
-	} {
-		if !strings.Contains(script, want) {
-			t.Fatalf("expected ensure script to contain %q, got:\n%s", want, script)
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo":
+			_ = json.NewEncoder(w).Encode(remoteBackendMachineResponse{
+				Machine: remoteMachine{
+					Name:              "foo",
+					Provider:          "digitalocean",
+					ProviderID:        "host-a",
+					PublicIPv4:        "203.0.113.10",
+					SSHUser:           "root",
+					BootstrapComplete: true,
+				},
+				Status: "active",
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
+			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/workspace":
+			workspaceCalls++
+			var req remoteBackendWorkspaceRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode workspace request: %v", err)
+			}
+			if req.SourcePath == "" || req.ProjectPath != remoteProjectRoot {
+				t.Fatalf("unexpected workspace request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
+				Name:              "foo",
+				SSHUser:           "root",
+				SourcePath:        req.SourcePath,
+				ProjectPath:       req.ProjectPath,
+				BootstrapComplete: true,
+			}})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
+			syncCompleteCalls++
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
+				Name:              "foo",
+				SSHUser:           "root",
+				ProjectPath:       remoteProjectRoot,
+				BootstrapComplete: true,
+			}})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-	}
-}
+	}))
+	defer ts.Close()
 
-func TestEnsureRemoteProjectPathScriptCreatesSourceAlias(t *testing.T) {
 	root := t.TempDir()
 	fakeBin := filepath.Join(root, "bin")
 	if err := os.MkdirAll(fakeBin, 0755); err != nil {
 		t.Fatalf("create fake bin: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("write fake ssh: %v", err)
 	}
 	if err := os.WriteFile(filepath.Join(fakeBin, "rsync"), []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
 		t.Fatalf("write fake rsync: %v", err)
 	}
-
-	storagePath := filepath.Join(root, "storage", "project")
-	sourcePath := filepath.Join(root, "Users", "example", "project")
-	script := buildEnsureRemoteProjectPathScript(remoteMachine{ProjectPath: storagePath, SourcePath: sourcePath})
-	cmd := exec.Command("bash", "-c", script)
-	cmd.Env = append(os.Environ(), "PATH="+fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	if output, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("ensure script failed: %v\n%s", err, output)
-	}
-
-	info, err := os.Stat(storagePath)
-	if err != nil {
-		t.Fatalf("stat storage path: %v", err)
-	}
-	if !info.IsDir() {
-		t.Fatalf("expected storage path to be a directory")
-	}
-	target, err := os.Readlink(sourcePath)
-	if err != nil {
-		t.Fatalf("read source alias: %v", err)
-	}
-	if target != storagePath {
-		t.Fatalf("source alias target = %q, want %q", target, storagePath)
-	}
-}
-
-func TestRemoteTmuxCommandUsesSourcePathAsVMWorkdir(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteTmuxCommand(machine, []string{"codex", "--resume"}, true)
-	for _, want := range []string{
-		"cd '/Users/example/my app'",
-		"tmux new-session -A -s 'yolobox'",
-		"-c '/Users/example/my app'",
-		"'/usr/local/bin/yolobox-remote-session' '/Users/example/my app'",
-		"codex",
-		"--resume",
-	} {
-		if !strings.Contains(command, want) {
-			t.Fatalf("expected tmux command to contain %q, got %s", want, command)
-		}
-	}
-}
-
-func TestRemoteTmuxCommandFallsBackToProjectPath(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/my app"}
-	command := remoteTmuxCommand(machine, []string{"codex", "--resume"}, true)
-	for _, want := range []string{
-		"cd '/opt/yolobox/my app'",
-		"-c '/opt/yolobox/my app'",
-	} {
-		if !strings.Contains(command, want) {
-			t.Fatalf("expected tmux command to contain %q, got %s", want, command)
-		}
-	}
-}
-
-func TestRemoteTmuxDetachedCommandStartsOnlyWhenNoManagedSessionExists(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteTmuxCommand(machine, []string{"codex"}, false)
-	if strings.Contains(command, "has-session") {
-		t.Fatalf("detached tmux command should not silently no-op when a session exists: %s", command)
-	}
-	for _, want := range []string{
-		"tmux new-session -d -s 'yolobox'",
-		"-c '/Users/example/my app'",
-		"codex",
-	} {
-		if !strings.Contains(command, want) {
-			t.Fatalf("expected detached tmux command to contain %q, got %s", want, command)
-		}
-	}
-}
-
-func TestRemoteTmuxAttachCommandAttachesWithoutCommand(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteTmuxAttachCommand(machine)
-	for _, want := range []string{
-		"cd '/Users/example/my app'",
-		"tmux attach-session -t 'yolobox'",
-	} {
-		if !strings.Contains(command, want) {
-			t.Fatalf("expected attach command to contain %q, got %s", want, command)
-		}
-	}
-	if strings.Contains(command, "new-session") || strings.Contains(command, "codex") {
-		t.Fatalf("attach command should not create a session or carry a requested command: %s", command)
-	}
-}
-
-func TestRemoteManagedSessionExistsHandlesSSHExitCodes(t *testing.T) {
-	root := t.TempDir()
-	isolateRemoteSSHHome(t)
-	fakeBin := filepath.Join(root, "bin")
-	if err := os.MkdirAll(fakeBin, 0755); err != nil {
-		t.Fatalf("create fake bin: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(fakeBin, "ssh"), []byte("#!/bin/sh\nexit \"${YOLOBOX_FAKE_SSH_EXIT:-0}\"\n"), 0755); err != nil {
-		t.Fatalf("write fake ssh: %v", err)
-	}
 	t.Setenv("PATH", fakeBin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(remoteBackendURLEnv, ts.URL)
+	t.Setenv(remoteAuthTokenEnv, token)
 
-	keyFile := filepath.Join(root, "id")
-	if err := os.WriteFile(keyFile, []byte("fake-key"), 0600); err != nil {
-		t.Fatalf("write key: %v", err)
+	if err := runRemoteSync([]string{"up", "foo"}, t.TempDir()); err != nil {
+		t.Fatalf("remote sync up failed: %v", err)
 	}
-	machine := remoteMachine{Name: "foo", PublicIPv4: "192.0.2.1", SSHKeyPath: keyFile}
-	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "0")
-	exists, err := remoteManagedSessionExists(machine)
-	if err != nil || !exists {
-		t.Fatalf("exit 0 should mean session exists, exists=%v err=%v", exists, err)
-	}
-
-	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "1")
-	exists, err = remoteManagedSessionExists(machine)
-	if err != nil || exists {
-		t.Fatalf("exit 1 should mean no session, exists=%v err=%v", exists, err)
-	}
-
-	t.Setenv("YOLOBOX_FAKE_SSH_EXIT", "255")
-	exists, err = remoteManagedSessionExists(machine)
-	if err == nil || exists {
-		t.Fatalf("unexpected SSH failure should be an error, exists=%v err=%v", exists, err)
+	if workspaceCalls != 1 || syncCompleteCalls != 1 {
+		t.Fatalf("expected workspace and sync-complete calls, got workspace=%d sync=%d", workspaceCalls, syncCompleteCalls)
 	}
 }
 
@@ -547,32 +485,6 @@ func TestRemoteSSHOptionsUsePersistentKnownHosts(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0600 {
 		t.Fatalf("known hosts file mode = %o, want 600", got)
-	}
-}
-
-func TestRemoteDirectCommandUsesSourcePathAsVMWorkdir(t *testing.T) {
-	machine := remoteMachine{ProjectPath: "/opt/yolobox/project", SourcePath: "/Users/example/my app"}
-	command := remoteDirectCommand(machine, remoteHostCommand([]string{"run", "echo", "ok"}))
-	if !strings.Contains(command, "cd '/Users/example/my app'; exec 'echo' 'ok'") {
-		t.Fatalf("unexpected direct command: %s", command)
-	}
-}
-
-func TestRemoteHostCommandMapsYoloboxSubcommandsToVMCommands(t *testing.T) {
-	for _, tt := range []struct {
-		name string
-		in   []string
-		want []string
-	}{
-		{name: "empty", in: nil, want: []string{"bash"}},
-		{name: "shell", in: []string{"shell"}, want: []string{"bash"}},
-		{name: "run", in: []string{"run", "make", "test"}, want: []string{"make", "test"}},
-		{name: "run empty", in: []string{"run"}, want: []string{"bash"}},
-		{name: "agent", in: []string{"codex", "--resume"}, want: []string{"codex", "--resume"}},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			expectSliceEqual(t, remoteHostCommand(tt.in), tt.want)
-		})
 	}
 }
 
@@ -811,7 +723,7 @@ token = "secret-token"
 func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
 	const token = "secret-token"
 	isolateRemoteSSHHome(t)
-	patches := 0
+	sessionCalls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
 			w.WriteHeader(http.StatusUnauthorized)
@@ -833,11 +745,27 @@ func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
 				},
 				Status: "active",
 			})
-		case r.Method == http.MethodPatch && r.URL.Path == "/v1/machines/foo":
-			patches++
-			w.WriteHeader(http.StatusNoContent)
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
 			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sessions/yolobox/prepare":
+			sessionCalls++
+			var req remoteBackendSessionPrepareRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				t.Fatalf("decode session request: %v", err)
+			}
+			if req.Attach || strings.Join(req.Command, " ") != "shell" {
+				t.Fatalf("unexpected session request: %+v", req)
+			}
+			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{
+				Machine: remoteMachine{
+					Name:              "foo",
+					SSHUser:           "root",
+					SourcePath:        "/Users/example/project",
+					ProjectPath:       remoteProjectRoot,
+					BootstrapComplete: true,
+				},
+				Result: remoteBackendAgentResult{Status: "started_detached", RecordCommand: true},
+			})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -871,8 +799,8 @@ exit 0
 	if err := runRemoteConnect([]string{"foo"}, t.TempDir()); err != nil {
 		t.Fatalf("remote connect failed: %v", err)
 	}
-	if patches != 1 {
-		t.Fatalf("expected connect to record last command once, got %d patches", patches)
+	if sessionCalls != 1 {
+		t.Fatalf("expected connect to ask backend to prepare one session, got %d", sessionCalls)
 	}
 	logBytes, err := os.ReadFile(sshLog)
 	if err != nil {
@@ -882,11 +810,11 @@ exit 0
 	if strings.Contains(sshLogContent, "bash -s") {
 		t.Fatalf("connect should not run bootstrap or workspace setup scripts:\n%s", sshLogContent)
 	}
-	if !strings.Contains(sshLogContent, "tmux has-session -t 'yolobox'") {
-		t.Fatalf("connect should check for the managed tmux session:\n%s", sshLogContent)
+	if strings.Contains(sshLogContent, "tmux has-session") || strings.Contains(sshLogContent, "tmux new-session") {
+		t.Fatalf("connect should leave tmux session lifecycle to the backend agent:\n%s", sshLogContent)
 	}
-	if !strings.Contains(sshLogContent, "tmux new-session -d -s 'yolobox'") {
-		t.Fatalf("connect should create the managed tmux session when missing:\n%s", sshLogContent)
+	if strings.Contains(sshLogContent, "tmux attach-session") {
+		t.Fatalf("non-terminal connect should not attach locally:\n%s", sshLogContent)
 	}
 }
 

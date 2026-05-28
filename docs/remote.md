@@ -10,7 +10,7 @@ Implemented in the CLI:
 
 - default hosted backend URL: `https://api.yolobox.dev`
 - `yolobox login` and `yolobox logout` for backend auth
-- backend-backed machine lease, status, list, update, and destroy calls
+- backend-backed machine lease, status, list, narrow metadata, and destroy calls
 - one named VM per remote name
 - one project storage path per VM: `/opt/yolobox/project`
 - one source-path workdir alias per VM, matching the original local project path
@@ -27,7 +27,7 @@ Implemented in the open-source backend package under `backend/`:
 - SQLite auth database plus JSON state file for leased machines
 - per-user machine ownership and isolation
 - DigitalOcean provider adapter for self-hosted provisioning
-- machine metadata updates from the CLI
+- narrow machine metadata updates from CLI sync and command events
 - per-machine high-entropy agent tokens and a token-only machine heartbeat endpoint
 - per-machine backend-issued tunnel SSH credentials
 - token-authenticated VM agent WebSocket tunnel endpoint
@@ -46,7 +46,7 @@ Not implemented in this repo:
 
 Remote mode has one main concept: a machine. A named remote maps to one VM, one project storage directory, one source-path workdir alias, and one tmux session.
 
-Project bytes live at `/opt/yolobox/project` on the remote VM. The CLI also creates the original local source path on the VM as a symlink to that storage directory, then starts the requested agent command directly on the VM from that source path. That means a local checkout at `/Users/example/project` also appears at `/Users/example/project` on the remote machine, which keeps Codex and Claude session paths stable.
+Project bytes live at `/opt/yolobox/project` on the remote VM. The backend asks the VM agent to create the original local source path on the VM as a symlink to that storage directory, then to prepare the requested command or managed session from that source path. That means a local checkout at `/Users/example/project` also appears at `/Users/example/project` on the remote machine, which keeps Codex and Claude session paths stable.
 
 That is intentional. Multiple workspaces and multiple named sessions on one VM replicated fork-mode concepts remotely and made state ownership unclear. If you want another remote environment, create another named remote machine.
 
@@ -181,7 +181,7 @@ The backend stores Better Auth users and sessions in SQLite at `~/.local/state/y
 
 The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames. Set `YOLOBOX_PREVIEW_BASE_DOMAIN` when the deployment has wildcard DNS for generated preview hosts, and `YOLOBOX_PREVIEW_TARGET_PORT` when machines should receive preview traffic on a port other than `80`.
 
-The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot id so new machines start with the remote runtime already installed. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`, but the CLI does not bootstrap that plain host for you. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
+The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot id so new machines start with the remote runtime already installed. Runtime dependencies belong in that image; backend agent RPC fails if expected tools are missing instead of installing packages on user-created VMs. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`, but the CLI does not bootstrap that plain host for you. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
 ## Client Responsibilities
 
@@ -192,12 +192,11 @@ After the backend leases a host, the CLI:
 - waits for tunneled SSH after the backend returns a bootstrapped host
 - fails loudly when backend machine metadata says bootstrap has not completed
 - mirrors the local folder to `/opt/yolobox/project`
-- maps the original local source path to that storage directory on the VM
-- runs setup commands from the source-path workdir after upward sync
-- starts or connects to the single `yolobox` tmux session for interactive VM-native commands
+- asks the backend/agent to map the original local source path to that storage directory on the VM
+- asks the backend/agent to run setup commands from the source-path workdir after upward sync
+- asks the backend/agent to start or connect to the single `yolobox` tmux session for interactive VM-native commands
 - runs noninteractive commands over tunneled SSH
-- exposes `YOLOBOX_PREVIEW_URL` and `YOLOBOX_PREVIEW_HOSTNAME` inside remote sessions when the backend returned them
-- patches backend machine metadata after sync and command execution
+- records sync completion and command execution through narrow backend endpoints
 
 Remote create, run, connect, and sync require local `ssh` because SSH is still
 the client protocol inside the backend tunnel. Commands that copy project files
@@ -330,7 +329,8 @@ Machine-agent WebSocket endpoint. It requires the same machine-agent bearer
 token as the heartbeat endpoint. The request does not include a machine name;
 the backend maps the token hash to exactly one machine. The VM agent keeps this
 WebSocket open, receives `open` requests from the backend, connects to
-`127.0.0.1:22` on the VM, and relays stream bytes as base64 messages.
+`127.0.0.1:22` on the VM, relays stream bytes as base64 messages, and handles
+backend RPC for workspace/session operations.
 
 ### `GET /v1/machines/{name}/tunnel/ssh`
 
@@ -341,9 +341,36 @@ opens an SSH stream through the connected VM agent. If the VM agent is not
 connected or the stream cannot be opened, the endpoint sends an error and closes
 instead of offering another path.
 
-### `PATCH /v1/machines/{name}`
+### `POST /v1/machines/{name}/workspace`
 
-Accept CLI-owned metadata updates such as source path, repo URL, branch, last command, sync timestamp, and project storage path. Bootstrap status is provider/backend-owned.
+Ask the connected VM agent to prepare `/opt/yolobox/project` and the source-path
+workdir alias. The backend updates source path, project path, repo URL, and
+branch metadata after the agent confirms preparation.
+
+### `POST /v1/machines/{name}/setup`
+
+Ask the connected VM agent to run configured setup commands from the source-path
+workdir after an upward sync.
+
+### `POST /v1/machines/{name}/sync-complete`
+
+Record that the CLI finished an rsync operation. This is a narrow state
+transition rather than a broad machine patch.
+
+### `POST /v1/machines/{name}/sessions/yolobox/prepare`
+
+Ask the connected VM agent to create or inspect the single managed `yolobox`
+tmux session and return an attach command when the local CLI should attach.
+
+### `POST /v1/machines/{name}/commands/ssh`
+
+Ask the connected VM agent to resolve a noninteractive command into the VM-native
+SSH command string that applies yolobox remote environment and workdir setup.
+
+### `POST /v1/machines/{name}/commands/record`
+
+Record a successfully completed command through a narrow backend state
+transition.
 
 ### `DELETE /v1/machines/{name}`
 
@@ -377,7 +404,7 @@ The remote storage path remains `/opt/yolobox/project`, but commands run from a 
 
 Remote mode does not run a nested yolobox container on the VM. A yolobox remote machine is the sandbox: it runs the requested command directly on the VM, with `/opt/yolobox/bin` wrappers first on `PATH`, Docker Engine available on the host, and persistent installs written to the VM disk.
 
-Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/tunnel` with the per-machine token from `/etc/yolobox/agent.env`, and is required for all normal remote SSH access.
+Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/tunnel` with the per-machine token from `/etc/yolobox/agent.env`, handles backend RPC for workspace/session operations, and is required for all normal remote SSH access.
 
 When building an image from this repository checkout, run:
 
@@ -397,8 +424,10 @@ The builder creates a temporary Droplet, installs the remote VM runtime from the
 committed checkout, cleans cloud-init and SSH host identity so cloned machines
 receive fresh instance metadata, powers the Droplet off, snapshots it, deletes
 the builder, and writes the new snapshot id to `YOLOBOX_REMOTE_IMAGE` when
-`--set-active` is passed. For release-grade images, build from a pushed tag or
-commit:
+`--set-active` is passed. Remote runtime dependencies should be fixed in this
+image; VM-agent RPC should report a broken image instead of running package
+installation on user-created machines. For release-grade images, build from a
+pushed tag or commit:
 
 ```bash
 deploy/digitalocean/build-remote-image.sh \

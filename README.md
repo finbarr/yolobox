@@ -236,11 +236,13 @@ yolobox remote destroy foo --force
 Remote support is intentionally one machine, one project, and one tmux session. A named remote maps to one VM with project storage at `/opt/yolobox/project`, a workdir alias at the original local source path, and the session named `yolobox`. Remote mode runs Codex, Claude, shells, and `docker compose` directly on the VM with yolobox wrappers on `PATH`; it does not start a nested yolobox container. That keeps session paths stable while making host installs and Docker workloads persist on the remote machine. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
 
 Remote run, connect, and sync always reach the VM through the backend tunnel.
-The CLI still uses local `ssh` and `rsync`, but `ssh` is invoked with a
-`ProxyCommand` that opens a backend WebSocket tunnel to the VM agent. There is no
-direct droplet-IP SSH fallback. If the machine agent is disconnected, the
-machine lacks backend-issued tunnel credentials, or the backend cannot open the
-tunnel to SSH on the VM, the command fails. Remote SSH host keys are stored in
+The CLI still uses local `ssh` and `rsync` for terminal I/O and project bytes,
+but workspace prep, setup commands, command wrapping, and tmux session lifecycle
+are backend-authorized VM agent actions. `ssh` is invoked with a `ProxyCommand`
+that opens a backend WebSocket tunnel to the VM agent. There is no direct
+droplet-IP SSH fallback. If the machine agent is disconnected, the machine lacks
+backend-issued tunnel credentials, or the backend cannot open the tunnel to SSH
+on the VM, the command fails. Remote SSH host keys are stored in
 `~/.yolobox/remote_known_hosts`; a named remote is accepted on first contact and
 then pinned, so repeated connects do not re-accept the same host key.
 
@@ -258,10 +260,11 @@ should use a non-default VM size. Create fails if that machine name already
 exists; use `remote run`, `remote connect`, or `remote status` for existing
 machines. Remote commands print progress while backend provisioning and SSH
 startup are pending; when a machine is ready, any generated preview URL is shown
-on its own line. `yolobox remote run foo ...` syncs the current folder, then
-runs the command. `yolobox remote connect foo` opens or attaches to the managed
-tmux session without syncing, bootstrapping, or changing the remote workdir
-alias. If backend metadata says bootstrap has not completed, connect fails
+on its own line. `yolobox remote run foo ...` syncs the current folder, then asks
+the backend/agent to prepare the command or managed session before the CLI
+attaches over the tunnel. `yolobox remote connect foo` opens or attaches to the
+managed tmux session without syncing, bootstrapping, or changing the remote
+workdir alias. If backend metadata says bootstrap has not completed, connect fails
 instead of trying to repair the VM from the CLI. If the managed tmux session
 already exists, `remote run` and `remote connect` attach to that session instead
 of starting another one or replacing what is running. From a non-terminal, an
@@ -279,13 +282,15 @@ When `mode = "remote"` and `remote_name` are configured, bare `yolobox` uses
 that named remote. Explicit `yolobox remote ...` subcommands still require a
 machine name so typos in command names fail instead of becoming machine names.
 
-Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM, then maps the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
+Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM. The backend asks the VM agent to map the original source path, such as `/Users/you/code/app`, to that storage directory for the running session. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run through the VM agent after an upward sync finishes from the source-path workdir. Downward sync intentionally requires `--force` because it can overwrite local files.
 
 Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
 yolobox VM image or provider snapshot id. The backend is responsible for
 returning bootstrapped machines; the CLI no longer sends the VM runtime
-installer over SSH. Installer command output is written on the VM to
-`/var/log/yolobox-remote-install.log` when building the remote image. The
+installer over SSH. Runtime dependencies belong in that image; backend agent RPC
+fails if expected tools are missing instead of installing packages on
+user-created VMs. Installer command output is written on the VM to
+`/var/log/yolobox-remote-install.log` only when building the remote image. The
 DigitalOcean deployment bundle includes
 [`build-remote-image.sh`](deploy/digitalocean/build-remote-image.sh), which
 creates and optionally activates a new golden snapshot from a committed checkout
@@ -297,7 +302,9 @@ VM through provider user data. VM-side agent endpoints authenticate only that
 token and never trust a machine name claimed by the VM. The backend also creates
 per-machine tunnel SSH credentials, stores the private key in backend state, and
 puts the public key in root's `authorized_keys` through provider user data so
-authenticated CLI sessions can SSH only through the tunnel.
+authenticated CLI sessions can SSH only through the tunnel. The same
+token-authenticated VM agent handles backend RPC for workspace preparation, setup
+commands, command wrapping, and the single managed tmux session.
 
 Active SSH tunnels are live WebSocket connections through the backend. Restarting
 or redeploying the backend drops those connections, so the local SSH command

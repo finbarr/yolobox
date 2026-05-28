@@ -61,7 +61,7 @@ class FakeProvider implements MachineProvider {
   }
 }
 
-test("backend creates, updates, lists, and releases one machine", async () => {
+test("backend creates, records, lists, and releases one machine", async () => {
   const { app, provider, token } = await createTestBackend();
 
   const unauthorized = await app.inject({ method: "GET", url: "/v1/machines" });
@@ -95,21 +95,16 @@ test("backend creates, updates, lists, and releases one machine", async () => {
   assert.match(provider.created[0].agent_token || "", /^[A-Za-z0-9_-]{64}$/);
   assert.equal(provider.created[0].agent_backend_url, "https://api.hosted.test");
 
-  const patched = await app.inject({
-    method: "PATCH",
-    url: "/v1/machines/foo",
+  const recorded = await app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/commands/record",
     headers,
-    payload: {
-      last_command: ["codex"],
-      public_ipv4: "127.0.0.1",
-      preview_hostname: "takeover.hosted.test",
-    },
+    payload: { command: ["codex"] },
   });
-  assert.equal(patched.statusCode, 200);
-  assert.deepEqual(patched.json().machine.last_command, ["codex"]);
-  assert.equal(patched.json().machine.bootstrap_complete, true);
-  assert.equal(patched.json().machine.public_ipv4, "203.0.113.10");
-  assert.equal(patched.json().machine.preview_hostname, createBody.machine.preview_hostname);
+  assert.equal(recorded.statusCode, 200);
+  assert.deepEqual(recorded.json().machine.last_command, ["codex"]);
+  assert.equal(recorded.json().machine.bootstrap_complete, true);
+  assert.equal(recorded.json().machine.preview_hostname, createBody.machine.preview_hostname);
 
   const listed = await app.inject({ method: "GET", url: "/v1/machines", headers });
   assert.equal(listed.statusCode, 200);
@@ -199,13 +194,13 @@ test("backend tunnels SSH bytes through the token-authenticated machine agent", 
   agent.send(JSON.stringify({ type: "data", stream_id: open.stream_id, data: Buffer.from("from-agent").toString("base64") }));
   assert.equal((await clientData).toString(), "from-agent");
 
-  const patched = await app.inject({
-    method: "PATCH",
-    url: "/v1/machines/foo",
+  const recorded = await app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/commands/record",
     headers: { authorization: `Bearer ${token}` },
-    payload: { last_command: ["codex"] },
+    payload: { command: ["codex"] },
   });
-  assert.equal(patched.statusCode, 200, patched.body);
+  assert.equal(recorded.statusCode, 200, recorded.body);
   const pong = nextWSMessage(agent);
   agent.send(JSON.stringify({ type: "ping" }));
   assert.equal(JSON.parse((await pong).toString()).type, "pong");
@@ -213,6 +208,69 @@ test("backend tunnels SSH bytes through the token-authenticated machine agent", 
   assert.deepEqual(fetched.json().machine.last_command, ["codex"]);
 
   client.terminate();
+  agent.terminate();
+});
+
+test("backend delegates workspace and session lifecycle to the machine agent", async () => {
+  const { app, provider, token } = await createTestBackend();
+  const headers = { authorization: `Bearer ${token}` };
+  const created = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers,
+    payload: { name: "foo" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+  const agentToken = provider.created[0].agent_token || "";
+
+  await app.ready();
+  const agent = await app.injectWS("/v1/agent/tunnel", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+
+  const workspaceRequest = app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/workspace",
+    headers,
+    payload: {
+      source_path: "/Users/example/project",
+      project_path: "/opt/yolobox/project",
+      repo_url: "git@example.com:repo.git",
+      branch: "main",
+    },
+  });
+  const workspaceRPC = JSON.parse((await nextWSMessage(agent)).toString());
+  assert.equal(workspaceRPC.type, "rpc");
+  assert.equal(workspaceRPC.action, "prepare_workspace");
+  assert.equal(workspaceRPC.payload.source_path, "/Users/example/project");
+  assert.equal(workspaceRPC.payload.project_path, "/opt/yolobox/project");
+  agent.send(JSON.stringify({ type: "rpc_result", rpc_id: workspaceRPC.rpc_id, ok: true, result: { work_path: "/Users/example/project" } }));
+  const workspace = await workspaceRequest;
+  assert.equal(workspace.statusCode, 200, workspace.body);
+  assert.equal(workspace.json().machine.source_path, "/Users/example/project");
+
+  const sessionRequest = app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/sessions/yolobox/prepare",
+    headers,
+    payload: { command: ["codex"], attach: true },
+  });
+  const sessionRPC = JSON.parse((await nextWSMessage(agent)).toString());
+  assert.equal(sessionRPC.type, "rpc");
+  assert.equal(sessionRPC.action, "prepare_session");
+  assert.deepEqual(sessionRPC.payload.command, ["codex"]);
+  assert.equal(sessionRPC.payload.attach, true);
+  agent.send(JSON.stringify({
+    type: "rpc_result",
+    rpc_id: sessionRPC.rpc_id,
+    ok: true,
+    result: { status: "started", attach_command: "tmux attach-session -t 'yolobox'", record_command: true },
+  }));
+  const session = await sessionRequest;
+  assert.equal(session.statusCode, 200, session.body);
+  assert.equal(session.json().result.attach_command, "tmux attach-session -t 'yolobox'");
+
+  const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers });
+  assert.deepEqual(fetched.json().machine.last_command, ["codex"]);
+
   agent.terminate();
 });
 
