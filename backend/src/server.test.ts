@@ -215,6 +215,7 @@ test("backend signs short-lived SSH certificates for owned machines", async () =
   assert.equal(trustRPC.action, "run_setup");
   assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("/run/sshd")));
   assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys")));
+  assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("systemctl restart ssh")));
   agent.send(JSON.stringify({
     type: "rpc_result",
     rpc_id: trustRPC.rpc_id,

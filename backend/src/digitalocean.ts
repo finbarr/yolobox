@@ -312,7 +312,7 @@ function sshCertificateTrustCommand(userCA: string | undefined, principal: strin
     `chmod 0644 /etc/ssh/auth_principals/${shellSingleQuote(user)}`,
     "printf '%s\\n' 'TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys' 'AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' > /etc/ssh/sshd_config.d/90-yolobox-user-ca.conf",
     "sshd -t",
-    "(systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1 || true)",
+    "(systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1 || systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || pkill -HUP sshd >/dev/null 2>&1 || true)",
   ].join(" && ");
 }
 
