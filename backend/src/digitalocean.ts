@@ -305,7 +305,7 @@ function sshCertificateTrustCommand(userCA: string | undefined, principal: strin
   if (!userCA || !principal) return "true";
   const user = safeLinuxUser(sshUser || "root");
   return [
-    "install -d -m 0755 /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
+    "install -d -m 0755 /run/sshd /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
     `printf '%s\\n' ${shellSingleQuote(userCA)} > /etc/ssh/yolobox_user_ca_keys`,
     "chmod 0644 /etc/ssh/yolobox_user_ca_keys",
     `printf '%s\\n' ${shellSingleQuote(principal)} > /etc/ssh/auth_principals/${shellSingleQuote(user)}`,

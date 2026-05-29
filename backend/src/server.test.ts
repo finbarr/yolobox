@@ -213,6 +213,7 @@ test("backend signs short-lived SSH certificates for owned machines", async () =
   const trustRPC = JSON.parse((await nextWSMessage(agent)).toString());
   assert.equal(trustRPC.type, "rpc");
   assert.equal(trustRPC.action, "run_setup");
+  assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("/run/sshd")));
   assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys")));
   agent.send(JSON.stringify({
     type: "rpc_result",

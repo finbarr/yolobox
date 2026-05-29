@@ -584,7 +584,7 @@ async function ensureMachineSSHCertificateTrust(
   await callAgentRPC(agent, "run_setup", {
     ...machineRuntimePayload(machine),
     commands: [
-      "install -d -m 0755 /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
+      "install -d -m 0755 /run/sshd /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
       `printf '%s\\n' ${shellQuote(caPublicKey)} > /etc/ssh/yolobox_user_ca_keys`,
       "chmod 0644 /etc/ssh/yolobox_user_ca_keys",
       `printf '%s\\n' ${shellQuote(principal)} > /etc/ssh/auth_principals/${shellQuote(user)}`,

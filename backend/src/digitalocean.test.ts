@@ -119,6 +119,7 @@ test("DigitalOcean agent user data carries token credentials and SSH CA trust", 
   assert.match(userData, /YOLOBOX_AGENT_TOKEN='test-token'/);
   assert.match(userData, /YOLOBOX_AGENT_BACKEND_URL='https:\/\/api\.example\.com'/);
   assert.match(userData, /ssh_pwauth: false/);
+  assert.match(userData, /\/run\/sshd/);
   assert.match(userData, /TrustedUserCAKeys \/etc\/ssh\/yolobox_user_ca_keys/);
   assert.match(userData, /AuthorizedPrincipalsFile \/etc\/ssh\/auth_principals\/%u/);
   assert.match(userData, /PasswordAuthentication no/);
