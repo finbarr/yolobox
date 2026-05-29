@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,6 +20,10 @@ const (
 	remoteBackendDefaultTimeout   = 30 * time.Second
 	remoteBackendProvisionTimeout = 5 * time.Minute
 )
+
+var remoteBackendHTTPClient = &http.Client{
+	Transport: remoteBackendHTTPTransport(),
+}
 
 type remoteBackendCreateRequest struct {
 	Name       string `json:"name"`
@@ -253,7 +259,9 @@ func remoteBackendRequestWithTimeout(cfg Config, method string, endpoint string,
 	} else {
 		requestBody = bytes.NewReader(nil)
 	}
-	req, err := http.NewRequest(method, strings.TrimRight(baseURL, "/")+endpoint, requestBody)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(baseURL, "/")+endpoint, requestBody)
 	if err != nil {
 		return err
 	}
@@ -261,8 +269,7 @@ func remoteBackendRequestWithTimeout(cfg Config, method string, endpoint string,
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: timeout}
-	resp, err := client.Do(req)
+	resp, err := remoteBackendHTTPClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -280,6 +287,28 @@ func remoteBackendRequestWithTimeout(cfg Config, method string, endpoint string,
 		return nil
 	}
 	return json.NewDecoder(resp.Body).Decode(out)
+}
+
+func remoteBackendHTTPTransport() *http.Transport {
+	base, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return &http.Transport{
+			ForceAttemptHTTP2: false,
+			TLSNextProto:      map[string]func(string, *tls.Conn) http.RoundTripper{},
+		}
+	}
+	transport := base.Clone()
+	// Long provisioning requests have been cut by Caddy's HTTP/2 path before
+	// any response headers were sent; keep CLI control-plane calls on HTTP/1.x.
+	transport.ForceAttemptHTTP2 = false
+	transport.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	if transport.TLSClientConfig != nil {
+		transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	} else {
+		transport.TLSClientConfig = &tls.Config{}
+	}
+	transport.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	return transport
 }
 
 func remoteBackendURL(cfg Config) string {

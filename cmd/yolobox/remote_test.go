@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/x509"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -119,6 +120,43 @@ func TestRemoteBackendClientCreatesListsAndReleasesMachine(t *testing.T) {
 	}
 	if !deleted {
 		t.Fatal("expected delete request")
+	}
+}
+
+func TestRemoteBackendClientUsesHTTP1ForTLS(t *testing.T) {
+	const token = "secret-token"
+	gotProto := ""
+	ts := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotProto = r.Proto
+		if r.Header.Get("Authorization") != "Bearer "+token {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(remoteBackendListResponse{})
+	}))
+	ts.EnableHTTP2 = true
+	ts.StartTLS()
+	defer ts.Close()
+
+	rootCAs := x509.NewCertPool()
+	rootCAs.AddCert(ts.Certificate())
+	transport := remoteBackendHTTPTransport()
+	transport.TLSClientConfig = transport.TLSClientConfig.Clone()
+	transport.TLSClientConfig.RootCAs = rootCAs
+	oldClient := remoteBackendHTTPClient
+	remoteBackendHTTPClient = &http.Client{Transport: transport}
+	t.Cleanup(func() {
+		remoteBackendHTTPClient = oldClient
+	})
+
+	cfg := defaultConfig()
+	cfg.Remote.BackendURL = ts.URL
+	cfg.Remote.Token = token
+	if _, err := listRemoteBackendMachines(cfg); err != nil {
+		t.Fatalf("listRemoteBackendMachines failed: %v", err)
+	}
+	if gotProto != "HTTP/1.1" {
+		t.Fatalf("expected backend client to use HTTP/1.1, got %s", gotProto)
 	}
 }
 
