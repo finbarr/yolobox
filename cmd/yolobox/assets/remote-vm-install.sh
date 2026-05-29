@@ -436,6 +436,7 @@ import path from "node:path";
 const backendURL = (process.env.YOLOBOX_AGENT_BACKEND_URL || "").replace(/\/+$/, "");
 const token = process.env.YOLOBOX_AGENT_TOKEN || "";
 const heartbeatInterval = Number(process.env.YOLOBOX_AGENT_HEARTBEAT_INTERVAL || 30_000);
+const heartbeatTimeout = Math.max(heartbeatInterval * 2, 10_000);
 const defaultProjectPath = "/opt/yolobox/project";
 const remoteSessionName = "yolobox";
 const remoteSessionScript = "/usr/local/bin/yolobox-remote-session";
@@ -447,6 +448,7 @@ if (!backendURL || !token) {
 }
 
 let socket;
+let lastPongAt = 0;
 
 connect();
 
@@ -465,7 +467,14 @@ function connect(delay = 1000) {
 
   let heartbeat;
   socket.addEventListener("open", () => {
-    heartbeat = setInterval(() => send({ type: "ping" }), heartbeatInterval);
+    lastPongAt = Date.now();
+    heartbeat = setInterval(() => {
+      if (Date.now() - lastPongAt > heartbeatTimeout) {
+        socket.close();
+        return;
+      }
+      send({ type: "ping" });
+    }, heartbeatInterval);
     send({ type: "ping" });
   });
 
@@ -486,6 +495,9 @@ function connect(delay = 1000) {
 async function handleMessage(data) {
   const message = JSON.parse(typeof data === "string" ? data : Buffer.from(await data.arrayBuffer()).toString("utf8"));
   switch (message.type) {
+  case "pong":
+    lastPongAt = Date.now();
+    return;
   case "rpc":
     handleRPC(message).catch((error) => {
       send({

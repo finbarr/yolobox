@@ -535,6 +535,8 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"YOLOBOX_REMOTE=1",
 		"/usr/local/lib/yolobox/agent.mjs",
 		"/v1/agent/connect",
+		"heartbeatTimeout",
+		"lastPongAt",
 		"/var/log/yolobox-remote-install.log",
 		"step \"installing base packages\"",
 	} {
