@@ -158,6 +158,36 @@ test("backend authenticates machine agents only by opaque token", async () => {
   assert.equal(guessedName.statusCode, 401, guessedName.body);
 });
 
+test("backend waits for a created machine agent before returning", async () => {
+  const { app, provider, token } = await createTestBackend("ready@example.com", "password123", { machineReadyTimeoutMs: 2000 });
+  const headers = { authorization: `Bearer ${token}` };
+  const create = app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers,
+    payload: { name: "foo" },
+  });
+
+  for (let i = 0; i < 50 && provider.created.length === 0; i++) {
+    await delay(10);
+  }
+  const agentToken = provider.created[0]?.agent_token || "";
+  assert.match(agentToken, /^[A-Za-z0-9_-]{64}$/);
+
+  for (let i = 0; i < 50; i++) {
+    const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers });
+    if (fetched.statusCode === 200) break;
+    await delay(10);
+  }
+
+  await app.ready();
+  const agent = await app.injectWS("/v1/agent/connect", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+  const created = await create;
+  assert.equal(created.statusCode, 201, created.body);
+  assert.equal(typeof created.json().machine.agent_last_seen_at, "string");
+  agent.terminate();
+});
+
 test("backend signs short-lived SSH certificates for owned machines", async () => {
   const { app, provider, token } = await createTestBackend();
   const created = await app.inject({
@@ -171,6 +201,9 @@ test("backend signs short-lived SSH certificates for owned machines", async () =
   assert.match(agentToken, /^[A-Za-z0-9_-]{64}$/);
   assert.equal(provider.created[0].ssh_authorized_principal, created.json().machine.ssh_principal);
 
+  await app.ready();
+  const agent = await app.injectWS("/v1/agent/connect", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+
   const cert = await app.inject({
     method: "POST",
     url: "/v1/machines/foo/ssh-cert",
@@ -182,6 +215,27 @@ test("backend signs short-lived SSH certificates for owned machines", async () =
   assert.equal(cert.json().principal, created.json().machine.ssh_principal);
   assert.equal(cert.json().host, "203.0.113.10");
   assert.equal(cert.json().ssh_user, "root");
+  agent.terminate();
+});
+
+test("backend refuses SSH certificates when the machine agent is disconnected", async () => {
+  const { app, token } = await createTestBackend();
+  const created = await app.inject({
+    method: "POST",
+    url: "/v1/machines",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { name: "foo" },
+  });
+  assert.equal(created.statusCode, 201, created.body);
+
+  const cert = await app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/ssh-cert",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { public_key: testSSHUserPublicKey },
+  });
+  assert.equal(cert.statusCode, 409, cert.body);
+  assert.equal(cert.json().id, "agent_disconnected");
 });
 
 test("backend delegates session lifecycle to the machine agent", async () => {
@@ -486,7 +540,7 @@ test("backend supports browser-approved CLI device login", async () => {
   assert.equal(whoami.json().user.email, "cli@example.com");
 });
 
-async function createTestBackend(email = "user@example.com", password = "password123", options: { previewTargetPort?: number } = {}) {
+async function createTestBackend(email = "user@example.com", password = "password123", options: { previewTargetPort?: number; machineReadyTimeoutMs?: number } = {}) {
   const dir = await mkdtemp(join(tmpdir(), "yolobox-backend-"));
   const provider = new FakeProvider();
   const store = new StateStore(join(dir, "state.json"), provider.name);
@@ -507,6 +561,7 @@ async function createTestBackend(email = "user@example.com", password = "passwor
     apiPublicURL: "https://api.hosted.test",
     previewBaseDomain: "hosted.test",
     previewTargetPort: options.previewTargetPort,
+    machineReadyTimeoutMs: options.machineReadyTimeoutMs ?? 0,
   });
   const token = await signUp(app, email, password);
   return { app, provider, token };
@@ -526,6 +581,10 @@ async function signUp(app: ReturnType<typeof createBackend>, email: string, pass
   const body = response.json();
   assert.equal(typeof body.token, "string");
   return body.token;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function hashUserID(userID: string): string {

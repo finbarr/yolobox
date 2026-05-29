@@ -21,6 +21,7 @@ export type BackendOptions = {
   corsOrigins?: string[];
   previewBaseDomain?: string;
   previewTargetPort?: number;
+  machineReadyTimeoutMs?: number;
 };
 
 type AuthContext = {
@@ -156,7 +157,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
     const tierError = validateMachineTier(body.tier);
     if (tierError) return reply.code(400).send({ id: "bad_request", message: tierError });
-    return createMachine(options, auth, body, reply);
+    return createMachine(options, agents, auth, body, reply);
   });
 
   app.get("/v1/machines", async (request, reply) => {
@@ -223,6 +224,9 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       return reply.code(409).send({ id: "not_bootstrapped", message: "remote machine is not bootstrapped" });
     }
     const normalized = normalizeMachine(options, machine);
+    if (!connectedAgent(agents, normalized)) {
+      return reply.code(409).send({ id: "agent_disconnected", message: "remote machine agent is not connected" });
+    }
     const principal = normalized.ssh_principal || sshPrincipalForMachine(normalized);
     if (!normalized.public_ipv4) {
       return reply.code(409).send({ id: "not_ready", message: "remote machine does not have a public IPv4 yet" });
@@ -366,7 +370,13 @@ export function createBackend(options: BackendOptions): FastifyInstance {
   return app;
 }
 
-async function createMachine(options: BackendOptions, auth: AuthContext, body: CreateMachineRequest, reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }) {
+async function createMachine(
+  options: BackendOptions,
+  agents: Map<string, AgentConnection>,
+  auth: AuthContext,
+  body: CreateMachineRequest,
+  reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
+) {
   body.provider_name = providerMachineName(auth.userID, body.name);
   const agentBackendURL = (options.apiPublicURL || "").trim().replace(/\/+$/, "");
   if (!agentBackendURL) {
@@ -407,7 +417,16 @@ async function createMachine(options: BackendOptions, auth: AuthContext, body: C
     ssh_principal: sshPrincipal,
   });
   await options.store.putMachine(machine);
-  return reply.code(201).send({ machine: publicMachine(machine), status: provisioned.status || "created" });
+  let ready: RemoteMachine;
+  try {
+    ready = await waitForCreatedMachineAgent(options, agents, machine);
+  } catch (err) {
+    if (err instanceof AgentRPCError) {
+      return reply.code(504).send({ id: err.code, message: err.message, machine: publicMachine(machine) });
+    }
+    throw err;
+  }
+  return reply.code(201).send({ machine: publicMachine(ready), status: provisioned.status || "created" });
 }
 
 async function listAccountMachines(options: BackendOptions, auth: AuthContext): Promise<RemoteMachine[]> {
@@ -524,6 +543,27 @@ class AgentRPCError extends Error {
   }
 }
 
+function connectedAgent(agents: Map<string, AgentConnection>, machine: RemoteMachine): AgentConnection | undefined {
+  const agent = agents.get(agentMachineKey(machine));
+  return agent?.socket.readyState === WebSocket.OPEN ? agent : undefined;
+}
+
+async function waitForCreatedMachineAgent(
+  options: BackendOptions,
+  agents: Map<string, AgentConnection>,
+  machine: RemoteMachine,
+): Promise<RemoteMachine> {
+  const timeout = options.machineReadyTimeoutMs ?? 5 * 60_000;
+  if (timeout <= 0) return machine;
+  const deadline = Date.now() + timeout;
+  while (Date.now() <= deadline) {
+    const agent = connectedAgent(agents, machine);
+    if (agent) return normalizeMachine(options, agent.machine);
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+  throw new AgentRPCError("remote machine was created, but its agent did not connect before the readiness timeout", "agent_disconnected");
+}
+
 async function requireMachineAgentContext(
   options: BackendOptions,
   agents: Map<string, AgentConnection>,
@@ -547,8 +587,8 @@ async function requireMachineAgentContext(
     reply.code(409).send({ id: "not_bootstrapped", message: "remote machine is not bootstrapped" });
     return undefined;
   }
-  const agent = agents.get(agentMachineKey(machine));
-  if (!agent || agent.socket.readyState !== WebSocket.OPEN) {
+  const agent = connectedAgent(agents, machine);
+  if (!agent) {
     reply.code(409).send({ id: "agent_disconnected", message: "remote machine agent is not connected" });
     return undefined;
   }

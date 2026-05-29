@@ -269,10 +269,6 @@ func runRemoteConnect(args []string, projectDir string) error {
 		return err
 	}
 	defer cleanup()
-	machine, err = checkRemoteMachineForConnect(machine)
-	if err != nil {
-		return err
-	}
 	return runRemoteMachineCommand(cfg, machine, []string{"shell"})
 }
 
@@ -323,9 +319,6 @@ func runRemoteSync(args []string, projectDir string) error {
 	}
 	defer cleanup()
 
-	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
-		return err
-	}
 	switch direction {
 	case "up":
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
@@ -476,9 +469,6 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	if opts.BackendURL != "" {
 		cfg.Remote.BackendURL = strings.TrimRight(strings.TrimSpace(opts.BackendURL), "/")
 	}
-	if err := requireRemoteClientTools("ssh"); err != nil {
-		return remoteMachine{}, err
-	}
 	var machine remoteMachine
 	if err := runWithSpinner(
 		fmt.Sprintf("Creating remote %s via backend", opts.Name),
@@ -491,16 +481,12 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	); err != nil {
 		return remoteMachine{}, err
 	}
-	var err error
-	cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
-	if err != nil {
-		return machine, err
-	}
-	defer cleanup()
-	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
-		return machine, err
-	}
 	if syncProject {
+		cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
+		if err != nil {
+			return machine, err
+		}
+		defer cleanup()
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
 			return machine, err
 		}
@@ -525,10 +511,6 @@ func readyExistingRemoteMachine(cfg Config, projectDir string, name string, sync
 	if err != nil {
 		return machine, func() {}, err
 	}
-	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
-		cleanup()
-		return machine, func() {}, err
-	}
 	if syncProject {
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
 			cleanup()
@@ -537,22 +519,6 @@ func readyExistingRemoteMachine(cfg Config, projectDir string, name string, sync
 	}
 	printRemoteReady(machine)
 	return machine, cleanup, nil
-}
-
-func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) {
-	if machine.ProjectPath == "" {
-		machine.ProjectPath = remoteProjectPath()
-	}
-	if err := requireRemoteClientTools("ssh"); err != nil {
-		return machine, err
-	}
-	if err := requireRemoteMachineBootstrapped(machine); err != nil {
-		return machine, err
-	}
-	if err := waitForRemoteMachineSSH(machine, "Checking SSH on remote"); err != nil {
-		return machine, err
-	}
-	return machine, nil
 }
 
 func attachRemoteSSHCertificate(cfg Config, machine *remoteMachine) (func(), error) {
@@ -604,16 +570,6 @@ func requireRemoteMachineBootstrapped(machine remoteMachine) error {
 		return nil
 	}
 	return fmt.Errorf("remote %s is not bootstrapped; backend setup has not completed for this machine", machine.Name)
-}
-
-func waitForRemoteMachineSSH(machine remoteMachine, messagePrefix string) error {
-	return runWithSpinner(
-		fmt.Sprintf("%s %s", messagePrefix, machine.Name),
-		fmt.Sprintf("SSH ready on remote %s", machine.Name),
-		func() error {
-			return waitForRemoteSSH(machine, 5*time.Minute)
-		},
-	)
 }
 
 func printRemoteReady(machine remoteMachine) {
@@ -672,24 +628,6 @@ func gitOutput(dir string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(output)), nil
-}
-
-func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for {
-		args, err := remoteSSHOptions(machine, false)
-		if err != nil {
-			return err
-		}
-		cmd := exec.Command("ssh", append(args, "-o", "ConnectTimeout=5", machine.sshTarget(), "true")...)
-		if err := cmd.Run(); err == nil {
-			return nil
-		}
-		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for direct SSH on %s", machine.Name)
-		}
-		time.Sleep(5 * time.Second)
-	}
 }
 
 func syncRemoteProject(machine *remoteMachine, cfg Config, projectDir string) error {

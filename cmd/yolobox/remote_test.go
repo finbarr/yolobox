@@ -3,6 +3,7 @@ package main
 import (
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -830,10 +831,13 @@ exit 0
 		t.Fatalf("expected connect to ask backend to prepare one session, got %d", sessionCalls)
 	}
 	logBytes, err := os.ReadFile(sshLog)
-	if err != nil {
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("read ssh log: %v", err)
 	}
 	sshLogContent := string(logBytes)
+	if sshLogContent != "" {
+		t.Fatalf("non-terminal connect should not run local SSH before handing session lifecycle to the backend:\n%s", sshLogContent)
+	}
 	if strings.Contains(sshLogContent, "bash -s") {
 		t.Fatalf("connect should not run bootstrap or workspace setup scripts:\n%s", sshLogContent)
 	}
