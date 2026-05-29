@@ -48,6 +48,56 @@ test("DigitalOcean size tiers map to provider slugs", () => {
   assert.equal(digitalOceanSizeForTier("large"), "s-8vcpu-16gb-amd");
 });
 
+test("DigitalOcean creates machines without account SSH keys", async () => {
+  const requests: Array<{ url: string; method: string; body?: Record<string, unknown> }> = [];
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method || "GET";
+    const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : undefined;
+    requests.push({ url, method, body });
+    if (url.includes("/v2/droplets?")) return jsonResponse({ droplets: [] });
+    if (url.endsWith("/v2/droplets") && method === "POST") {
+      return jsonResponse({
+        droplet: {
+          id: 123,
+          name: "yolobox-foo",
+          status: "new",
+          tags: ["yolobox", "yolobox-foo"],
+          size_slug: "s-2vcpu-4gb-amd",
+          region: { slug: "nyc3" },
+          image: { id: 456, name: "yolobox-remote-test" },
+          networks: { v4: [{ ip_address: "203.0.113.10", type: "public" }] },
+          created_at: "2026-05-29T00:00:00Z",
+        },
+      });
+    }
+    throw new Error(`unexpected request ${method} ${url}`);
+  }) as typeof fetch;
+
+  try {
+    const provider = digitalOceanProviderFromEnv({
+      DIGITALOCEAN_ACCESS_TOKEN: "dop_v1_test",
+      YOLOBOX_DIGITALOCEAN_API_URL: "https://digitalocean.example.test",
+    });
+
+    await provider.createMachine({
+      name: "foo",
+      agent_token: "agent-token",
+      agent_backend_url: "https://api.example.com",
+      ssh_user_ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest yolobox-ca",
+      ssh_authorized_principal: "yolobox:foo-123",
+    });
+
+    const createRequest = requests.find((request) => request.method === "POST" && request.url.endsWith("/v2/droplets"));
+    assert.ok(createRequest?.body);
+    assert.equal(Object.prototype.hasOwnProperty.call(createRequest.body, "ssh_keys"), false);
+    assert.equal(typeof createRequest.body.user_data, "string");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("DigitalOcean agent user data carries token credentials and SSH CA trust", () => {
   const userData = digitalOceanAgentUserData({
     name: "victim-name",
@@ -64,3 +114,10 @@ test("DigitalOcean agent user data carries token credentials and SSH CA trust", 
   assert.match(userData, /yolobox:foo-123/);
   assert.doesNotMatch(userData, /victim-name/);
 });
+
+function jsonResponse(body: unknown): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}

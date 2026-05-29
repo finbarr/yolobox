@@ -29,10 +29,11 @@ cp deploy/digitalocean/env.production.example deploy/digitalocean/.env.productio
 ```
 
 `BETTER_AUTH_SECRET` must be a long random value. The backend also needs
-`DIGITALOCEAN_ACCESS_TOKEN` and either `DIGITALOCEAN_SSH_KEYS` or
-`YOLOBOX_REMOTE_SSH_PUBLIC_KEY` so it can create remote VMs for users.
-The backend SSH user CA is stored at `/opt/yolobox/data/backend/ssh_ca_ed25519`
-and is included in the backend data backups.
+`DIGITALOCEAN_ACCESS_TOKEN` so it can create remote VMs for users. Normal user
+VMs do not receive DigitalOcean account SSH keys; cloud-init configures them to
+trust short-lived yolobox SSH certificates instead. The backend SSH user CA is
+stored at `/opt/yolobox/data/backend/ssh_ca_ed25519` and is included in the
+backend data backups.
 Set `YOLOBOX_PREVIEW_BASE_DOMAIN` to the wildcard domain above. The default
 preview target is port `80` on each remote machine; change
 `YOLOBOX_PREVIEW_TARGET_PORT` if the machine runtime should receive preview
@@ -67,6 +68,11 @@ deploy/digitalocean/build-remote-image.sh \
   --env-file deploy/digitalocean/.env.production \
   --set-active
 ```
+
+The builder Droplet still needs an SSH key for the temporary image build. Use
+`DIGITALOCEAN_SSH_KEYS` only when the matching private key is available to the
+host running the script. Otherwise set `YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY`
+and pass the matching private key with `--ssh-key`.
 
 `--set-active` writes `YOLOBOX_REMOTE_IMAGE=<snapshot-id>` plus metadata back to
 the env file. Restart the backend after that so future creates use the snapshot:

@@ -1,8 +1,3 @@
-import { createHash } from "node:crypto";
-import { hostname } from "node:os";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { homedir } from "node:os";
 import { CreateMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
 
 const apiBaseURL = "https://api.digitalocean.com";
@@ -19,7 +14,6 @@ type DigitalOceanConfig = {
   size: string;
   image: string;
   imageBootstrapped: boolean;
-  sshKeys: string[];
   tags: string[];
   vpcUUID?: string;
   apiURL?: string;
@@ -46,13 +40,6 @@ type DropletList = {
   };
 };
 
-type SSHKey = {
-  id: number;
-  fingerprint?: string;
-  name?: string;
-  public_key?: string;
-};
-
 export class DigitalOceanProvider implements MachineProvider {
   readonly name = "digitalocean";
   readonly label = "DigitalOcean";
@@ -74,9 +61,6 @@ export class DigitalOceanProvider implements MachineProvider {
       throw new Error(`DigitalOcean droplet for ${request.name} already exists`);
     }
 
-    const sshKeys = this.config.sshKeys.length > 0
-      ? this.config.sshKeys
-      : [String(await this.ensureDefaultSSHKey())];
     const agentUserData = digitalOceanAgentUserData(request);
     const droplet = await this.request<{ droplet: Droplet }>("/v2/droplets", {
       method: "POST",
@@ -85,7 +69,6 @@ export class DigitalOceanProvider implements MachineProvider {
         region: this.config.region,
         size: digitalOceanSizeForRequest(request, this.config),
         image: digitalOceanImageForCreate(this.config.image),
-        ssh_keys: sshKeys.map((key) => (/^\d+$/.test(key) ? Number(key) : key)),
         tags: this.machineTags(providerName),
         monitoring: true,
         ...(agentUserData ? { user_data: agentUserData } : {}),
@@ -160,22 +143,6 @@ export class DigitalOceanProvider implements MachineProvider {
     throw new Error(`timed out waiting for DigitalOcean droplet ${id} to receive a public IPv4`);
   }
 
-  private async ensureDefaultSSHKey(): Promise<number> {
-    const publicKey = await defaultPublicKey();
-    const keys = await this.request<{ ssh_keys: SSHKey[] }>("/v2/account/keys?per_page=200");
-    const existing = keys.ssh_keys.find((key) => key.public_key?.trim() === publicKey);
-    if (existing) return existing.id;
-    const hash = createHash("sha256").update(publicKey).digest("hex").slice(0, 12);
-    const created = await this.request<{ ssh_key: SSHKey }>("/v2/account/keys", {
-      method: "POST",
-      body: {
-        name: `yolobox-${sanitize(hostname() || "host")}-${hash}`,
-        public_key: publicKey,
-      },
-    });
-    return created.ssh_key.id;
-  }
-
   private machineFromDroplet(machineName: string, providerName: string, sshUser: string | undefined, droplet: Droplet): RemoteMachine {
     const now = new Date().toISOString();
     return {
@@ -238,7 +205,6 @@ export function digitalOceanProviderFromEnv(env = process.env): DigitalOceanProv
     size: env.DIGITALOCEAN_SIZE || digitalOceanDefaultSize,
     image: env.YOLOBOX_REMOTE_IMAGE || env.DIGITALOCEAN_IMAGE || "ubuntu-24-04-x64",
     imageBootstrapped: Boolean(env.YOLOBOX_REMOTE_IMAGE),
-    sshKeys: splitList(env.DIGITALOCEAN_SSH_KEYS),
     tags: splitList(env.DIGITALOCEAN_TAGS, ["yolobox"]),
     vpcUUID: env.DIGITALOCEAN_VPC_UUID,
     apiURL: env.YOLOBOX_DIGITALOCEAN_API_URL,
@@ -348,18 +314,4 @@ function sanitize(value: string): string {
 function splitList(value: string | undefined, fallback: string[] = []): string[] {
   const parts = (value || "").split(",").map((part) => part.trim()).filter(Boolean);
   return parts.length > 0 ? parts : fallback;
-}
-
-async function defaultPublicKey(): Promise<string> {
-  const configured = process.env.YOLOBOX_REMOTE_SSH_PUBLIC_KEY?.trim();
-  if (configured) return configured;
-  for (const name of ["id_ed25519.pub", "id_rsa.pub"]) {
-    try {
-      const key = (await readFile(join(homedir(), ".ssh", name), "utf8")).trim();
-      if (key) return key;
-    } catch {
-      // Try the next common public key path.
-    }
-  }
-  throw new Error("no SSH public key found; set DIGITALOCEAN_SSH_KEYS or YOLOBOX_REMOTE_SSH_PUBLIC_KEY");
 }

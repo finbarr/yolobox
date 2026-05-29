@@ -91,10 +91,12 @@ Environment:
 - Create-time tiers map to DigitalOcean AMD sizes: `small` is 2 vCPU / 4 GB, `medium` is 4 vCPU / 8 GB, and `large` is 8 vCPU / 16 GB.
 - `YOLOBOX_REMOTE_IMAGE`: provider image id, snapshot id, or slug for a prebuilt yolobox VM image. Numeric DigitalOcean snapshot ids are sent as image IDs when creating Droplets. Machines created from this image are treated as backend-bootstrapped. When unset, DigitalOcean falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`; the CLI does not bootstrap plain hosts.
 - `DIGITALOCEAN_IMAGE`: DigitalOcean image fallback, default `ubuntu-24-04-x64`.
-- `DIGITALOCEAN_SSH_KEYS`: comma-separated SSH key ids or fingerprints.
 - `DIGITALOCEAN_TAGS`: comma-separated tags, default `yolobox`.
 - `DIGITALOCEAN_VPC_UUID`: optional VPC UUID.
-- `YOLOBOX_REMOTE_SSH_PUBLIC_KEY`: public key to register when no `DIGITALOCEAN_SSH_KEYS` are set.
+
+Normal user VMs do not receive DigitalOcean account SSH keys. The backend
+issues short-lived SSH certificates and cloud-init installs the matching user CA
+trust on each machine.
 
 Use `deploy/digitalocean/build-remote-image.sh` to build and rotate the
 DigitalOcean golden snapshot. The normal release flow is: commit the runtime

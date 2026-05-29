@@ -32,9 +32,9 @@ Required env:
 
 SSH key selection:
   The Droplet is created with DIGITALOCEAN_SSH_KEYS when set. Otherwise the
-  script registers YOLOBOX_REMOTE_SSH_PUBLIC_KEY, the first ssh-agent key, or a
-  common local ~/.ssh/*.pub key. The matching private key must be available to
-  ssh, either from an agent or --ssh-key.
+  script registers YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY, the first ssh-agent key,
+  or a common local ~/.ssh/*.pub key. The matching private key must be available
+  to ssh, either from an agent or --ssh-key.
 EOF
 }
 
@@ -251,8 +251,8 @@ json_ssh_keys() {
 }
 
 first_public_key() {
-  if [ -n "${YOLOBOX_REMOTE_SSH_PUBLIC_KEY:-}" ]; then
-    printf '%s\n' "$YOLOBOX_REMOTE_SSH_PUBLIC_KEY"
+  if [ -n "${YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY:-}" ]; then
+    printf '%s\n' "$YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY"
     return 0
   fi
   if ssh-add -L >/dev/null 2>&1; then
@@ -283,7 +283,7 @@ resolve_ssh_keys_json() {
   fi
 
   local public_key key_id key_name created
-  public_key="$(first_public_key)" || die "set DIGITALOCEAN_SSH_KEYS or provide an SSH public key via YOLOBOX_REMOTE_SSH_PUBLIC_KEY, ssh-agent, or ~/.ssh/*.pub"
+  public_key="$(first_public_key)" || die "set DIGITALOCEAN_SSH_KEYS or provide an SSH public key via YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY, ssh-agent, or ~/.ssh/*.pub"
   key_id="$(do_api GET "/v2/account/keys?per_page=200" | jq -r --arg public_key "$public_key" '.ssh_keys[] | select(.public_key == $public_key) | .id' | sed -n '1p')"
   if [ -z "$key_id" ]; then
     key_name="yolobox-image-builder-$(hash_public_key "$public_key")"
