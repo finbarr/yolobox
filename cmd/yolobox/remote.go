@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -21,27 +22,29 @@ const (
 )
 
 type remoteMachine struct {
-	Name              string    `json:"name"`
-	Provider          string    `json:"provider,omitempty"`
-	ProviderID        string    `json:"provider_id,omitempty"`
-	PublicIPv4        string    `json:"public_ipv4,omitempty"`
-	Region            string    `json:"region,omitempty"`
-	Size              string    `json:"size,omitempty"`
-	Image             string    `json:"image,omitempty"`
-	SSHUser           string    `json:"ssh_user,omitempty"`
-	PreviewHostname   string    `json:"preview_hostname,omitempty"`
-	PreviewURL        string    `json:"preview_url,omitempty"`
-	SourcePath        string    `json:"source_path,omitempty"`
-	ProjectPath       string    `json:"project_path,omitempty"`
-	RepoURL           string    `json:"repo_url,omitempty"`
-	Branch            string    `json:"branch,omitempty"`
-	LastCommand       []string  `json:"last_command,omitempty"`
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
-	LastSyncedAt      time.Time `json:"last_synced_at,omitempty"`
-	BootstrapComplete bool      `json:"bootstrap_complete,omitempty"`
-	SSHPrivateKey     string    `json:"-"`
-	SSHKeyPath        string    `json:"-"`
+	Name               string    `json:"name"`
+	Provider           string    `json:"provider,omitempty"`
+	ProviderID         string    `json:"provider_id,omitempty"`
+	PublicIPv4         string    `json:"public_ipv4,omitempty"`
+	Region             string    `json:"region,omitempty"`
+	Size               string    `json:"size,omitempty"`
+	Image              string    `json:"image,omitempty"`
+	SSHUser            string    `json:"ssh_user,omitempty"`
+	PreviewHostname    string    `json:"preview_hostname,omitempty"`
+	PreviewURL         string    `json:"preview_url,omitempty"`
+	SourcePath         string    `json:"source_path,omitempty"`
+	ProjectPath        string    `json:"project_path,omitempty"`
+	RepoURL            string    `json:"repo_url,omitempty"`
+	Branch             string    `json:"branch,omitempty"`
+	LastCommand        []string  `json:"last_command,omitempty"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	LastSyncedAt       time.Time `json:"last_synced_at,omitempty"`
+	BootstrapComplete  bool      `json:"bootstrap_complete,omitempty"`
+	SSHKeyPath         string    `json:"-"`
+	SSHCertificatePath string    `json:"-"`
+	SSHHost            string    `json:"-"`
+	SSHPort            int       `json:"-"`
 }
 
 type remoteProvisionOptions struct {
@@ -261,7 +264,7 @@ func runRemoteConnect(args []string, projectDir string) error {
 	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return err
 	}
-	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
 	if err != nil {
 		return err
 	}
@@ -314,7 +317,7 @@ func runRemoteSync(args []string, projectDir string) error {
 	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return err
 	}
-	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
 	if err != nil {
 		return err
 	}
@@ -489,7 +492,7 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return remoteMachine{}, err
 	}
 	var err error
-	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
 	if err != nil {
 		return machine, err
 	}
@@ -518,7 +521,7 @@ func readyExistingRemoteMachine(cfg Config, projectDir string, name string, sync
 	if err := requireRemoteMachineBootstrapped(machine); err != nil {
 		return machine, func() {}, err
 	}
-	cleanup, err := attachRemoteTunnelCredentials(cfg, &machine)
+	cleanup, err := attachRemoteSSHCertificate(cfg, &machine)
 	if err != nil {
 		return machine, func() {}, err
 	}
@@ -552,40 +555,47 @@ func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) 
 	return machine, nil
 }
 
-func attachRemoteTunnelCredentials(cfg Config, machine *remoteMachine) (func(), error) {
-	privateKey := strings.TrimSpace(machine.SSHPrivateKey)
-	if privateKey == "" {
-		key, err := getRemoteBackendTunnelKey(cfg, machine.Name)
-		if err != nil {
-			return func() {}, err
-		}
-		privateKey = strings.TrimSpace(key)
+func attachRemoteSSHCertificate(cfg Config, machine *remoteMachine) (func(), error) {
+	if err := requireRemoteClientTools("ssh", "ssh-keygen"); err != nil {
+		return func() {}, err
 	}
-	if privateKey == "" {
-		return func() {}, fmt.Errorf("remote %s does not have backend tunnel SSH credentials", machine.Name)
-	}
-	keyFile, err := os.CreateTemp("", "yolobox-remote-key-*")
+	dir, err := os.MkdirTemp("", "yolobox-remote-ssh-*")
 	if err != nil {
 		return func() {}, err
 	}
-	path := keyFile.Name()
-	cleanup := func() { _ = os.Remove(path) }
-	if err := os.Chmod(path, 0600); err != nil {
-		_ = keyFile.Close()
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	keyPath := filepath.Join(dir, "id_ed25519")
+	keygen := exec.Command("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "yolobox-"+machine.Name, "-f", keyPath)
+	if output, err := keygen.CombinedOutput(); err != nil {
+		cleanup()
+		return func() {}, fmt.Errorf("generate temporary remote SSH key: %w: %s", err, strings.TrimSpace(string(output)))
+	}
+	publicKey, err := os.ReadFile(keyPath + ".pub")
+	if err != nil {
+		cleanup()
+		return func() {}, fmt.Errorf("read temporary remote SSH public key: %w", err)
+	}
+	cert, err := getRemoteBackendSSHCertificate(cfg, machine.Name, strings.TrimSpace(string(publicKey)))
+	if err != nil {
 		cleanup()
 		return func() {}, err
 	}
-	if _, err := keyFile.WriteString(privateKey + "\n"); err != nil {
-		_ = keyFile.Close()
+	if strings.TrimSpace(cert.Certificate) == "" {
 		cleanup()
-		return func() {}, err
+		return func() {}, fmt.Errorf("remote backend returned no SSH certificate for %s", machine.Name)
 	}
-	if err := keyFile.Close(); err != nil {
+	certPath := keyPath + "-cert.pub"
+	if err := os.WriteFile(certPath, []byte(strings.TrimSpace(cert.Certificate)+"\n"), 0600); err != nil {
 		cleanup()
-		return func() {}, err
+		return func() {}, fmt.Errorf("write temporary remote SSH certificate: %w", err)
 	}
-	machine.SSHPrivateKey = privateKey
-	machine.SSHKeyPath = path
+	machine.SSHKeyPath = keyPath
+	machine.SSHCertificatePath = certPath
+	machine.SSHHost = strings.TrimSpace(cert.Host)
+	machine.SSHPort = cert.Port
+	if strings.TrimSpace(cert.SSHUser) != "" {
+		machine.SSHUser = strings.TrimSpace(cert.SSHUser)
+	}
 	return cleanup, nil
 }
 
@@ -676,7 +686,7 @@ func waitForRemoteSSH(machine remoteMachine, timeout time.Duration) error {
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("timed out waiting for remote tunnel SSH on %s", machine.Name)
+			return fmt.Errorf("timed out waiting for direct SSH on %s", machine.Name)
 		}
 		time.Sleep(5 * time.Second)
 	}
@@ -818,12 +828,12 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 			machine = updated
 			if result.Status == "exists" {
 				if remoteShellCommand(commandArgs) {
-					info("Connecting to existing remote session %s via backend tunnel", machine.Name)
+					info("Connecting to existing remote session %s via direct SSH", machine.Name)
 				} else {
-					info("Connecting to existing remote session %s via backend tunnel; %q was not started", machine.Name, strings.Join(commandArgs, " "))
+					info("Connecting to existing remote session %s via direct SSH; %q was not started", machine.Name, strings.Join(commandArgs, " "))
 				}
 			} else {
-				info("Starting remote session %s via backend tunnel", machine.Name)
+				info("Starting remote session %s via direct SSH", machine.Name)
 			}
 			if strings.TrimSpace(result.AttachCommand) == "" {
 				return nil
@@ -833,7 +843,7 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 			if _, _, err := prepareRemoteBackendSession(cfg, machine, commandArgs, false); err != nil {
 				return err
 			}
-			info("Starting detached remote session %s via backend tunnel; run from a terminal to connect", machine.Name)
+			info("Starting detached remote session %s via direct SSH; run from a terminal to connect", machine.Name)
 			return nil
 		}
 	}
@@ -842,7 +852,7 @@ func runRemoteMachineCommand(cfg Config, machine remoteMachine, commandArgs []st
 	if err != nil {
 		return err
 	}
-	info("Running on remote %s via backend tunnel", machine.Name)
+	info("Running on remote %s via direct SSH", machine.Name)
 	if err := runSSHCommand(machine, remoteCommand, false, shouldForwardSSHAgent(machine.RepoURL)); err != nil {
 		return err
 	}
@@ -910,7 +920,13 @@ func runSSHCommand(machine remoteMachine, remoteCommand string, tty bool, forwar
 
 func remoteSSHOptions(machine remoteMachine, forwardAgent bool) ([]string, error) {
 	if strings.TrimSpace(machine.SSHKeyPath) == "" {
-		return nil, fmt.Errorf("remote %s has no tunnel SSH key; remote operations require the backend tunnel", machine.Name)
+		return nil, fmt.Errorf("remote %s has no temporary SSH key", machine.Name)
+	}
+	if strings.TrimSpace(machine.SSHCertificatePath) == "" {
+		return nil, fmt.Errorf("remote %s has no backend-signed SSH certificate", machine.Name)
+	}
+	if strings.TrimSpace(machine.sshHost()) == "" {
+		return nil, fmt.Errorf("remote %s has no public SSH host", machine.Name)
 	}
 	knownHostsPath, err := remoteKnownHostsPath()
 	if err != nil {
@@ -918,13 +934,17 @@ func remoteSSHOptions(machine remoteMachine, forwardAgent bool) ([]string, error
 	}
 	args := []string{
 		"-i", machine.SSHKeyPath,
+		"-o", "CertificateFile=" + machine.SSHCertificatePath,
 		"-o", "IdentitiesOnly=yes",
 		"-o", "UserKnownHostsFile=" + knownHostsPath,
 		"-o", "StrictHostKeyChecking=accept-new",
 		"-o", "CheckHostIP=no",
 		"-o", "HashKnownHosts=no",
+		"-o", "HostKeyAlias=" + machine.sshHostAlias(),
 		"-o", "ServerAliveInterval=30",
-		"-o", "ProxyCommand=" + remoteSSHProxyCommand(machine),
+	}
+	if machine.sshPort() != 22 {
+		args = append(args, "-p", strconv.Itoa(machine.sshPort()))
 	}
 	if forwardAgent {
 		args = append(args, "-A")
@@ -973,15 +993,47 @@ func (m remoteMachine) sshTarget() string {
 	if user == "" {
 		user = "root"
 	}
-	return user + "@yolobox-" + m.Name
+	return user + "@" + m.sshHost()
 }
 
-func remoteSSHProxyCommand(machine remoteMachine) string {
-	exe, err := os.Executable()
-	if err != nil || strings.TrimSpace(exe) == "" {
-		exe = "yolobox"
+func (m remoteMachine) sshHost() string {
+	if host := strings.TrimSpace(m.SSHHost); host != "" {
+		return host
 	}
-	return shellJoin([]string{exe, "__remote-ssh-proxy", machine.Name})
+	return strings.TrimSpace(m.PublicIPv4)
+}
+
+func (m remoteMachine) sshPort() int {
+	if m.SSHPort > 0 {
+		return m.SSHPort
+	}
+	return 22
+}
+
+func (m remoteMachine) sshHostAlias() string {
+	parts := []string{"yolobox", m.Name}
+	if providerID := sanitizeSSHHostAliasPart(m.ProviderID); providerID != "" {
+		parts = append(parts, providerID)
+	}
+	return strings.Join(parts, "-")
+}
+
+func sanitizeSSHHostAliasPart(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	lastDash := false
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+			lastDash = false
+			continue
+		}
+		if !lastDash && b.Len() > 0 {
+			b.WriteByte('-')
+			lastDash = true
+		}
+	}
+	return strings.Trim(b.String(), "-")
 }
 
 func shouldForwardSSHAgent(repoURL string) bool {
@@ -1019,6 +1071,8 @@ func requireRemoteClientTools(names ...string) error {
 			return fmt.Errorf("rsync is required for remote mode full-directory sync")
 		case "ssh":
 			return fmt.Errorf("ssh is required for remote mode")
+		case "ssh-keygen":
+			return fmt.Errorf("ssh-keygen is required for remote mode")
 		default:
 			return fmt.Errorf("%s is required for remote mode", name)
 		}

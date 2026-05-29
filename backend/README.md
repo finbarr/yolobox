@@ -83,6 +83,7 @@ Environment:
 - `YOLOBOX_BACKEND_AUTH_DB`: SQLite auth database path.
 - `YOLOBOX_BACKEND_LISTEN`: listen address, default `127.0.0.1:8787`.
 - `YOLOBOX_BACKEND_STATE`: JSON state file path.
+- `YOLOBOX_SSH_CA_KEY`: backend SSH user CA private key path, default beside `YOLOBOX_BACKEND_STATE`.
 - `YOLOBOX_BACKEND_PROVIDER`: provider adapter, default `digitalocean`.
 - `DIGITALOCEAN_ACCESS_TOKEN`: DigitalOcean token for self-hosted provisioning.
 - `DIGITALOCEAN_REGION`: default `nyc3`.
@@ -126,13 +127,12 @@ Routes:
 - `GET /v1/preview/tls-check`
 - `ANY /v1/preview/proxy/:hostname/*`
 - `POST /v1/agent/heartbeat`
-- `GET /v1/agent/tunnel`
+- `GET /v1/agent/connect`
 - `POST /v1/machines`
 - `GET /v1/machines`
 - `GET /v1/machines/:name`
 - `GET /v1/machines/:name/connect`
-- `GET /v1/machines/:name/tunnel-key`
-- `GET /v1/machines/:name/tunnel/ssh`
+- `POST /v1/machines/:name/ssh-cert`
 - `POST /v1/machines/:name/setup`
 - `POST /v1/machines/:name/sync-complete`
 - `POST /v1/machines/:name/sessions/yolobox/prepare`
@@ -154,17 +154,14 @@ plaintext token to the provider as VM user data for `/etc/yolobox/agent.env`.
 Machine-agent endpoints authenticate only that bearer token; they do not accept
 or trust a machine name claimed by the VM. `POST /v1/agent/heartbeat` maps the
 token back to the one machine that owns it, records `agent_last_seen_at`, and
-never returns the stored token hash. The persistent `/v1/agent/tunnel`
-connection also carries backend RPC for setup commands, command wrapping, and
-the single managed tmux session.
+never returns the stored token hash. The persistent `/v1/agent/connect`
+connection carries backend RPC for setup commands, command wrapping, and the
+single managed tmux session.
 
-Every backend-created machine also gets backend-issued ed25519 tunnel SSH
-credentials. The backend stores the private key in backend state, passes the
-public key to provider user data, and writes it to root's `authorized_keys` on
-the VM. The CLI fetches the private key from `GET /v1/machines/:name/tunnel-key`
-only after authenticating as the machine owner, writes it to a temporary file,
-and uses it with local `ssh` plus a `ProxyCommand` that dials
-`GET /v1/machines/:name/tunnel/ssh`. That WebSocket endpoint relays SSH bytes to
-the connected `/v1/agent/tunnel` VM agent, which opens `127.0.0.1:22` on the VM.
-There is no direct SSH command in the backend API or browser console. CLI-side
-host-key pinning lives in `~/.yolobox/remote_known_hosts`.
+Every backend-created machine also trusts the backend SSH user CA. The backend
+persists the CA private key, passes the CA public key plus a per-machine
+authorized principal to provider user data, and signs temporary CLI public keys
+through `POST /v1/machines/:name/ssh-cert` only after authenticating the machine
+owner. The CLI uses the returned OpenSSH certificate with local `ssh` and
+`rsync` directly against the VM public IP. User SSH bytes do not flow through the
+backend. CLI-side host-key pinning lives in `~/.yolobox/remote_known_hosts`.

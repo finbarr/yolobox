@@ -235,16 +235,14 @@ yolobox remote destroy foo --force
 
 Remote support is intentionally one machine, one project, and one tmux session. A named remote maps to one VM with project storage at `/opt/yolobox/project` and the session named `yolobox`. Remote mode runs Codex, Claude, shells, and `docker compose` directly on the VM with yolobox wrappers on `PATH`; it does not start a nested yolobox container. That keeps state predictable while making host installs and Docker workloads persist on the remote machine. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
 
-Remote run, connect, and sync always reach the VM through the backend tunnel.
-The CLI still uses local `ssh` and `rsync` for terminal I/O and project bytes,
-but setup commands, command wrapping, and tmux session lifecycle are
-backend-authorized VM agent actions. `ssh` is invoked with a `ProxyCommand`
-that opens a backend WebSocket tunnel to the VM agent. There is no direct
-droplet-IP SSH fallback. If the machine agent is disconnected, the machine lacks
-backend-issued tunnel credentials, or the backend cannot open the tunnel to SSH
-on the VM, the command fails. Remote SSH host keys are stored in
-`~/.yolobox/remote_known_hosts`; a named remote is accepted on first contact and
-then pinned, so repeated connects do not re-accept the same host key.
+Remote run, connect, and sync use direct SSH to the VM with short-lived
+backend-signed OpenSSH user certificates. The CLI generates a temporary key,
+asks the backend to sign it for the authenticated user's machine, and then uses
+local `ssh` and `rsync` against the VM public IP. There is no unsigned direct-SSH
+fallback. Setup commands, command wrapping, and tmux session lifecycle remain
+backend-authorized VM agent actions. Remote SSH host keys are stored in
+`~/.yolobox/remote_known_hosts` with a stable per-machine alias, so repeated
+connects do not re-accept the same host key.
 
 `yolobox login` starts a browser approval flow, prints the URL to copy/paste,
 tries to open it, and then waits for approval from the web app. Use
@@ -262,7 +260,7 @@ machines. Remote commands print progress while backend provisioning and SSH
 startup are pending; when a machine is ready, any generated preview URL is shown
 on its own line. `yolobox remote run foo ...` syncs the current folder, then asks
 the backend/agent to start the command or managed session before the CLI
-attaches over the tunnel. `yolobox remote connect foo` opens or attaches to the
+attaches over direct SSH. `yolobox remote connect foo` opens or attaches to the
 managed tmux session without syncing or bootstrapping. If backend metadata says bootstrap has not completed, connect fails
 instead of trying to repair the VM from the CLI. If the managed tmux session
 already exists, `remote run` and `remote connect` attach to that session instead
@@ -298,18 +296,16 @@ or pushed release ref.
 When the backend creates a machine, it also creates a 48-byte random
 machine-agent token, stores only its hash, and passes the plaintext token to the
 VM through provider user data. VM-side agent endpoints authenticate only that
-token and never trust a machine name claimed by the VM. The backend also creates
-per-machine tunnel SSH credentials, stores the private key in backend state, and
-puts the public key in root's `authorized_keys` through provider user data so
-authenticated CLI sessions can SSH only through the tunnel. The same
-token-authenticated VM agent handles backend RPC for setup commands, command
-wrapping, and the single managed tmux session.
+token and never trust a machine name claimed by the VM. The backend also owns an
+SSH user CA, passes its public key plus a per-machine authorized principal to the
+VM, and signs temporary CLI public keys only after authenticating the machine
+owner. The same token-authenticated VM agent handles backend RPC for setup
+commands, command wrapping, and the single managed tmux session.
 
-Active SSH tunnels are live WebSocket connections through the backend. Restarting
-or redeploying the backend drops those connections, so the local SSH command
-exits and any in-flight sync or noninteractive command can fail. The VM and its
-managed `yolobox` tmux session keep running, the VM agent reconnects to the
-backend, and new CLI commands can connect again after the backend is healthy.
+Restarting or redeploying the backend does not sever an already established
+direct SSH or rsync connection. New remote operations need the backend to issue
+a fresh SSH certificate and may need the VM agent for setup/session RPC; the VM
+and its managed `yolobox` tmux session keep running while the agent reconnects.
 
 The hosted console is intended to live at `https://app.yolobox.dev` and call the
 hosted API at `https://api.yolobox.dev`. The backend can offer free

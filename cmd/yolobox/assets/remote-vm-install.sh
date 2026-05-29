@@ -431,7 +431,6 @@ install_yolobox_agent() {
   cat > /usr/local/lib/yolobox/agent.mjs <<'EOF'
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
-import net from "node:net";
 import path from "node:path";
 
 const backendURL = (process.env.YOLOBOX_AGENT_BACKEND_URL || "").replace(/\/+$/, "");
@@ -447,21 +446,20 @@ if (!backendURL || !token) {
   process.exit(0);
 }
 
-const streams = new Map();
 let socket;
 
 connect();
 
-function tunnelURL() {
+function connectionURL() {
   const url = new URL(backendURL);
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
-  url.pathname = "/v1/agent/tunnel";
+  url.pathname = "/v1/agent/connect";
   url.search = "";
   return url;
 }
 
 function connect(delay = 1000) {
-  socket = new WebSocket(tunnelURL(), {
+  socket = new WebSocket(connectionURL(), {
     headers: { Authorization: `Bearer ${token}` },
   });
 
@@ -479,8 +477,6 @@ function connect(delay = 1000) {
 
   socket.addEventListener("close", () => {
     if (heartbeat) clearInterval(heartbeat);
-    for (const stream of streams.values()) stream.destroy();
-    streams.clear();
     setTimeout(() => connect(Math.min(delay * 2, 15000)), delay);
   });
 
@@ -489,7 +485,6 @@ function connect(delay = 1000) {
 
 async function handleMessage(data) {
   const message = JSON.parse(typeof data === "string" ? data : Buffer.from(await data.arrayBuffer()).toString("utf8"));
-  const id = message.stream_id || "";
   switch (message.type) {
   case "rpc":
     handleRPC(message).catch((error) => {
@@ -502,25 +497,6 @@ async function handleMessage(data) {
       });
     });
     return;
-  case "open":
-    openStream(id, message.host || "127.0.0.1", Number(message.port || 22));
-    return;
-  case "data": {
-    const stream = streams.get(id);
-    if (stream) stream.write(Buffer.from(message.data || "", "base64"));
-    return;
-  }
-  case "eof": {
-    const stream = streams.get(id);
-    if (stream) stream.end();
-    return;
-  }
-  case "close": {
-    const stream = streams.get(id);
-    if (stream) stream.destroy();
-    streams.delete(id);
-    return;
-  }
   }
 }
 
@@ -556,23 +532,6 @@ async function handleRPC(message) {
       message: error.message || String(error),
     });
   }
-}
-
-function openStream(id, host, port) {
-  if (!id) return;
-  const stream = net.connect({ host, port });
-  streams.set(id, stream);
-  stream.on("connect", () => send({ type: "opened", stream_id: id }));
-  stream.on("data", (chunk) => send({ type: "data", stream_id: id, data: chunk.toString("base64") }));
-  stream.on("end", () => send({ type: "eof", stream_id: id }));
-  stream.on("close", () => {
-    send({ type: "close", stream_id: id });
-    streams.delete(id);
-  });
-  stream.on("error", (error) => {
-    send({ type: "error", stream_id: id, message: error.message });
-    streams.delete(id);
-  });
 }
 
 async function runSetup(payload) {

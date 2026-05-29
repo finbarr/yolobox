@@ -123,7 +123,7 @@ func runCmd() error {
 	traceTiming("host: start")
 
 	// Check for updates (skip for version/help/upgrade/auth commands)
-	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "login" || args[0] == "logout" || args[0] == "__remote-ssh-proxy")
+	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "login" || args[0] == "logout")
 	if !skipCheck {
 		started := time.Now()
 		checkForUpdates()
@@ -205,8 +205,6 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		return runFork(args[1:], projectDir)
 	case "remote":
 		return runRemote(args[1:], projectDir)
-	case "__remote-ssh-proxy":
-		return runRemoteSSHProxy(args[1:], projectDir)
 	case "login":
 		return runLogin(args[1:])
 	case "logout":

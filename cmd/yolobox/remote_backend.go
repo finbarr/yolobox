@@ -43,8 +43,18 @@ type remoteBackendListResponse struct {
 	Machines []remoteMachine `json:"machines"`
 }
 
-type remoteBackendTunnelKeyResponse struct {
-	PrivateKey string `json:"private_key"`
+type remoteBackendSSHCertificateRequest struct {
+	PublicKey  string `json:"public_key"`
+	TTLSeconds int    `json:"ttl_seconds,omitempty"`
+}
+
+type remoteBackendSSHCertificateResponse struct {
+	Certificate string `json:"certificate"`
+	ExpiresAt   string `json:"expires_at,omitempty"`
+	Principal   string `json:"principal,omitempty"`
+	Host        string `json:"host,omitempty"`
+	Port        int    `json:"port,omitempty"`
+	SSHUser     string `json:"ssh_user,omitempty"`
 }
 
 type remoteBackendSyncCompleteRequest struct {
@@ -211,15 +221,16 @@ func releaseRemoteBackendMachine(cfg Config, name string) error {
 	return remoteBackendRequest(cfg, http.MethodDelete, "/v1/machines/"+url.PathEscape(name), nil, nil)
 }
 
-func getRemoteBackendTunnelKey(cfg Config, name string) (string, error) {
-	var response remoteBackendTunnelKeyResponse
-	if err := remoteBackendRequest(cfg, http.MethodGet, "/v1/machines/"+url.PathEscape(name)+"/tunnel-key", nil, &response); err != nil {
-		return "", err
+func getRemoteBackendSSHCertificate(cfg Config, name string, publicKey string) (remoteBackendSSHCertificateResponse, error) {
+	req := remoteBackendSSHCertificateRequest{PublicKey: publicKey}
+	var response remoteBackendSSHCertificateResponse
+	if err := remoteBackendRequest(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(name)+"/ssh-cert", req, &response); err != nil {
+		return remoteBackendSSHCertificateResponse{}, err
 	}
-	if strings.TrimSpace(response.PrivateKey) == "" {
-		return "", fmt.Errorf("remote backend returned no tunnel SSH key for %s", name)
+	if strings.TrimSpace(response.Certificate) == "" {
+		return remoteBackendSSHCertificateResponse{}, fmt.Errorf("remote backend returned no SSH certificate for %s", name)
 	}
-	return response.PrivateKey, nil
+	return response, nil
 }
 
 func remoteBackendRequest(cfg Config, method string, endpoint string, body any, out any) error {
@@ -347,7 +358,15 @@ func mergeRemoteBackendMachine(local remoteMachine, remote remoteMachine) remote
 	if remote.ProjectPath == "" {
 		remote.ProjectPath = local.ProjectPath
 	}
-	remote.SSHPrivateKey = local.SSHPrivateKey
+	if remote.PublicIPv4 == "" {
+		remote.PublicIPv4 = local.PublicIPv4
+	}
+	if remote.ProviderID == "" {
+		remote.ProviderID = local.ProviderID
+	}
 	remote.SSHKeyPath = local.SSHKeyPath
+	remote.SSHCertificatePath = local.SSHCertificatePath
+	remote.SSHHost = local.SSHHost
+	remote.SSHPort = local.SSHPort
 	return remote
 }

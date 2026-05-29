@@ -5,6 +5,7 @@ import { createBackendAuth, migrateBackendAuth } from "./auth.js";
 import { StateStore } from "./state.js";
 import { createBackend } from "./server.js";
 import { digitalOceanProviderFromEnv } from "./digitalocean.js";
+import { SSHCertificateAuthority } from "./ssh_ca.js";
 
 const listen = process.env.YOLOBOX_BACKEND_LISTEN || "127.0.0.1:8787";
 const authSecret = process.env.BETTER_AUTH_SECRET;
@@ -19,6 +20,7 @@ const provider = providerName === "digitalocean"
 
 const statePath = process.env.YOLOBOX_BACKEND_STATE || join(homedir(), ".local", "state", "yolobox", "backend.json");
 const store = new StateStore(statePath, provider.name);
+const sshCA = new SSHCertificateAuthority(process.env.YOLOBOX_SSH_CA_KEY || join(dirname(statePath), "ssh_ca_ed25519"));
 const { host, port } = parseListen(listen);
 const defaultAppDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "dist-app");
 const publicHost = host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host;
@@ -39,6 +41,7 @@ const app = createBackend({
   auth,
   provider,
   store,
+  sshCA,
   appDir: process.env.YOLOBOX_BACKEND_APP_DIR || defaultAppDir,
   apiPublicURL,
   appPublicURL,

@@ -43,7 +43,7 @@ yolobox remote run foo codex
 
 ## Remote machines
 
-Log in through the browser, then create a named remote machine. The hosted or self-hosted backend leases the host, and the CLI reaches it only through the backend tunnel:
+Log in through the browser, then create a named remote machine. The hosted or self-hosted backend leases the host and signs temporary SSH certificates; the CLI then uses local SSH directly to the VM:
 
 ```bash
 yolobox login
@@ -53,7 +53,7 @@ yolobox remote create foo --tier medium
 yolobox remote run foo codex
 ```
 
-`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines. The backend creates a per-machine agent token, stores only its hash, and authenticates VM agent calls by that token only, not by any machine name claimed by the VM. The backend also creates per-machine tunnel SSH credentials. The backend/VM agent owns setup commands, command wrapping, and tmux lifecycle. `remote connect` opens or attaches to the managed tmux session without syncing or bootstrapping, and it fails if backend metadata says bootstrap has not completed. Remote commands print progress while backend provisioning and tunneled SSH startup are pending, then print the ready state and any generated preview URL on separate lines.
+`remote create` fails if `foo` already exists; use `remote run`, `remote connect`, or `remote status` for existing machines. The backend creates a per-machine agent token, stores only its hash, and authenticates VM agent calls by that token only, not by any machine name claimed by the VM. The backend also owns the SSH user CA and signs short-lived CLI certificates for machines owned by the authenticated user. The backend/VM agent owns setup commands, command wrapping, and tmux lifecycle. `remote connect` opens or attaches to the managed tmux session without syncing or bootstrapping, and it fails if backend metadata says bootstrap has not completed. Remote commands print progress while backend provisioning and direct SSH startup are pending, then print the ready state and any generated preview URL on separate lines.
 
 Run the self-hosted backend package for a shared machine pool:
 
@@ -88,7 +88,7 @@ yolobox remote status foo
 yolobox remote destroy foo --force
 ```
 
-The remote path depends on backend auth plus local `ssh` and `rsync`; SSH access is always through the backend WebSocket tunnel and fails if the VM agent is not connected. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, and VM-native sessions run from that directory. Each remote machine has one managed tmux session named `yolobox`; if it already exists, terminal `run` and `connect` attach instead of starting another session. The remote VM is the sandbox: commands do not run inside a nested yolobox container, and Docker Compose talks to the VM's Docker daemon. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
+The remote path depends on backend auth plus local `ssh`, `ssh-keygen`, and `rsync`; SSH access uses backend-signed OpenSSH user certificates and fails if the backend cannot issue one or the VM does not trust the backend SSH CA. `sync up` mirrors the whole current folder to `/opt/yolobox/project`, and VM-native sessions run from that directory. Each remote machine has one managed tmux session named `yolobox`; if it already exists, terminal `run` and `connect` attach instead of starting another session. The remote VM is the sandbox: commands do not run inside a nested yolobox container, and Docker Compose talks to the VM's Docker daemon. The mirrored folder includes `.git`, untracked files, ignored files, env files, dependencies, build output, and local caches. `sync down` requires `--force` because it can overwrite local files.
 
 For hosted DigitalOcean backends, build or rotate the remote VM golden snapshot with `deploy/digitalocean/build-remote-image.sh`, set `YOLOBOX_REMOTE_IMAGE` to the snapshot id, and restart the backend before testing new remote creates.
 

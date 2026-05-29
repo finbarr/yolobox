@@ -25,6 +25,9 @@ ENV NODE_ENV=production \
   YOLOBOX_BACKEND_AUTH_DB=/data/auth.sqlite
 
 RUN mkdir -p /data \
+  && apt-get update \
+  && apt-get install -y --no-install-recommends openssh-client \
+  && rm -rf /var/lib/apt/lists/* \
   && chown node:node /data
 
 COPY --from=build --chown=node:node /app/package.json /app/package-lock.json ./

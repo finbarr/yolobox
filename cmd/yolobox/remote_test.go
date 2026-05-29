@@ -54,6 +54,23 @@ func isolateRemoteSSHHome(t *testing.T) string {
 	return home
 }
 
+func writeFakeRemoteSSHCertificate(t *testing.T, w http.ResponseWriter, r *http.Request, host string) {
+	t.Helper()
+	var req remoteBackendSSHCertificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		t.Fatalf("decode SSH certificate request: %v", err)
+	}
+	if !strings.HasPrefix(req.PublicKey, "ssh-ed25519 ") {
+		t.Fatalf("unexpected SSH certificate public key: %q", req.PublicKey)
+	}
+	_ = json.NewEncoder(w).Encode(remoteBackendSSHCertificateResponse{
+		Certificate: "ssh-ed25519-cert-v01@openssh.com FAKE-CERT yolobox-test",
+		Host:        host,
+		Port:        22,
+		SSHUser:     "root",
+	})
+}
+
 func TestRemoteBackendClientCreatesListsAndReleasesMachine(t *testing.T) {
 	const token = "secret-token"
 	deleted := false
@@ -315,8 +332,8 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 				},
 				Status: "active",
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
-			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/ssh-cert":
+			writeFakeRemoteSSHCertificate(t, w, r, "203.0.113.10")
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
 			syncCompleteCalls++
 			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
@@ -383,11 +400,11 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	if !strings.Contains(string(rsyncArgs), "--delete") {
 		t.Fatalf("expected rsync args to include --delete:\n%s", rsyncArgs)
 	}
-	if !strings.Contains(string(rsyncArgs), "__remote-ssh-proxy") || !strings.Contains(string(rsyncArgs), "'foo'") {
-		t.Fatalf("expected rsync to use backend SSH tunnel proxy:\n%s", rsyncArgs)
+	if !strings.Contains(string(rsyncArgs), "203.0.113.10") {
+		t.Fatalf("rsync should use direct SSH to the provider public IP:\n%s", rsyncArgs)
 	}
-	if strings.Contains(string(rsyncArgs), "203.0.113.10") {
-		t.Fatalf("rsync must not use the provider public IP directly:\n%s", rsyncArgs)
+	if !strings.Contains(string(rsyncArgs), "CertificateFile=") || !strings.Contains(string(rsyncArgs), "HostKeyAlias=yolobox-foo-host-a") {
+		t.Fatalf("expected rsync SSH command to use a certificate and stable host-key alias:\n%s", rsyncArgs)
 	}
 }
 
@@ -414,8 +431,8 @@ func TestRemoteSyncUpOnlyRecordsSyncThroughBackend(t *testing.T) {
 				},
 				Status: "active",
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
-			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/ssh-cert":
+			writeFakeRemoteSSHCertificate(t, w, r, "203.0.113.10")
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
 			syncCompleteCalls++
 			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
@@ -455,7 +472,13 @@ func TestRemoteSyncUpOnlyRecordsSyncThroughBackend(t *testing.T) {
 
 func TestRemoteSSHOptionsUsePersistentKnownHosts(t *testing.T) {
 	home := isolateRemoteSSHHome(t)
-	machine := remoteMachine{Name: "foo", SSHKeyPath: filepath.Join(t.TempDir(), "id_ed25519")}
+	machine := remoteMachine{
+		Name:               "foo",
+		ProviderID:         "host-a",
+		PublicIPv4:         "203.0.113.10",
+		SSHKeyPath:         filepath.Join(t.TempDir(), "id_ed25519"),
+		SSHCertificatePath: filepath.Join(t.TempDir(), "id_ed25519-cert.pub"),
+	}
 
 	args, err := remoteSSHOptions(machine, false)
 	if err != nil {
@@ -468,8 +491,8 @@ func TestRemoteSSHOptionsUsePersistentKnownHosts(t *testing.T) {
 		"StrictHostKeyChecking=accept-new",
 		"CheckHostIP=no",
 		"HashKnownHosts=no",
-		"ProxyCommand=",
-		"__remote-ssh-proxy",
+		"CertificateFile=" + machine.SSHCertificatePath,
+		"HostKeyAlias=yolobox-foo-host-a",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected SSH options to contain %q, got:\n%s", want, joined)
@@ -505,7 +528,7 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"docker network create yolobox-net",
 		"YOLOBOX_REMOTE=1",
 		"/usr/local/lib/yolobox/agent.mjs",
-		"/v1/agent/tunnel",
+		"/v1/agent/connect",
 		"/var/log/yolobox-remote-install.log",
 		"step \"installing base packages\"",
 	} {
@@ -749,8 +772,8 @@ func TestRemoteConnectDoesNotPrepareWorkspace(t *testing.T) {
 				},
 				Status: "active",
 			})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
-			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/ssh-cert":
+			writeFakeRemoteSSHCertificate(t, w, r, "203.0.113.10")
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sessions/yolobox/prepare":
 			sessionCalls++
 			var req remoteBackendSessionPrepareRequest

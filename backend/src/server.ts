@@ -6,7 +6,7 @@ import websocket from "@fastify/websocket";
 import Fastify, { FastifyInstance } from "fastify";
 import { WebSocket } from "ws";
 import { BackendAuth } from "./auth.js";
-import { generateMachineSSHKeyPair } from "./sshkey.js";
+import { SSHCertificateAuthority } from "./ssh_ca.js";
 import { StateStore } from "./state.js";
 import { CreateMachineRequest, MachineProvider, MachineProviderInfo, RemoteMachine, defaultProjectPath } from "./types.js";
 
@@ -14,6 +14,7 @@ export type BackendOptions = {
   auth: BackendAuth;
   provider: MachineProvider;
   store: StateStore;
+  sshCA: SSHCertificateAuthority;
   appDir?: string;
   apiPublicURL?: string;
   appPublicURL?: string;
@@ -32,34 +33,23 @@ type PreviewOptions = {
   targetPort: number;
 };
 
-type TunnelAgent = {
+type AgentConnection = {
   machineKey: string;
   machine: RemoteMachine;
   socket: WebSocket;
-  streams: Map<string, TunnelStream>;
-  calls: Map<string, TunnelCall>;
+  calls: Map<string, AgentCall>;
 };
 
-type TunnelStream = {
-  client: WebSocket;
-  opened: boolean;
-  timer: NodeJS.Timeout;
-};
-
-type TunnelCall = {
+type AgentCall = {
   resolve: (result: unknown) => void;
   reject: (error: Error) => void;
   timer: NodeJS.Timeout;
 };
 
-type TunnelMessage = {
+type AgentMessage = {
   type?: string;
-  stream_id?: string;
   rpc_id?: string;
   action?: string;
-  host?: string;
-  port?: number;
-  data?: string;
   payload?: unknown;
   ok?: boolean;
   result?: unknown;
@@ -87,9 +77,13 @@ type RemoteCommandRequest = {
   command?: string[];
 };
 
+type SSHCertificateRequest = {
+  public_key?: string;
+  ttl_seconds?: number;
+};
+
 const namePattern = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const agentTokenBytes = 48;
-const tunnelOpenTimeout = 15_000;
 const agentRPCDefaultTimeout = 60_000;
 const agentRPCSetupTimeout = 30 * 60_000;
 
@@ -97,14 +91,10 @@ export function createBackend(options: BackendOptions): FastifyInstance {
   const app = Fastify({ logger: false });
   void app.register(websocket, { options: { maxPayload: 8 * 1024 * 1024 } });
   registerCors(app, options.corsOrigins || []);
-  const tunnelAgents = new Map<string, TunnelAgent>();
+  const agents = new Map<string, AgentConnection>();
   app.after(() => {
-    app.get("/v1/agent/tunnel", { websocket: true }, async (socket, request) => {
-      await handleAgentTunnel(options, tunnelAgents, socket, request);
-    });
-
-    app.get<{ Params: { name: string } }>("/v1/machines/:name/tunnel/ssh", { websocket: true }, async (socket, request) => {
-      await handleClientSSHTunnel(options, tunnelAgents, socket, request);
+    app.get("/v1/agent/connect", { websocket: true }, async (socket, request) => {
+      await handleAgentConnection(options, agents, socket, request);
     });
   });
 
@@ -214,14 +204,14 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       machine: publicMachine(machine),
       status: refreshed.status || "leased",
       connect: {
-        transport: "backend_tunnel",
+        transport: "direct_ssh_certificate",
         cli: `yolobox remote connect ${machine.name}`,
         cli_run: `yolobox remote run ${machine.name}`,
       },
     };
   });
 
-  app.get<{ Params: { name: string } }>("/v1/machines/:name/tunnel-key", async (request, reply) => {
+  app.post<{ Params: { name: string }; Body: SSHCertificateRequest }>("/v1/machines/:name/ssh-cert", async (request, reply) => {
     const auth = await requireAuth(options, request, reply);
     if (!auth) return;
     const name = request.params.name;
@@ -229,14 +219,34 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     if (error) return reply.code(400).send({ id: "bad_request", message: error });
     const machine = await options.store.getMachine(auth.userID, name);
     if (!machine) return reply.code(404).send({ id: "not_found", message: "machine does not exist" });
-    if (!machine.ssh_private_key) {
-      return reply.code(409).send({ id: "not_ready", message: "remote machine does not have backend tunnel SSH credentials; recreate it" });
+    if (!machine.bootstrap_complete) {
+      return reply.code(409).send({ id: "not_bootstrapped", message: "remote machine is not bootstrapped" });
     }
-    return { private_key: machine.ssh_private_key };
+    const normalized = normalizeMachine(options, machine);
+    const principal = normalized.ssh_principal || sshPrincipalForMachine(normalized);
+    if (!normalized.public_ipv4) {
+      return reply.code(409).send({ id: "not_ready", message: "remote machine does not have a public IPv4 yet" });
+    }
+    const publicKey = request.body?.public_key?.trim() || "";
+    if (!/^ssh-[A-Za-z0-9-]+\s+\S+/.test(publicKey)) {
+      return reply.code(400).send({ id: "bad_request", message: "valid SSH public key is required" });
+    }
+    const signed = await options.sshCA.signUserPublicKey({
+      publicKey,
+      principal,
+      identity: `yolobox-${auth.userID}-${normalized.name}`,
+      ttlSeconds: request.body?.ttl_seconds,
+    });
+    return {
+      ...signed,
+      host: normalized.public_ipv4,
+      port: 22,
+      ssh_user: normalized.ssh_user || "root",
+    };
   });
 
   app.post<{ Params: { name: string }; Body: RemoteSetupRequest }>("/v1/machines/:name/setup", async (request, reply) => {
-    const context = await requireMachineAgentContext(options, tunnelAgents, request, reply);
+    const context = await requireMachineAgentContext(options, agents, request, reply);
     if (!context) return;
     const commands = normalizeStringArray(request.body?.commands);
     if (commands.length === 0) {
@@ -266,13 +276,13 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       updated_at: now,
     });
     await options.store.putMachine(machine);
-    const agent = tunnelAgents.get(tunnelMachineKey(machine));
+    const agent = agents.get(agentMachineKey(machine));
     if (agent) agent.machine = machine;
     return { machine: publicMachine(machine) };
   });
 
   app.post<{ Params: { name: string }; Body: RemoteSessionPrepareRequest }>("/v1/machines/:name/sessions/yolobox/prepare", async (request, reply) => {
-    const context = await requireMachineAgentContext(options, tunnelAgents, request, reply);
+    const context = await requireMachineAgentContext(options, agents, request, reply);
     if (!context) return;
     const command = normalizeStringArray(request.body?.command);
     const attach = request.body?.attach === true;
@@ -302,7 +312,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
   });
 
   app.post<{ Params: { name: string }; Body: RemoteCommandRequest }>("/v1/machines/:name/commands/ssh", async (request, reply) => {
-    const context = await requireMachineAgentContext(options, tunnelAgents, request, reply);
+    const context = await requireMachineAgentContext(options, agents, request, reply);
     if (!context) return;
     const command = normalizeStringArray(request.body?.command);
     const result = await callAgentRPC(context.agent, "direct_command", {
@@ -326,7 +336,7 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       updated_at: new Date().toISOString(),
     });
     await options.store.putMachine(machine);
-    const agent = tunnelAgents.get(tunnelMachineKey(machine));
+    const agent = agents.get(agentMachineKey(machine));
     if (agent) agent.machine = machine;
     return { machine: publicMachine(machine) };
   });
@@ -363,10 +373,11 @@ async function createMachine(options: BackendOptions, auth: AuthContext, body: C
     throw new Error("backend public API URL is required to provision remote machine agent credentials");
   }
   const agentToken = generateAgentToken();
-  const sshKey = generateMachineSSHKeyPair();
+  const sshPrincipal = sshPrincipalForMachine({ name: body.name, user_id: auth.userID, provider_name: body.provider_name });
   body.agent_token = agentToken;
   body.agent_backend_url = agentBackendURL;
-  body.agent_ssh_authorized_key = sshKey.authorized_key;
+  body.ssh_user_ca_public_key = await options.sshCA.publicKey();
+  body.ssh_authorized_principal = sshPrincipal;
 
   await syncProviderMachines(options, auth);
   const existing = await options.store.getMachine(auth.userID, body.name);
@@ -393,8 +404,7 @@ async function createMachine(options: BackendOptions, auth: AuthContext, body: C
     branch: body.branch,
     ssh_user: provisioned.machine.ssh_user || body.ssh_user || "root",
     agent_token_hash: hashAgentToken(agentToken),
-    ssh_private_key: sshKey.private_key,
-    ssh_public_key: sshKey.authorized_key,
+    ssh_principal: sshPrincipal,
   });
   await options.store.putMachine(machine);
   return reply.code(201).send({ machine: publicMachine(machine), status: provisioned.status || "created" });
@@ -437,6 +447,16 @@ function normalizeCreateRequest(body: CreateMachineRequest | undefined, provider
   };
 }
 
+function normalizeWorkspaceRequest(body: RemoteSyncCompleteRequest | undefined, existing: RemoteMachine): Partial<RemoteMachine> {
+  const input = body || {};
+  return {
+    source_path: input.source_path?.trim() || existing.source_path,
+    project_path: normalizeAbsoluteRemotePath(input.project_path || "") || existing.project_path || defaultProjectPath,
+    repo_url: input.repo_url?.trim() || existing.repo_url,
+    branch: input.branch?.trim() || existing.branch,
+  };
+}
+
 function normalizeMachine(options: BackendOptions, machine: RemoteMachine): RemoteMachine {
   const now = new Date().toISOString();
   const name = machine.name.trim().toLowerCase();
@@ -451,6 +471,7 @@ function normalizeMachine(options: BackendOptions, machine: RemoteMachine): Remo
     provider_label: machine.provider_label || options.provider.label || options.provider.name,
     project_path: machine.project_path || defaultProjectPath,
     ssh_user: machine.ssh_user || "root",
+    ssh_principal: machine.ssh_principal || sshPrincipalForMachine(machine),
     ...(previewHostname ? { preview_hostname: previewHostname, preview_url: `https://${previewHostname}` } : {}),
     created_at: machine.created_at || now,
     updated_at: now,
@@ -458,8 +479,12 @@ function normalizeMachine(options: BackendOptions, machine: RemoteMachine): Remo
 }
 
 function publicMachine(machine: RemoteMachine): RemoteMachine {
-  const { agent_token_hash: _agentTokenHash, ssh_private_key: _sshPrivateKey, ...safe } = machine;
-  return safe;
+  const safe = { ...machine } as RemoteMachine & Record<string, unknown>;
+  delete safe.agent_token_hash;
+  for (const key of Object.keys(safe)) {
+    if (key.startsWith("ssh_") && key.endsWith("_key")) delete safe[key];
+  }
+  return safe as RemoteMachine;
 }
 
 function providerInfo(provider: MachineProvider): MachineProviderInfo {
@@ -501,10 +526,10 @@ class AgentRPCError extends Error {
 
 async function requireMachineAgentContext(
   options: BackendOptions,
-  agents: Map<string, TunnelAgent>,
+  agents: Map<string, AgentConnection>,
   request: { headers: Record<string, string | string[] | undefined>; params: { name: string } },
   reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } },
-): Promise<{ auth: AuthContext; machine: RemoteMachine; agent: TunnelAgent } | undefined> {
+): Promise<{ auth: AuthContext; machine: RemoteMachine; agent: AgentConnection } | undefined> {
   const auth = await requireAuth(options, request, reply);
   if (!auth) return undefined;
   const name = request.params.name;
@@ -522,7 +547,7 @@ async function requireMachineAgentContext(
     reply.code(409).send({ id: "not_bootstrapped", message: "remote machine is not bootstrapped" });
     return undefined;
   }
-  const agent = agents.get(tunnelMachineKey(machine));
+  const agent = agents.get(agentMachineKey(machine));
   if (!agent || agent.socket.readyState !== WebSocket.OPEN) {
     reply.code(409).send({ id: "agent_disconnected", message: "remote machine agent is not connected" });
     return undefined;
@@ -611,13 +636,13 @@ function constantTimeEqual(left: string, right: string): boolean {
   return leftBuffer.length === rightBuffer.length && timingSafeEqual(leftBuffer, rightBuffer);
 }
 
-async function handleAgentTunnel(
+async function handleAgentConnection(
   options: BackendOptions,
-  agents: Map<string, TunnelAgent>,
+  agents: Map<string, AgentConnection>,
   socket: WebSocket,
   request: { headers: Record<string, string | string[] | undefined> },
 ): Promise<void> {
-  let agent: TunnelAgent | undefined;
+  let agent: AgentConnection | undefined;
   let key = "";
   const pendingMessages: WebSocket.RawData[] = [];
   socket.on("message", (data) => {
@@ -625,17 +650,11 @@ async function handleAgentTunnel(
       pendingMessages.push(data);
       return;
     }
-    void handleAgentTunnelMessage(options, agent, data);
+    void handleAgentMessage(options, agent, data);
   });
   socket.on("close", () => {
     if (!agent) return;
     if (agents.get(key) === agent) agents.delete(key);
-    for (const stream of agent.streams.values()) {
-      clearTimeout(stream.timer);
-      sendTunnelError(stream.client, "remote machine agent disconnected");
-      stream.client.close(1011, "remote agent disconnected");
-    }
-    agent.streams.clear();
     for (const call of agent.calls.values()) {
       clearTimeout(call.timer);
       call.reject(new AgentRPCError("remote machine agent disconnected", "agent_disconnected"));
@@ -645,13 +664,13 @@ async function handleAgentTunnel(
 
   const machine = await agentMachineFromHeaders(options, request.headers);
   if (!machine?.user_id) {
-    sendTunnelError(socket, "missing or invalid machine agent token");
+    sendAgentError(socket, "missing or invalid machine agent token");
     socket.close(1008, "unauthorized");
     return;
   }
   if (socket.readyState !== WebSocket.OPEN) return;
 
-  key = tunnelMachineKey(machine);
+  key = agentMachineKey(machine);
   const existing = agents.get(key);
   if (existing) {
     closeAgent(existing, "machine agent reconnected");
@@ -660,22 +679,21 @@ async function handleAgentTunnel(
     machineKey: key,
     machine,
     socket,
-    streams: new Map(),
     calls: new Map(),
   };
   agents.set(key, agent);
   agent.machine = await markAgentSeen(options, machine);
   for (const message of pendingMessages.splice(0)) {
-    void handleAgentTunnelMessage(options, agent, message);
+    void handleAgentMessage(options, agent, message);
   }
 }
 
-async function handleAgentTunnelMessage(options: BackendOptions, agent: TunnelAgent, raw: WebSocket.RawData): Promise<void> {
-  const message = parseTunnelMessage(raw);
+async function handleAgentMessage(options: BackendOptions, agent: AgentConnection, raw: WebSocket.RawData): Promise<void> {
+  const message = parseAgentMessage(raw);
   if (!message.type) return;
   if (message.type === "ping") {
     agent.machine = await markAgentSeen(options, agent.machine);
-    sendTunnelJSON(agent.socket, { type: "pong" });
+    sendAgentJSON(agent.socket, { type: "pong" });
     return;
   }
   if (message.type === "rpc_result") {
@@ -691,108 +709,6 @@ async function handleAgentTunnelMessage(options: BackendOptions, agent: TunnelAg
     call.reject(new AgentRPCError(message.message || "remote machine agent RPC failed", message.code || "agent_rpc_failed"));
     return;
   }
-  const streamID = message.stream_id || "";
-  const stream = agent.streams.get(streamID);
-  if (!stream) return;
-  switch (message.type) {
-  case "opened":
-    stream.opened = true;
-    clearTimeout(stream.timer);
-    sendTunnelJSON(stream.client, { type: "ready" });
-    return;
-  case "data":
-    if (message.data && stream.client.readyState === WebSocket.OPEN) {
-      stream.client.send(Buffer.from(message.data, "base64"));
-    }
-    return;
-  case "eof":
-  case "close":
-    stream.client.close(1000, "remote stream closed");
-    agent.streams.delete(streamID);
-    return;
-  case "error":
-    sendTunnelError(stream.client, message.message || "remote stream failed");
-    stream.client.close(1011, "remote stream failed");
-    agent.streams.delete(streamID);
-    return;
-  }
-}
-
-async function handleClientSSHTunnel(
-  options: BackendOptions,
-  agents: Map<string, TunnelAgent>,
-  socket: WebSocket,
-  request: { headers: Record<string, string | string[] | undefined>; params: { name: string } },
-): Promise<void> {
-  const auth = await authFromHeaders(options, request.headers);
-  if (!auth) {
-    sendTunnelError(socket, "missing or invalid user session token");
-    socket.close(1008, "unauthorized");
-    return;
-  }
-  const name = request.params.name;
-  const error = validateName(name);
-  if (error) {
-    sendTunnelError(socket, error);
-    socket.close(1008, "bad request");
-    return;
-  }
-  const machine = await options.store.getMachine(auth.userID, name);
-  if (!machine?.user_id) {
-    sendTunnelError(socket, "machine does not exist");
-    socket.close(1008, "not found");
-    return;
-  }
-  if (!machine.bootstrap_complete) {
-    sendTunnelError(socket, "remote machine is not bootstrapped");
-    socket.close(1011, "not bootstrapped");
-    return;
-  }
-  const agent = agents.get(tunnelMachineKey(machine));
-  if (!agent || agent.socket.readyState !== WebSocket.OPEN) {
-    sendTunnelError(socket, "remote machine agent is not connected");
-    socket.close(1011, "remote agent not connected");
-    return;
-  }
-  if (socket.readyState !== WebSocket.OPEN) return;
-
-  const streamID = randomUUID();
-  const stream: TunnelStream = {
-    client: socket,
-    opened: false,
-    timer: setTimeout(() => {
-      sendTunnelError(socket, "timed out opening remote SSH tunnel");
-      socket.close(1011, "remote tunnel open timed out");
-      sendTunnelJSON(agent.socket, { type: "close", stream_id: streamID });
-      agent.streams.delete(streamID);
-    }, tunnelOpenTimeout),
-  };
-  agent.streams.set(streamID, stream);
-  sendTunnelJSON(agent.socket, { type: "open", stream_id: streamID, host: "127.0.0.1", port: 22 });
-
-  socket.on("message", (data) => {
-    if (!stream.opened || agent.socket.readyState !== WebSocket.OPEN) return;
-    const buffer = normalizeTunnelBytes(data);
-    sendTunnelJSON(agent.socket, {
-      type: "data",
-      stream_id: streamID,
-      data: buffer.toString("base64"),
-    });
-  });
-  socket.on("close", () => {
-    clearTimeout(stream.timer);
-    agent.streams.delete(streamID);
-    sendTunnelJSON(agent.socket, { type: "close", stream_id: streamID });
-  });
-}
-
-async function authFromHeaders(options: BackendOptions, headers: Record<string, string | string[] | undefined>): Promise<AuthContext | undefined> {
-  const session = await options.auth.api.getSession({ headers: toHeaders(headers) });
-  if (!session) return undefined;
-  return {
-    userID: session.user.id,
-    email: session.user.email,
-  };
 }
 
 async function agentMachineFromHeaders(options: BackendOptions, headers: Record<string, string | string[] | undefined>): Promise<RemoteMachine | undefined> {
@@ -812,13 +728,7 @@ async function markAgentSeen(options: BackendOptions, machine: RemoteMachine): P
   return updated;
 }
 
-function closeAgent(agent: TunnelAgent, reason: string): void {
-  for (const stream of agent.streams.values()) {
-    clearTimeout(stream.timer);
-    sendTunnelError(stream.client, reason);
-    stream.client.close(1011, reason);
-  }
-  agent.streams.clear();
+function closeAgent(agent: AgentConnection, reason: string): void {
   for (const call of agent.calls.values()) {
     clearTimeout(call.timer);
     call.reject(new AgentRPCError(reason, "agent_disconnected"));
@@ -827,7 +737,7 @@ function closeAgent(agent: TunnelAgent, reason: string): void {
   agent.socket.close(1000, reason);
 }
 
-function callAgentRPC(agent: TunnelAgent, action: string, payload: unknown, timeout: number): Promise<unknown> {
+function callAgentRPC(agent: AgentConnection, action: string, payload: unknown, timeout: number): Promise<unknown> {
   if (agent.socket.readyState !== WebSocket.OPEN) {
     return Promise.reject(new AgentRPCError("remote machine agent is not connected", "agent_disconnected"));
   }
@@ -838,36 +748,36 @@ function callAgentRPC(agent: TunnelAgent, action: string, payload: unknown, time
       reject(new AgentRPCError(`timed out waiting for remote machine agent action ${action}`, "agent_timeout"));
     }, timeout);
     agent.calls.set(rpcID, { resolve, reject, timer });
-    sendTunnelJSON(agent.socket, { type: "rpc", rpc_id: rpcID, action, payload });
+    sendAgentJSON(agent.socket, { type: "rpc", rpc_id: rpcID, action, payload });
   });
 }
 
-function tunnelMachineKey(machine: RemoteMachine): string {
+function agentMachineKey(machine: RemoteMachine): string {
   return `${machine.user_id || ""}:${machine.name}`;
 }
 
-function parseTunnelMessage(raw: WebSocket.RawData): TunnelMessage {
+function parseAgentMessage(raw: WebSocket.RawData): AgentMessage {
   try {
-    return JSON.parse(normalizeTunnelBytes(raw).toString("utf8")) as TunnelMessage;
+    return JSON.parse(normalizeWebSocketBytes(raw).toString("utf8")) as AgentMessage;
   } catch {
     return {};
   }
 }
 
-function normalizeTunnelBytes(raw: WebSocket.RawData): Buffer {
+function normalizeWebSocketBytes(raw: WebSocket.RawData): Buffer {
   if (Buffer.isBuffer(raw)) return raw;
   if (Array.isArray(raw)) return Buffer.concat(raw);
   return Buffer.from(raw);
 }
 
-function sendTunnelJSON(socket: WebSocket, payload: TunnelMessage): void {
+function sendAgentJSON(socket: WebSocket, payload: AgentMessage): void {
   if (socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify(payload));
   }
 }
 
-function sendTunnelError(socket: WebSocket, message: string): void {
-  sendTunnelJSON(socket, { type: "error", message });
+function sendAgentError(socket: WebSocket, message: string): void {
+  sendAgentJSON(socket, { type: "error", message });
 }
 
 function toWebRequest(request: { method: string; url: string; headers: Record<string, string | string[] | undefined>; body?: unknown; ip?: string }): Request {
@@ -924,6 +834,12 @@ function providerMachineName(userID: string, machineName: string): string {
   const hash = providerUserHash(userID);
   const base = machineName.trim().toLowerCase().replace(/[^a-z0-9-]+/g, "-").replace(/^-|-$/g, "") || "machine";
   return `${base.slice(0, 52)}-${hash}`;
+}
+
+function sshPrincipalForMachine(machine: Pick<RemoteMachine, "name" | "user_id" | "provider_name">): string {
+  const source = machine.provider_name || (machine.user_id ? providerMachineName(machine.user_id, machine.name) : machine.name);
+  const principal = source.trim().toLowerCase().replace(/[^a-z0-9._:-]+/g, "-").replace(/^-+|-+$/g, "");
+  return `yolobox:${principal || "machine"}`;
 }
 
 function providerUserHash(userID: string): string {

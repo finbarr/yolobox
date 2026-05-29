@@ -48,14 +48,19 @@ test("DigitalOcean size tiers map to provider slugs", () => {
   assert.equal(digitalOceanSizeForTier("large"), "s-8vcpu-16gb-amd");
 });
 
-test("DigitalOcean agent user data carries only token credentials", () => {
+test("DigitalOcean agent user data carries token credentials and SSH CA trust", () => {
   const userData = digitalOceanAgentUserData({
     name: "victim-name",
     agent_token: "test-token",
     agent_backend_url: "https://api.example.com/",
+    ssh_user_ca_public_key: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAITest yolobox-ca",
+    ssh_authorized_principal: "yolobox:foo-123",
   });
 
   assert.match(userData, /YOLOBOX_AGENT_TOKEN='test-token'/);
   assert.match(userData, /YOLOBOX_AGENT_BACKEND_URL='https:\/\/api\.example\.com'/);
+  assert.match(userData, /TrustedUserCAKeys \/etc\/ssh\/yolobox_user_ca_keys/);
+  assert.match(userData, /AuthorizedPrincipalsFile \/etc\/ssh\/auth_principals\/%u/);
+  assert.match(userData, /yolobox:foo-123/);
   assert.doesNotMatch(userData, /victim-name/);
 });

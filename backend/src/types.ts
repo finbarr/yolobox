@@ -23,8 +23,7 @@ export type RemoteMachine = {
   bootstrap_complete?: boolean;
   agent_token_hash?: string;
   agent_last_seen_at?: string;
-  ssh_private_key?: string;
-  ssh_public_key?: string;
+  ssh_principal?: string;
 };
 
 export type CreateMachineRequest = {
@@ -38,7 +37,8 @@ export type CreateMachineRequest = {
   branch?: string;
   agent_token?: string;
   agent_backend_url?: string;
-  agent_ssh_authorized_key?: string;
+  ssh_user_ca_public_key?: string;
+  ssh_authorized_principal?: string;
 };
 
 export type ListProviderMachinesRequest = {

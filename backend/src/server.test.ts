@@ -9,7 +9,10 @@ import { tmpdir } from "node:os";
 import { createBackendAuth, migrateBackendAuth } from "./auth.js";
 import { StateStore } from "./state.js";
 import { createBackend } from "./server.js";
+import { SSHCertificateAuthority } from "./ssh_ca.js";
 import { CreateMachineRequest, MachineProvider, RemoteMachine } from "./types.js";
+
+const testSSHUserPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBxsqJzPGdcbwFthXVe2lyIImV6BwTw4Ee5WcoeczwJf test";
 
 class FakeProvider implements MachineProvider {
   readonly name = "fake";
@@ -90,10 +93,13 @@ test("backend creates, records, lists, and releases one machine", async () => {
   assert.equal(createBody.machine.preview_url, `https://${createBody.machine.preview_hostname}`);
   assert.equal(createBody.machine.project_path, "/opt/yolobox/project");
   assert.equal(createBody.machine.agent_token_hash, undefined);
+  assert.match(createBody.machine.ssh_principal, /^yolobox:foo-[a-f0-9]{10}$/);
   assert.equal(provider.created.length, 1);
   assert.equal(provider.created[0].tier, "medium");
   assert.match(provider.created[0].agent_token || "", /^[A-Za-z0-9_-]{64}$/);
   assert.equal(provider.created[0].agent_backend_url, "https://api.hosted.test");
+  assert.match(provider.created[0].ssh_user_ca_public_key || "", /^ssh-ed25519 /);
+  assert.equal(provider.created[0].ssh_authorized_principal, createBody.machine.ssh_principal);
 
   const recorded = await app.inject({
     method: "POST",
@@ -152,7 +158,7 @@ test("backend authenticates machine agents only by opaque token", async () => {
   assert.equal(guessedName.statusCode, 401, guessedName.body);
 });
 
-test("backend tunnels SSH bytes through the token-authenticated machine agent", async () => {
+test("backend signs short-lived SSH certificates for owned machines", async () => {
   const { app, provider, token } = await createTestBackend();
   const created = await app.inject({
     method: "POST",
@@ -163,52 +169,19 @@ test("backend tunnels SSH bytes through the token-authenticated machine agent", 
   assert.equal(created.statusCode, 201, created.body);
   const agentToken = provider.created[0].agent_token || "";
   assert.match(agentToken, /^[A-Za-z0-9_-]{64}$/);
-  const heartbeat = await app.inject({
+  assert.equal(provider.created[0].ssh_authorized_principal, created.json().machine.ssh_principal);
+
+  const cert = await app.inject({
     method: "POST",
-    url: "/v1/agent/heartbeat",
-    headers: { authorization: `Bearer ${agentToken}` },
-  });
-  assert.equal(heartbeat.statusCode, 200, heartbeat.body);
-
-  await app.ready();
-  const agent = await app.injectWS("/v1/agent/tunnel", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
-  const agentOpen = nextWSMessage(agent);
-  const client = await app.injectWS("/v1/machines/foo/tunnel/ssh", { headers: { authorization: `Bearer ${token}`, host: "127.0.0.1" } });
-  const open = JSON.parse((await agentOpen).toString());
-  assert.equal(open.type, "open");
-  assert.equal(open.host, "127.0.0.1");
-  assert.equal(open.port, 22);
-  assert.equal(open.name, undefined);
-
-  const clientReady = nextWSMessage(client);
-  agent.send(JSON.stringify({ type: "opened", stream_id: open.stream_id }));
-  assert.equal(JSON.parse((await clientReady).toString()).type, "ready");
-
-  const agentData = nextWSMessage(agent);
-  client.send(Buffer.from("from-client"));
-  const data = JSON.parse((await agentData).toString());
-  assert.equal(data.type, "data");
-  assert.equal(Buffer.from(data.data, "base64").toString(), "from-client");
-
-  const clientData = nextWSMessage(client);
-  agent.send(JSON.stringify({ type: "data", stream_id: open.stream_id, data: Buffer.from("from-agent").toString("base64") }));
-  assert.equal((await clientData).toString(), "from-agent");
-
-  const recorded = await app.inject({
-    method: "POST",
-    url: "/v1/machines/foo/commands/record",
+    url: "/v1/machines/foo/ssh-cert",
     headers: { authorization: `Bearer ${token}` },
-    payload: { command: ["codex"] },
+    payload: { public_key: testSSHUserPublicKey },
   });
-  assert.equal(recorded.statusCode, 200, recorded.body);
-  const pong = nextWSMessage(agent);
-  agent.send(JSON.stringify({ type: "ping" }));
-  assert.equal(JSON.parse((await pong).toString()).type, "pong");
-  const fetched = await app.inject({ method: "GET", url: "/v1/machines/foo", headers: { authorization: `Bearer ${token}` } });
-  assert.deepEqual(fetched.json().machine.last_command, ["codex"]);
-
-  client.terminate();
-  agent.terminate();
+  assert.equal(cert.statusCode, 200, cert.body);
+  assert.match(cert.json().certificate, /^ssh-ed25519-cert-v01@openssh.com /);
+  assert.equal(cert.json().principal, created.json().machine.ssh_principal);
+  assert.equal(cert.json().host, "203.0.113.10");
+  assert.equal(cert.json().ssh_user, "root");
 });
 
 test("backend delegates session lifecycle to the machine agent", async () => {
@@ -224,7 +197,7 @@ test("backend delegates session lifecycle to the machine agent", async () => {
   const agentToken = provider.created[0].agent_token || "";
 
   await app.ready();
-  const agent = await app.injectWS("/v1/agent/tunnel", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+  const agent = await app.injectWS("/v1/agent/connect", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
 
   const sessionRequest = app.inject({
     method: "POST",
@@ -328,7 +301,7 @@ test("backend imports provider machines for the authenticated user", async () =>
 
   const connect = await app.inject({ method: "GET", url: "/v1/machines/already-there/connect", headers });
   assert.equal(connect.statusCode, 200);
-  assert.equal(connect.json().connect.transport, "backend_tunnel");
+  assert.equal(connect.json().connect.transport, "direct_ssh_certificate");
   assert.equal(connect.json().connect.cli, "yolobox remote connect already-there");
   assert.equal(connect.json().connect.cli_run, "yolobox remote run already-there");
 });
@@ -517,6 +490,7 @@ async function createTestBackend(email = "user@example.com", password = "passwor
   const dir = await mkdtemp(join(tmpdir(), "yolobox-backend-"));
   const provider = new FakeProvider();
   const store = new StateStore(join(dir, "state.json"), provider.name);
+  const sshCA = new SSHCertificateAuthority(join(dir, "ssh_ca_ed25519"));
   const authOptions = {
     baseURL: "http://127.0.0.1/v1/auth",
     databasePath: join(dir, "auth.sqlite"),
@@ -529,6 +503,7 @@ async function createTestBackend(email = "user@example.com", password = "passwor
     auth,
     provider,
     store,
+    sshCA,
     apiPublicURL: "https://api.hosted.test",
     previewBaseDomain: "hosted.test",
     previewTargetPort: options.previewTargetPort,

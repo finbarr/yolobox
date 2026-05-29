@@ -74,16 +74,14 @@ name from the VM. Root on the VM can read or replace that VM's token, so the
 token can only authorize actions for the machine that owns it; it must not grant
 access to backend admin, provider, or other user state.
 
-Remote SSH is also backend-mediated. For each backend-created machine, the
-backend creates an ed25519 SSH key pair, stores the private key in backend state,
-and puts the public key in root's `authorized_keys` through provider user data.
-An authenticated CLI fetches that private key into a temporary file and uses
-local `ssh` with a backend WebSocket `ProxyCommand`; the VM agent must already be
-connected to the backend and must open `127.0.0.1:22` on that VM. There is no
-normal direct-IP SSH fallback. The CLI pins remote host keys in
-`~/.yolobox/remote_known_hosts` instead of using the user's normal SSH
-`known_hosts` file. Protect backend state backups accordingly because they
-include the machine tunnel private keys.
+Remote SSH uses backend-signed OpenSSH user certificates. The backend owns a
+persistent SSH user CA, passes the CA public key plus a per-machine authorized
+principal to the VM through provider user data, and signs a temporary CLI public
+key only after authenticating the machine owner. The CLI then connects directly
+to the VM public IP with local `ssh` or `rsync`. There is no unsigned SSH
+fallback. The CLI pins remote host keys in `~/.yolobox/remote_known_hosts`
+instead of using the user's normal SSH `known_hosts` file. Protect backend state
+backups accordingly because they include the SSH CA private key.
 
 The MVP mirrors the entire current folder to `/opt/yolobox/project` with `rsync` on `remote sync up`, and remote commands run from that directory on the VM. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine, and move secrets out of the project folder before syncing when they should not leave your laptop. `remote sync down ... --force` copies remote files back into the local folder and can overwrite local changes.
 

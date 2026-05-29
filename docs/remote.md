@@ -1,6 +1,6 @@
 # Remote Mode
 
-Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always asks a hosted or self-hosted backend for the machine lease, then uses local SSH and rsync through a backend tunnel for the developer workflow.
+Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always asks a hosted or self-hosted backend for the machine lease and short-lived SSH access, then uses local SSH and rsync directly against the VM for the developer workflow.
 
 The CLI no longer provisions cloud machines directly and no longer maintains a local remote registry. The backend is the source of truth for machine state.
 
@@ -17,7 +17,7 @@ Implemented in the CLI:
 - VM-native agent execution with Docker Engine and Compose on the host
 - full-folder `remote sync up` and forced `remote sync down --force`
 - backend-generated preview URLs for deployments with a preview base domain
-- backend WebSocket tunnel transport for `remote run`, `remote connect`, and `remote sync`
+- direct SSH and rsync with backend-signed OpenSSH user certificates
 
 Implemented in the open-source backend package under `backend/`:
 
@@ -28,9 +28,8 @@ Implemented in the open-source backend package under `backend/`:
 - DigitalOcean provider adapter for self-hosted provisioning
 - narrow machine metadata updates from CLI sync and command events
 - per-machine high-entropy agent tokens and a token-only machine heartbeat endpoint
-- per-machine backend-issued tunnel SSH credentials
-- token-authenticated VM agent WebSocket tunnel endpoint
-- authenticated user WebSocket SSH tunnel endpoint
+- backend SSH user CA with per-machine authorized principals
+- token-authenticated VM agent WebSocket control endpoint
 - preview hostname generation plus backend preview proxy endpoints
 - TanStack browser console for signup, signin, machine list, create, destroy, and CLI grant approval
 
@@ -59,21 +58,21 @@ each machine receives a stable generated hostname under that domain. Hosted
 deployments proxy that hostname to the machine's standard preview service; custom
 names are a separate product layer.
 
-SSH access is backend-tunneled. The CLI invokes local `ssh` with a
-`ProxyCommand` that opens `/v1/machines/{name}/tunnel/ssh`; the backend relays
-that stream to the token-authenticated VM agent, and the VM agent connects to
-`127.0.0.1:22` on the machine. There is no direct droplet-IP SSH path in normal
-remote operations. If the tunnel key is missing, the VM agent is disconnected, or
-the backend cannot open the VM-side SSH connection, `remote run`, `remote
-connect`, and `remote sync` fail. The CLI stores remote SSH host keys in
-`~/.yolobox/remote_known_hosts` with one host identity per named remote, accepts
-new host keys on first contact, and rejects changed keys on later connects.
+SSH access uses backend-signed OpenSSH user certificates. The CLI creates a
+temporary ed25519 key, asks `/v1/machines/{name}/ssh-cert` to sign the public key
+for that authenticated user's machine, and connects directly to the VM public IP.
+The VM trusts the backend SSH user CA and accepts only the machine's authorized
+principal for the configured SSH user. There is no unsigned direct-SSH fallback.
+The CLI stores remote SSH host keys in `~/.yolobox/remote_known_hosts` with one
+stable host identity per provider machine, accepts new host keys on first
+contact, and rejects changed keys on later connects.
 
-Tunnels are live connections, not resumable sessions. Restarting or redeploying
-the backend closes active `remote run`, `remote connect`, and `remote sync`
-transport connections. The remote VM, project files, containers, and managed
-`yolobox` tmux session remain on the machine; the VM agent reconnects to the
-backend and new CLI commands work again after the backend is healthy.
+Restarting or redeploying the backend does not sever an already established SSH
+or rsync connection. New `remote run`, `remote connect`, and `remote sync`
+operations need the backend to issue a fresh SSH certificate, and setup/session
+steps still need the VM agent control connection. The remote VM, project files,
+containers, and managed `yolobox` tmux session remain on the machine while the
+VM agent reconnects.
 
 ## CLI Contract
 
@@ -180,27 +179,27 @@ The backend stores Better Auth users and sessions in SQLite at `~/.local/state/y
 
 The browser console is built into the backend package with TanStack Router and TanStack Query. The hosted split is `https://app.yolobox.dev` for the app and `https://api.yolobox.dev` for the API. For self-hosting, set `YOLOBOX_APP_URL`, `YOLOBOX_API_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `YOLOBOX_BACKEND_CORS_ORIGINS` to match the public hostnames. Set `YOLOBOX_PREVIEW_BASE_DOMAIN` when the deployment has wildcard DNS for generated preview hosts, and `YOLOBOX_PREVIEW_TARGET_PORT` when machines should receive preview traffic on a port other than `80`.
 
-The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot id so new machines start with the remote runtime already installed. Runtime dependencies belong in that image; backend agent RPC fails if expected tools are missing instead of installing packages on user-created VMs. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`, but the CLI does not bootstrap that plain host for you. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
+The backend reads provider settings from environment variables. The current provider adapter is DigitalOcean, configured with `DIGITALOCEAN_REGION`, `DIGITALOCEAN_SIZE`, `YOLOBOX_REMOTE_IMAGE`, `DIGITALOCEAN_IMAGE`, `DIGITALOCEAN_SSH_KEYS`, `DIGITALOCEAN_TAGS`, and `DIGITALOCEAN_VPC_UUID`. `YOLOBOX_SSH_CA_KEY` optionally sets the backend SSH user CA private-key path; by default it lives beside `YOLOBOX_BACKEND_STATE`. `DIGITALOCEAN_SIZE` is the default size for creates without an explicit tier. Create-time tiers map to DigitalOcean AMD sizes: `small` uses 2 vCPU / 4 GB, `medium` uses 4 vCPU / 8 GB, and `large` uses 8 vCPU / 16 GB. Set `YOLOBOX_REMOTE_IMAGE` to a prebuilt yolobox VM image or provider snapshot id so new machines start with the remote runtime already installed. Runtime dependencies belong in that image; backend agent RPC fails if expected tools are missing instead of installing packages on user-created VMs. When it is unset, the DigitalOcean adapter falls back to `DIGITALOCEAN_IMAGE` and then `ubuntu-24-04-x64`, but the CLI does not bootstrap that plain host for you. The backend provider interface owns create, destroy, list/import, and connect metadata so other platforms can be added without changing the CLI protocol.
 
 ## Client Responsibilities
 
 After the backend leases a host, the CLI:
 
 - sends the machine name, requested size tier, preferred SSH user, local source path, repo URL, and branch to the backend
-- fetches backend-issued tunnel SSH credentials for the named machine
-- waits for tunneled SSH after the backend returns a bootstrapped host
+- generates a temporary SSH key and fetches a backend-signed certificate for the named machine
+- waits for direct SSH after the backend returns a bootstrapped host
 - fails loudly when backend machine metadata says bootstrap has not completed
 - mirrors the local folder to `/opt/yolobox/project`
 - asks the backend/agent to run setup commands from `/opt/yolobox/project` after upward sync
 - asks the backend/agent to start or connect to the single `yolobox` tmux session for interactive VM-native commands
-- runs noninteractive commands over tunneled SSH
+- runs noninteractive commands over direct SSH
 - records sync completion and command execution through narrow backend endpoints
 
-Remote create, run, connect, and sync require local `ssh` because SSH is still
-the client protocol inside the backend tunnel. Commands that copy project files
-also require local `rsync`. SSH host keys are pinned in
-`~/.yolobox/remote_known_hosts`; if you intentionally destroy and recreate a
-machine with the same name, remove that name from the file before reconnecting.
+Remote create, run, connect, and sync require local `ssh` and `ssh-keygen`.
+Commands that copy project files also require local `rsync`. SSH host keys are
+pinned in `~/.yolobox/remote_known_hosts` with the provider machine id in the
+host-key alias, so recreating a machine with the same yolobox name gets a new
+host-key entry instead of reusing the old identity.
 
 The CLI does not store remote machine state locally. It stores auth/config only,
 then asks the backend for list, status, create, destroy, and connect metadata.
@@ -210,13 +209,13 @@ or `--tier small`, `--tier medium`, or `--tier large` to choose the VM size.
 Create fails when the name already exists; use `remote run`, `remote connect`,
 or `remote status` for existing machines. `yolobox remote run foo ...` syncs
 the folder and then runs the command on an existing machine. Remote commands
-print progress while backend provisioning and SSH startup are pending; when a
+print progress while backend provisioning and direct SSH startup are pending; when a
 machine is ready, any generated preview URL is shown on its own line.
 `yolobox remote connect foo` opens or attaches to the managed tmux session on a
 backend-bootstrapped machine without syncing or bootstrapping. If backend metadata says bootstrap has not completed,
-connect fails instead of trying to repair the VM from the CLI. Machines created
-before backend tunnel credentials existed must be recreated; the CLI does not
-fall back to direct SSH.
+connect fails instead of trying to repair the VM from the CLI. Machines whose
+provider image or user data does not trust the backend SSH CA must be recreated;
+the CLI does not fall back to another SSH path.
 
 ## Backend HTTP API
 
@@ -297,13 +296,25 @@ Return and refresh one leased machine.
 ### `GET /v1/machines/{name}/connect`
 
 Return refreshed machine state plus CLI connect commands for the UI. The
-transport is `backend_tunnel`; the API does not return a direct SSH command.
+transport is `direct_ssh_certificate`; the API does not return reusable SSH
+credentials.
 
-### `GET /v1/machines/{name}/tunnel-key`
+### `POST /v1/machines/{name}/ssh-cert`
 
-Return the backend-issued private SSH key for this authenticated user's machine.
-The CLI writes it to a temporary `0600` file and uses it only with the backend
-WebSocket tunnel. The key is not included in public machine responses.
+Sign an authenticated user's temporary SSH public key for this machine. The
+request body is:
+
+```json
+{
+  "public_key": "ssh-ed25519 ...",
+  "ttl_seconds": 900
+}
+```
+
+The backend verifies machine ownership, requires bootstrap metadata, signs the
+key with the backend SSH user CA for the machine's authorized principal, and
+returns the OpenSSH certificate plus direct SSH host metadata. The CLI writes the
+certificate beside its temporary private key and connects directly to the VM.
 
 ### `POST /v1/agent/heartbeat`
 
@@ -320,23 +331,13 @@ machine create time from 48 random bytes and are passed to the VM through
 provider user data. The backend stores only the token hash and never trusts a
 machine name claimed by the VM.
 
-### `GET /v1/agent/tunnel`
+### `GET /v1/agent/connect`
 
-Machine-agent WebSocket endpoint. It requires the same machine-agent bearer
-token as the heartbeat endpoint. The request does not include a machine name;
-the backend maps the token hash to exactly one machine. The VM agent keeps this
-WebSocket open, receives `open` requests from the backend, connects to
-`127.0.0.1:22` on the VM, relays stream bytes as base64 messages, and handles
-backend RPC for setup, command, and session operations.
-
-### `GET /v1/machines/{name}/tunnel/ssh`
-
-Authenticated user WebSocket endpoint used by the CLI's hidden SSH
-`ProxyCommand`. It requires a Better Auth bearer session, verifies that the
-machine belongs to that user, requires backend bootstrap metadata, and then
-opens an SSH stream through the connected VM agent. If the VM agent is not
-connected or the stream cannot be opened, the endpoint sends an error and closes
-instead of offering another path.
+Machine-agent WebSocket control endpoint. It requires the same machine-agent
+bearer token as the heartbeat endpoint. The request does not include a machine
+name; the backend maps the token hash to exactly one machine. The VM agent keeps
+this WebSocket open and handles backend RPC for setup, command, and session
+operations. User SSH bytes do not flow through this connection.
 
 ### `POST /v1/machines/{name}/setup`
 
@@ -384,7 +385,7 @@ the request to that machine on `YOLOBOX_PREVIEW_TARGET_PORT`.
 `sync up` mirrors the current local folder to the remote machine:
 
 ```bash
-rsync -az --delete --human-readable -e "ssh ... ProxyCommand=yolobox __remote-ssh-proxy foo" ./ root@yolobox-foo:/opt/yolobox/project/
+rsync -az --delete --human-readable -e "ssh ... CertificateFile=/tmp/yolobox-remote-ssh/id_ed25519-cert.pub" ./ root@203.0.113.10:/opt/yolobox/project/
 ```
 
 This includes `.git` if present, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine.
@@ -395,7 +396,7 @@ The remote storage path and command workdir are both `/opt/yolobox/project`.
 
 Remote mode does not run a nested yolobox container on the VM. A yolobox remote machine is the sandbox: it runs the requested command directly on the VM, with `/opt/yolobox/bin` wrappers first on `PATH`, Docker Engine available on the host, and persistent installs written to the VM disk.
 
-Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/tunnel` with the per-machine token from `/etc/yolobox/agent.env`, handles backend RPC for setup/session operations, and is required for all normal remote SSH access.
+Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/connect` with the per-machine token from `/etc/yolobox/agent.env`, and handles backend RPC for setup/session operations.
 
 When building an image from this repository checkout, run:
 
