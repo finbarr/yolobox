@@ -94,9 +94,11 @@ Environment:
 - `DIGITALOCEAN_TAGS`: comma-separated tags, default `yolobox`.
 - `DIGITALOCEAN_VPC_UUID`: optional VPC UUID.
 
-Normal user VMs do not receive DigitalOcean account SSH keys. The backend
-issues short-lived SSH certificates and cloud-init installs the matching user CA
-trust on each machine.
+Normal user VMs do not receive reusable DigitalOcean account SSH keys. The
+backend uses a one-time no-login key during DigitalOcean create only to prevent
+provider password emails, then deletes the account key. SSH access still goes
+through short-lived backend-signed certificates and VM trust of the matching
+user CA.
 
 Use `deploy/digitalocean/build-remote-image.sh` to build and rotate the
 DigitalOcean golden snapshot. The normal release flow is: commit the runtime

@@ -204,12 +204,23 @@ test("backend signs short-lived SSH certificates for owned machines", async () =
   await app.ready();
   const agent = await app.injectWS("/v1/agent/connect", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
 
-  const cert = await app.inject({
+  const certRequest = app.inject({
     method: "POST",
     url: "/v1/machines/foo/ssh-cert",
     headers: { authorization: `Bearer ${token}` },
     payload: { public_key: testSSHUserPublicKey },
   });
+  const trustRPC = JSON.parse((await nextWSMessage(agent)).toString());
+  assert.equal(trustRPC.type, "rpc");
+  assert.equal(trustRPC.action, "run_setup");
+  assert.ok(trustRPC.payload.commands.some((command: string) => command.includes("TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys")));
+  agent.send(JSON.stringify({
+    type: "rpc_result",
+    rpc_id: trustRPC.rpc_id,
+    ok: true,
+    result: {},
+  }));
+  const cert = await certRequest;
   assert.equal(cert.statusCode, 200, cert.body);
   assert.match(cert.json().certificate, /^ssh-ed25519-cert-v01@openssh.com /);
   assert.equal(cert.json().principal, created.json().machine.ssh_principal);

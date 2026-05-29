@@ -494,6 +494,11 @@ func TestRemoteSSHOptionsUsePersistentKnownHosts(t *testing.T) {
 		"HashKnownHosts=no",
 		"CertificateFile=" + machine.SSHCertificatePath,
 		"HostKeyAlias=yolobox-foo-host-a",
+		"BatchMode=yes",
+		"PreferredAuthentications=publickey",
+		"PasswordAuthentication=no",
+		"KbdInteractiveAuthentication=no",
+		"NumberOfPasswordPrompts=0",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("expected SSH options to contain %q, got:\n%s", want, joined)

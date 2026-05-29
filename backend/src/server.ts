@@ -224,7 +224,8 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       return reply.code(409).send({ id: "not_bootstrapped", message: "remote machine is not bootstrapped" });
     }
     const normalized = normalizeMachine(options, machine);
-    if (!connectedAgent(agents, normalized)) {
+    const agent = connectedAgent(agents, normalized);
+    if (!agent) {
       return reply.code(409).send({ id: "agent_disconnected", message: "remote machine agent is not connected" });
     }
     const principal = normalized.ssh_principal || sshPrincipalForMachine(normalized);
@@ -234,6 +235,14 @@ export function createBackend(options: BackendOptions): FastifyInstance {
     const publicKey = request.body?.public_key?.trim() || "";
     if (!/^ssh-[A-Za-z0-9-]+\s+\S+/.test(publicKey)) {
       return reply.code(400).send({ id: "bad_request", message: "valid SSH public key is required" });
+    }
+    try {
+      await ensureMachineSSHCertificateTrust(options, agent, normalized, principal);
+    } catch (err) {
+      if (err instanceof AgentRPCError) {
+        return reply.code(409).send({ id: "ssh_trust_failed", message: err.message });
+      }
+      throw err;
     }
     const signed = await options.sshCA.signUserPublicKey({
       publicKey,
@@ -562,6 +571,37 @@ async function waitForCreatedMachineAgent(
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
   throw new AgentRPCError("remote machine was created, but its agent did not connect before the readiness timeout", "agent_disconnected");
+}
+
+async function ensureMachineSSHCertificateTrust(
+  options: BackendOptions,
+  agent: AgentConnection,
+  machine: RemoteMachine,
+  principal: string,
+): Promise<void> {
+  const caPublicKey = await options.sshCA.publicKey();
+  const user = safeLinuxUser(machine.ssh_user || "root");
+  await callAgentRPC(agent, "run_setup", {
+    ...machineRuntimePayload(machine),
+    commands: [
+      "install -d -m 0755 /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
+      `printf '%s\\n' ${shellQuote(caPublicKey)} > /etc/ssh/yolobox_user_ca_keys`,
+      "chmod 0644 /etc/ssh/yolobox_user_ca_keys",
+      `printf '%s\\n' ${shellQuote(principal)} > /etc/ssh/auth_principals/${shellQuote(user)}`,
+      `chmod 0644 /etc/ssh/auth_principals/${shellQuote(user)}`,
+      "printf '%s\\n' 'TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys' 'AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' > /etc/ssh/sshd_config.d/90-yolobox-user-ca.conf",
+      "sshd -t",
+      "(systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1)",
+    ],
+  }, agentRPCDefaultTimeout);
+}
+
+function safeLinuxUser(value: string): string {
+  return /^[a-z_][a-z0-9_-]*[$]?$/i.test(value) ? value : "root";
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 async function requireMachineAgentContext(

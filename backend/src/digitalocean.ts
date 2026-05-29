@@ -1,5 +1,12 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { CreateMachineRequest, ListProviderMachinesRequest, MachineProvider, MachineProviderInfo, RemoteMachine } from "./types.js";
 
+const execFileAsync = promisify(execFile);
 const apiBaseURL = "https://api.digitalocean.com";
 const digitalOceanDefaultSize = "s-2vcpu-4gb-amd";
 const digitalOceanTierSizes: Record<string, string> = {
@@ -40,6 +47,10 @@ type DropletList = {
   };
 };
 
+type SSHKey = {
+  id: number;
+};
+
 export class DigitalOceanProvider implements MachineProvider {
   readonly name = "digitalocean";
   readonly label = "DigitalOcean";
@@ -62,21 +73,28 @@ export class DigitalOceanProvider implements MachineProvider {
     }
 
     const agentUserData = digitalOceanAgentUserData(request);
-    const droplet = await this.request<{ droplet: Droplet }>("/v2/droplets", {
-      method: "POST",
-      body: {
-        name: machineResourceName(providerName),
-        region: this.config.region,
-        size: digitalOceanSizeForRequest(request, this.config),
-        image: digitalOceanImageForCreate(this.config.image),
-        tags: this.machineTags(providerName),
-        monitoring: true,
-        ...(agentUserData ? { user_data: agentUserData } : {}),
-        ...(this.config.vpcUUID ? { vpc_uuid: this.config.vpcUUID } : {}),
-      },
-    });
-    const ready = publicIPv4(droplet.droplet) ? droplet.droplet : await this.waitForAddress(droplet.droplet.id);
-    return { machine: this.machineFromDroplet(request.name, providerName, request.ssh_user, ready), status: ready.status };
+    let throwawaySSHKeyID = 0;
+    try {
+      throwawaySSHKeyID = await this.createThrowawaySSHKey(providerName);
+      const droplet = await this.request<{ droplet: Droplet }>("/v2/droplets", {
+        method: "POST",
+        body: {
+          name: machineResourceName(providerName),
+          region: this.config.region,
+          size: digitalOceanSizeForRequest(request, this.config),
+          image: digitalOceanImageForCreate(this.config.image),
+          ssh_keys: [throwawaySSHKeyID],
+          tags: this.machineTags(providerName),
+          monitoring: true,
+          ...(agentUserData ? { user_data: agentUserData } : {}),
+          ...(this.config.vpcUUID ? { vpc_uuid: this.config.vpcUUID } : {}),
+        },
+      });
+      const ready = publicIPv4(droplet.droplet) ? droplet.droplet : await this.waitForAddress(droplet.droplet.id);
+      return { machine: this.machineFromDroplet(request.name, providerName, request.ssh_user, ready), status: ready.status };
+    } finally {
+      if (throwawaySSHKeyID) await this.deleteSSHKey(throwawaySSHKeyID);
+    }
   }
 
   async getMachine(machine: RemoteMachine): Promise<{ machine: RemoteMachine; status?: string }> {
@@ -141,6 +159,34 @@ export class DigitalOceanProvider implements MachineProvider {
       await new Promise((resolve) => setTimeout(resolve, 5000));
     }
     throw new Error(`timed out waiting for DigitalOcean droplet ${id} to receive a public IPv4`);
+  }
+
+  private async createThrowawaySSHKey(providerName: string): Promise<number> {
+    const dir = await mkdtemp(join(tmpdir(), "yolobox-do-no-login-key-"));
+    try {
+      const keyPath = join(dir, "id_ed25519");
+      await execFileAsync("ssh-keygen", ["-q", "-t", "ed25519", "-N", "", "-C", "yolobox-no-login", "-f", keyPath]);
+      const publicKey = (await readFile(`${keyPath}.pub`, "utf8")).trim();
+      const hash = createHash("sha256").update(publicKey).digest("hex").slice(0, 12);
+      const created = await this.request<{ ssh_key: SSHKey }>("/v2/account/keys", {
+        method: "POST",
+        body: {
+          name: `yolobox-no-login-${sanitize(providerName)}-${hash}`,
+          public_key: publicKey,
+        },
+      });
+      return created.ssh_key.id;
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  private async deleteSSHKey(id: number): Promise<void> {
+    try {
+      await this.request(`/v2/account/keys/${encodeURIComponent(String(id))}`, { method: "DELETE" });
+    } catch {
+      // Do not fail machine creation after the throwaway key has served its purpose.
+    }
   }
 
   private machineFromDroplet(machineName: string, providerName: string, sshUser: string | undefined, droplet: Droplet): RemoteMachine {
@@ -236,6 +282,8 @@ export function digitalOceanAgentUserData(request: CreateMachineRequest): string
   const principal = request.ssh_authorized_principal?.trim();
   if (!token || !backendURL) return "";
   return `#cloud-config
+disable_root: false
+ssh_pwauth: false
 write_files:
   - path: /etc/yolobox/agent.env
     owner: root:root
@@ -262,7 +310,8 @@ function sshCertificateTrustCommand(userCA: string | undefined, principal: strin
     "chmod 0644 /etc/ssh/yolobox_user_ca_keys",
     `printf '%s\\n' ${shellSingleQuote(principal)} > /etc/ssh/auth_principals/${shellSingleQuote(user)}`,
     `chmod 0644 /etc/ssh/auth_principals/${shellSingleQuote(user)}`,
-    "printf '%s\\n' 'TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys' 'AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u' > /etc/ssh/sshd_config.d/90-yolobox-user-ca.conf",
+    "printf '%s\\n' 'TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys' 'AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' > /etc/ssh/sshd_config.d/90-yolobox-user-ca.conf",
+    "sshd -t",
     "(systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1 || true)",
   ].join(" && ");
 }

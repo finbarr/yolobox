@@ -78,9 +78,11 @@ Remote SSH uses backend-signed OpenSSH user certificates. The backend owns a
 persistent SSH user CA, passes the CA public key plus a per-machine authorized
 principal to the VM through provider user data, and signs a temporary CLI public
 key only after authenticating the machine owner. Normal user VMs are not
-created with DigitalOcean account SSH keys. The CLI then connects directly to
-the VM public IP with local `ssh` or `rsync`. There is no unsigned SSH
-fallback. The CLI pins remote host keys in `~/.yolobox/remote_known_hosts`
+created with reusable DigitalOcean account SSH keys. On DigitalOcean, the
+backend uses a one-time no-login key during create only to prevent provider
+password emails, then deletes the account key. The CLI then connects directly to
+the VM public IP with local `ssh` or `rsync`. There is no unsigned SSH fallback.
+The CLI pins remote host keys in `~/.yolobox/remote_known_hosts`
 instead of using the user's normal SSH `known_hosts` file. Protect backend state
 backups accordingly because they include the SSH CA private key.
 

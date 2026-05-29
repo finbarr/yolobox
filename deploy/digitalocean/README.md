@@ -30,10 +30,12 @@ cp deploy/digitalocean/env.production.example deploy/digitalocean/.env.productio
 
 `BETTER_AUTH_SECRET` must be a long random value. The backend also needs
 `DIGITALOCEAN_ACCESS_TOKEN` so it can create remote VMs for users. Normal user
-VMs do not receive DigitalOcean account SSH keys; cloud-init configures them to
-trust short-lived yolobox SSH certificates instead. The backend SSH user CA is
-stored at `/opt/yolobox/data/backend/ssh_ca_ed25519` and is included in the
-backend data backups.
+VMs do not receive reusable DigitalOcean account SSH keys; the backend uses a
+one-time no-login key during create only to prevent provider password emails,
+then deletes the account key. Cloud-init configures VMs to trust short-lived
+yolobox SSH certificates instead. The backend SSH user CA is stored at
+`/opt/yolobox/data/backend/ssh_ca_ed25519` and is included in the backend data
+backups.
 Set `YOLOBOX_PREVIEW_BASE_DOMAIN` to the wildcard domain above. The default
 preview target is port `80` on each remote machine; change
 `YOLOBOX_PREVIEW_TARGET_PORT` if the machine runtime should receive preview

@@ -239,8 +239,10 @@ Remote run, connect, and sync use direct SSH to the VM with short-lived
 backend-signed OpenSSH user certificates. The CLI generates a temporary key,
 asks the backend to sign it for the authenticated user's machine, and then uses
 local `ssh` and `rsync` against the VM public IP. Normal user VMs are not
-created with DigitalOcean account SSH keys, and there is no unsigned direct-SSH
-fallback. Setup commands, command wrapping, and tmux session lifecycle remain
+created with reusable DigitalOcean account SSH keys. On DigitalOcean, the backend
+uses a one-time no-login key during create only to prevent provider password
+emails, then deletes the account key. There is no unsigned direct-SSH fallback.
+Setup commands, command wrapping, and tmux session lifecycle remain
 backend-authorized VM agent actions. Remote SSH host keys are stored in
 `~/.yolobox/remote_known_hosts` with a stable per-machine alias, so repeated
 connects do not re-accept the same host key.
