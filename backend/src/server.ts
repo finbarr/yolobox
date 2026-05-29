@@ -67,13 +67,6 @@ type TunnelMessage = {
   message?: string;
 };
 
-type RemoteWorkspaceRequest = {
-  source_path?: string;
-  project_path?: string;
-  repo_url?: string;
-  branch?: string;
-};
-
 type RemoteSetupRequest = {
   commands?: string[];
 };
@@ -240,21 +233,6 @@ export function createBackend(options: BackendOptions): FastifyInstance {
       return reply.code(409).send({ id: "not_ready", message: "remote machine does not have backend tunnel SSH credentials; recreate it" });
     }
     return { private_key: machine.ssh_private_key };
-  });
-
-  app.post<{ Params: { name: string }; Body: RemoteWorkspaceRequest }>("/v1/machines/:name/workspace", async (request, reply) => {
-    const context = await requireMachineAgentContext(options, tunnelAgents, request, reply);
-    if (!context) return;
-    const body = normalizeWorkspaceRequest(request.body, context.machine);
-    const result = await callAgentRPC(context.agent, "prepare_workspace", machineRuntimePayload({ ...context.machine, ...body }), agentRPCSetupTimeout);
-    const machine = normalizeMachine(options, {
-      ...context.machine,
-      ...body,
-      updated_at: new Date().toISOString(),
-    });
-    await options.store.putMachine(machine);
-    context.agent.machine = machine;
-    return { machine: publicMachine(machine), result };
   });
 
   app.post<{ Params: { name: string }; Body: RemoteSetupRequest }>("/v1/machines/:name/setup", async (request, reply) => {
@@ -552,15 +530,6 @@ async function requireMachineAgentContext(
   return { auth, machine: normalizeMachine(options, machine), agent };
 }
 
-function normalizeWorkspaceRequest(body: RemoteWorkspaceRequest | undefined, machine: RemoteMachine): RemoteWorkspaceRequest {
-  return {
-    source_path: normalizeAbsoluteRemotePath(body?.source_path || machine.source_path || ""),
-    project_path: normalizeAbsoluteRemotePath(body?.project_path || machine.project_path || defaultProjectPath) || defaultProjectPath,
-    repo_url: body?.repo_url === undefined ? (machine.repo_url || "").trim() : body.repo_url.trim(),
-    branch: body?.branch === undefined ? (machine.branch || "").trim() : body.branch.trim(),
-  };
-}
-
 function normalizeAbsoluteRemotePath(value: string): string {
   value = value.trim();
   if (!value || !value.startsWith("/") || value === "/") return "";
@@ -573,11 +542,9 @@ function normalizeStringArray(value: unknown): string[] {
 }
 
 function machineRuntimePayload(machine: RemoteMachine): Record<string, unknown> {
-  const sourcePath = normalizeAbsoluteRemotePath(machine.source_path || "");
   const projectPath = normalizeAbsoluteRemotePath(machine.project_path || defaultProjectPath) || defaultProjectPath;
   return {
     name: machine.name,
-    source_path: sourcePath,
     project_path: projectPath,
     preview_url: machine.preview_url || "",
     preview_hostname: machine.preview_hostname || "",

@@ -211,7 +211,7 @@ test("backend tunnels SSH bytes through the token-authenticated machine agent", 
   agent.terminate();
 });
 
-test("backend delegates workspace and session lifecycle to the machine agent", async () => {
+test("backend delegates session lifecycle to the machine agent", async () => {
   const { app, provider, token } = await createTestBackend();
   const headers = { authorization: `Bearer ${token}` };
   const created = await app.inject({
@@ -225,27 +225,6 @@ test("backend delegates workspace and session lifecycle to the machine agent", a
 
   await app.ready();
   const agent = await app.injectWS("/v1/agent/tunnel", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
-
-  const workspaceRequest = app.inject({
-    method: "POST",
-    url: "/v1/machines/foo/workspace",
-    headers,
-    payload: {
-      source_path: "/Users/example/project",
-      project_path: "/opt/yolobox/project",
-      repo_url: "git@example.com:repo.git",
-      branch: "main",
-    },
-  });
-  const workspaceRPC = JSON.parse((await nextWSMessage(agent)).toString());
-  assert.equal(workspaceRPC.type, "rpc");
-  assert.equal(workspaceRPC.action, "prepare_workspace");
-  assert.equal(workspaceRPC.payload.source_path, "/Users/example/project");
-  assert.equal(workspaceRPC.payload.project_path, "/opt/yolobox/project");
-  agent.send(JSON.stringify({ type: "rpc_result", rpc_id: workspaceRPC.rpc_id, ok: true, result: { work_path: "/Users/example/project" } }));
-  const workspace = await workspaceRequest;
-  assert.equal(workspace.statusCode, 200, workspace.body);
-  assert.equal(workspace.json().machine.source_path, "/Users/example/project");
 
   const sessionRequest = app.inject({
     method: "POST",
@@ -272,6 +251,17 @@ test("backend delegates workspace and session lifecycle to the machine agent", a
   assert.deepEqual(fetched.json().machine.last_command, ["codex"]);
 
   agent.terminate();
+});
+
+test("backend has no user-callable workspace preparation endpoint", async () => {
+  const { app, token } = await createTestBackend();
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/machines/foo/workspace",
+    headers: { authorization: `Bearer ${token}` },
+    payload: { source_path: "/Users/example/project" },
+  });
+  assert.equal(response.statusCode, 404);
 });
 
 test("backend rejects duplicate machine creates", async () => {

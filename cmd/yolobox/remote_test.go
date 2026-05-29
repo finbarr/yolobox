@@ -293,11 +293,7 @@ func TestRunWithSpinnerFallsBackToStableProgressWhenNotTerminal(t *testing.T) {
 func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	const token = "secret-token"
 	isolateRemoteSSHHome(t)
-	oldRetryDelay := remoteBackendAgentRetryDelay
-	remoteBackendAgentRetryDelay = time.Millisecond
-	t.Cleanup(func() { remoteBackendAgentRetryDelay = oldRetryDelay })
 	sawPost := false
-	workspaceCalls := 0
 	syncCompleteCalls := 0
 	recordCalls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -321,27 +317,6 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
 			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/workspace":
-			workspaceCalls++
-			if workspaceCalls == 1 {
-				w.WriteHeader(http.StatusConflict)
-				_, _ = w.Write([]byte(`{"id":"agent_disconnected","message":"remote machine agent is not connected"}`))
-				return
-			}
-			var req remoteBackendWorkspaceRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode workspace request: %v", err)
-			}
-			if req.SourcePath == "" || req.ProjectPath != remoteProjectRoot {
-				t.Fatalf("unexpected workspace request: %+v", req)
-			}
-			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
-				Name:              "foo",
-				SSHUser:           "root",
-				SourcePath:        req.SourcePath,
-				ProjectPath:       req.ProjectPath,
-				BootstrapComplete: true,
-			}})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
 			syncCompleteCalls++
 			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
@@ -395,8 +370,8 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	if sawPost {
 		t.Fatal("remote run must not create missing machines")
 	}
-	if workspaceCalls != 2 || syncCompleteCalls != 1 || recordCalls != 1 {
-		t.Fatalf("expected workspace/sync/record calls, got workspace=%d sync=%d record=%d", workspaceCalls, syncCompleteCalls, recordCalls)
+	if syncCompleteCalls != 1 || recordCalls != 1 {
+		t.Fatalf("expected sync/record calls, got sync=%d record=%d", syncCompleteCalls, recordCalls)
 	}
 	rsyncArgs, err := os.ReadFile(rsyncArgsFile)
 	if err != nil {
@@ -416,10 +391,9 @@ func TestRemoteRunUsesExistingMachine(t *testing.T) {
 	}
 }
 
-func TestRemoteSyncUpPreparesWorkspaceThroughBackend(t *testing.T) {
+func TestRemoteSyncUpOnlyRecordsSyncThroughBackend(t *testing.T) {
 	const token = "secret-token"
 	isolateRemoteSSHHome(t)
-	workspaceCalls := 0
 	syncCompleteCalls := 0
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer "+token {
@@ -442,22 +416,6 @@ func TestRemoteSyncUpPreparesWorkspaceThroughBackend(t *testing.T) {
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/machines/foo/tunnel-key":
 			_ = json.NewEncoder(w).Encode(remoteBackendTunnelKeyResponse{PrivateKey: "fake-private-key"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/workspace":
-			workspaceCalls++
-			var req remoteBackendWorkspaceRequest
-			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-				t.Fatalf("decode workspace request: %v", err)
-			}
-			if req.SourcePath == "" || req.ProjectPath != remoteProjectRoot {
-				t.Fatalf("unexpected workspace request: %+v", req)
-			}
-			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
-				Name:              "foo",
-				SSHUser:           "root",
-				SourcePath:        req.SourcePath,
-				ProjectPath:       req.ProjectPath,
-				BootstrapComplete: true,
-			}})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/machines/foo/sync-complete":
 			syncCompleteCalls++
 			_ = json.NewEncoder(w).Encode(remoteBackendAgentResponse{Machine: remoteMachine{
@@ -490,8 +448,8 @@ func TestRemoteSyncUpPreparesWorkspaceThroughBackend(t *testing.T) {
 	if err := runRemoteSync([]string{"up", "foo"}, t.TempDir()); err != nil {
 		t.Fatalf("remote sync up failed: %v", err)
 	}
-	if workspaceCalls != 1 || syncCompleteCalls != 1 {
-		t.Fatalf("expected workspace and sync-complete calls, got workspace=%d sync=%d", workspaceCalls, syncCompleteCalls)
+	if syncCompleteCalls != 1 {
+		t.Fatalf("expected sync-complete call, got %d", syncCompleteCalls)
 	}
 }
 

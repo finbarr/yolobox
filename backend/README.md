@@ -133,7 +133,6 @@ Routes:
 - `GET /v1/machines/:name/connect`
 - `GET /v1/machines/:name/tunnel-key`
 - `GET /v1/machines/:name/tunnel/ssh`
-- `POST /v1/machines/:name/workspace`
 - `POST /v1/machines/:name/setup`
 - `POST /v1/machines/:name/sync-complete`
 - `POST /v1/machines/:name/sessions/yolobox/prepare`
@@ -156,8 +155,8 @@ Machine-agent endpoints authenticate only that bearer token; they do not accept
 or trust a machine name claimed by the VM. `POST /v1/agent/heartbeat` maps the
 token back to the one machine that owns it, records `agent_last_seen_at`, and
 never returns the stored token hash. The persistent `/v1/agent/tunnel`
-connection also carries backend RPC for workspace preparation, setup commands,
-command wrapping, and the single managed tmux session.
+connection also carries backend RPC for setup commands, command wrapping, and
+the single managed tmux session.
 
 Every backend-created machine also gets backend-issued ed25519 tunnel SSH
 credentials. The backend stores the private key in backend state, passes the

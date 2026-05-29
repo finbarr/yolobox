@@ -20,8 +20,6 @@ const (
 	remoteKnownHostsFileName = "remote_known_hosts"
 )
 
-var remoteBackendAgentRetryDelay = 5 * time.Second
-
 type remoteMachine struct {
 	Name              string    `json:"name"`
 	Provider          string    `json:"provider,omitempty"`
@@ -110,7 +108,7 @@ func runRemoteDefault(cfg Config, projectDir string) error {
 		return err
 	}
 	name := strings.TrimSpace(cfg.RemoteName)
-	machine, cleanup, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
+	machine, cleanup, err := readyExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
@@ -149,7 +147,7 @@ func runRemoteRun(args []string, projectDir string) error {
 	if len(commandArgs) == 0 {
 		return fmt.Errorf("yolobox remote run requires a command")
 	}
-	machine, cleanup, err := prepareExistingRemoteMachine(cfg, projectDir, name, true)
+	machine, cleanup, err := readyExistingRemoteMachine(cfg, projectDir, name, true)
 	if err != nil {
 		return err
 	}
@@ -322,12 +320,11 @@ func runRemoteSync(args []string, projectDir string) error {
 	}
 	defer cleanup()
 
+	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
+		return err
+	}
 	switch direction {
 	case "up":
-		machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
-		if err != nil {
-			return err
-		}
 		if err := syncRemoteProject(&machine, cfg, projectDir); err != nil {
 			return err
 		}
@@ -497,8 +494,7 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 		return machine, err
 	}
 	defer cleanup()
-	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
-	if err != nil {
+	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
 		return machine, err
 	}
 	if syncProject {
@@ -510,7 +506,7 @@ func createRemoteMachine(cfg Config, projectDir string, opts remoteProvisionOpti
 	return machine, nil
 }
 
-func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, syncProject bool) (remoteMachine, func(), error) {
+func readyExistingRemoteMachine(cfg Config, projectDir string, name string, syncProject bool) (remoteMachine, func(), error) {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if err := validateRemoteName(name); err != nil {
 		return remoteMachine{}, func() {}, err
@@ -526,8 +522,7 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 	if err != nil {
 		return machine, func() {}, err
 	}
-	machine, err = prepareRemoteMachineForWorkspace(cfg, machine, projectDir)
-	if err != nil {
+	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
 		cleanup()
 		return machine, func() {}, err
 	}
@@ -539,59 +534,6 @@ func prepareExistingRemoteMachine(cfg Config, projectDir string, name string, sy
 	}
 	printRemoteReady(machine)
 	return machine, cleanup, nil
-}
-
-func prepareRemoteMachineForWorkspace(cfg Config, machine remoteMachine, projectDir string) (remoteMachine, error) {
-	if machine.ProjectPath == "" {
-		machine.ProjectPath = remoteProjectPath()
-	}
-	if err := ensureRemoteMachineSourcePath(&machine, projectDir); err != nil {
-		return machine, err
-	}
-	if err := requireRemoteClientTools("ssh"); err != nil {
-		return machine, err
-	}
-	if err := requireRemoteMachineBootstrapped(machine); err != nil {
-		return machine, err
-	}
-	if err := runWithSpinner(
-		fmt.Sprintf("Preparing remote host %s", machine.Name),
-		fmt.Sprintf("Remote host %s prepared", machine.Name),
-		func() error {
-			var err error
-			machine, err = waitForRemoteBackendWorkspace(cfg, machine, 5*time.Minute)
-			return err
-		},
-	); err != nil {
-		return machine, err
-	}
-	if err := waitForRemoteMachineSSH(machine, "Waiting for SSH on remote"); err != nil {
-		return machine, err
-	}
-	return machine, nil
-}
-
-func waitForRemoteBackendWorkspace(cfg Config, machine remoteMachine, timeout time.Duration) (remoteMachine, error) {
-	deadline := time.Now().Add(timeout)
-	for {
-		updated, err := prepareRemoteBackendWorkspace(cfg, machine)
-		if err == nil {
-			return updated, nil
-		}
-		if !shouldRetryRemoteBackendWorkspace(err) || time.Now().After(deadline) {
-			return machine, err
-		}
-		time.Sleep(remoteBackendAgentRetryDelay)
-	}
-}
-
-func shouldRetryRemoteBackendWorkspace(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := err.Error()
-	return strings.Contains(message, "agent_disconnected") ||
-		strings.Contains(message, "remote machine agent is not connected")
 }
 
 func checkRemoteMachineForConnect(machine remoteMachine) (remoteMachine, error) {
@@ -799,35 +741,7 @@ func remoteProjectPath() string {
 	return remoteProjectRoot
 }
 
-func cleanRemoteSourcePath(sourcePath string) string {
-	sourcePath = strings.TrimSpace(sourcePath)
-	if sourcePath == "" {
-		return ""
-	}
-	cleaned := filepath.Clean(sourcePath)
-	if cleaned == "." || cleaned == string(os.PathSeparator) || !filepath.IsAbs(cleaned) {
-		return ""
-	}
-	return cleaned
-}
-
-func ensureRemoteMachineSourcePath(machine *remoteMachine, projectDir string) error {
-	if sourcePath := cleanRemoteSourcePath(machine.SourcePath); sourcePath != "" {
-		machine.SourcePath = sourcePath
-		return nil
-	}
-	sourcePath, err := normalizedProjectPath(projectDir)
-	if err != nil {
-		return err
-	}
-	machine.SourcePath = sourcePath
-	return nil
-}
-
 func remoteWorkPath(machine remoteMachine) string {
-	if sourcePath := cleanRemoteSourcePath(machine.SourcePath); sourcePath != "" {
-		return sourcePath
-	}
 	projectPath := strings.TrimSpace(machine.ProjectPath)
 	if projectPath == "" {
 		return remoteProjectPath()

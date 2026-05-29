@@ -531,9 +531,6 @@ async function handleRPC(message) {
     const payload = message.payload || {};
     let result;
     switch (message.action) {
-    case "prepare_workspace":
-      result = await prepareWorkspace(payload);
-      break;
     case "run_setup":
       result = await runSetup(payload);
       break;
@@ -576,44 +573,6 @@ function openStream(id, host, port) {
     send({ type: "error", stream_id: id, message: error.message });
     streams.delete(id);
   });
-}
-
-async function prepareWorkspace(payload) {
-  const projectPath = cleanAbsolutePath(payload.project_path) || defaultProjectPath;
-  const workPath = remoteWorkPath(payload);
-  const projectParent = path.posix.dirname(projectPath);
-  const workParent = path.posix.dirname(workPath);
-  let script = `set -euo pipefail
-if ! command -v rsync >/dev/null 2>&1; then
-  echo "rsync is missing from the yolobox remote image; rebuild the golden image" >&2
-  exit 1
-fi
-storage=${shellQuote(projectPath)}
-work=${shellQuote(workPath)}
-mkdir -p ${shellQuote(projectParent)} "$storage"
-`;
-  if (workPath !== projectPath) {
-    script += `mkdir -p ${shellQuote(workParent)}
-if [ -L "$work" ]; then
-  current="$(readlink "$work" || true)"
-  if [ "$current" != "$storage" ]; then
-    ln -sfn "$storage" "$work"
-  fi
-elif [ -e "$work" ]; then
-  if [ -d "$work" ] && [ -z "$(find "$work" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
-    rmdir "$work"
-    ln -s "$storage" "$work"
-  else
-    echo "cannot map remote project workdir $work: path already exists and is not an empty directory or symlink" >&2
-    exit 1
-  fi
-else
-  ln -s "$storage" "$work"
-fi
-`;
-  }
-  await runProcess("bash", ["-lc", script]);
-  return { project_path: projectPath, work_path: workPath };
 }
 
 async function runSetup(payload) {
@@ -694,7 +653,7 @@ function remoteCommandPrefix(payload) {
 }
 
 function remoteWorkPath(payload) {
-  return cleanAbsolutePath(payload.source_path) || cleanAbsolutePath(payload.project_path) || defaultProjectPath;
+  return cleanAbsolutePath(payload.project_path) || defaultProjectPath;
 }
 
 function cleanAbsolutePath(value) {

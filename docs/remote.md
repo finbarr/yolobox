@@ -13,7 +13,6 @@ Implemented in the CLI:
 - backend-backed machine lease, status, list, narrow metadata, and destroy calls
 - one named VM per remote name
 - one project storage path per VM: `/opt/yolobox/project`
-- one source-path workdir alias per VM, matching the original local project path
 - one persistent tmux session per VM: `yolobox`
 - VM-native agent execution with Docker Engine and Compose on the host
 - full-folder `remote sync up` and forced `remote sync down --force`
@@ -44,9 +43,9 @@ Not implemented in this repo:
 
 ## Mental Model
 
-Remote mode has one main concept: a machine. A named remote maps to one VM, one project storage directory, one source-path workdir alias, and one tmux session.
+Remote mode has one main concept: a machine. A named remote maps to one VM, one project storage directory, and one tmux session.
 
-Project bytes live at `/opt/yolobox/project` on the remote VM. The backend asks the VM agent to create the original local source path on the VM as a symlink to that storage directory, then to prepare the requested command or managed session from that source path. That means a local checkout at `/Users/example/project` also appears at `/Users/example/project` on the remote machine, which keeps Codex and Claude session paths stable.
+Project bytes live at `/opt/yolobox/project` on the remote VM, and remote commands run from that path. The original local source path remains backend metadata for status and sync bookkeeping; the VM does not create a mirror path such as `/Users/example/project`.
 
 That is intentional. Multiple workspaces and multiple named sessions on one VM replicated fork-mode concepts remotely and made state ownership unclear. If you want another remote environment, create another named remote machine.
 
@@ -192,8 +191,7 @@ After the backend leases a host, the CLI:
 - waits for tunneled SSH after the backend returns a bootstrapped host
 - fails loudly when backend machine metadata says bootstrap has not completed
 - mirrors the local folder to `/opt/yolobox/project`
-- asks the backend/agent to map the original local source path to that storage directory on the VM
-- asks the backend/agent to run setup commands from the source-path workdir after upward sync
+- asks the backend/agent to run setup commands from `/opt/yolobox/project` after upward sync
 - asks the backend/agent to start or connect to the single `yolobox` tmux session for interactive VM-native commands
 - runs noninteractive commands over tunneled SSH
 - records sync completion and command execution through narrow backend endpoints
@@ -215,8 +213,7 @@ the folder and then runs the command on an existing machine. Remote commands
 print progress while backend provisioning and SSH startup are pending; when a
 machine is ready, any generated preview URL is shown on its own line.
 `yolobox remote connect foo` opens or attaches to the managed tmux session on a
-backend-bootstrapped machine without syncing, bootstrapping, or changing the
-remote workdir alias. If backend metadata says bootstrap has not completed,
+backend-bootstrapped machine without syncing or bootstrapping. If backend metadata says bootstrap has not completed,
 connect fails instead of trying to repair the VM from the CLI. Machines created
 before backend tunnel credentials existed must be recreated; the CLI does not
 fall back to direct SSH.
@@ -330,7 +327,7 @@ token as the heartbeat endpoint. The request does not include a machine name;
 the backend maps the token hash to exactly one machine. The VM agent keeps this
 WebSocket open, receives `open` requests from the backend, connects to
 `127.0.0.1:22` on the VM, relays stream bytes as base64 messages, and handles
-backend RPC for workspace/session operations.
+backend RPC for setup, command, and session operations.
 
 ### `GET /v1/machines/{name}/tunnel/ssh`
 
@@ -341,16 +338,10 @@ opens an SSH stream through the connected VM agent. If the VM agent is not
 connected or the stream cannot be opened, the endpoint sends an error and closes
 instead of offering another path.
 
-### `POST /v1/machines/{name}/workspace`
-
-Ask the connected VM agent to prepare `/opt/yolobox/project` and the source-path
-workdir alias. The backend updates source path, project path, repo URL, and
-branch metadata after the agent confirms preparation.
-
 ### `POST /v1/machines/{name}/setup`
 
-Ask the connected VM agent to run configured setup commands from the source-path
-workdir after an upward sync.
+Ask the connected VM agent to run configured setup commands from
+`/opt/yolobox/project` after an upward sync.
 
 ### `POST /v1/machines/{name}/sync-complete`
 
@@ -398,13 +389,13 @@ rsync -az --delete --human-readable -e "ssh ... ProxyCommand=yolobox __remote-ss
 
 This includes `.git` if present, untracked files, ignored files, `.env` files, dependency folders, build output, and local caches. Treat the remote as a trusted development machine.
 
-The remote storage path remains `/opt/yolobox/project`, but commands run from a source-path alias. For example, syncing from `/Users/example/project` creates `/Users/example/project` on the VM as a symlink to `/opt/yolobox/project`, so Codex, Claude, shells, and Docker Compose work from `/Users/example/project`.
+The remote storage path and command workdir are both `/opt/yolobox/project`.
 
 ## VM Runtime
 
 Remote mode does not run a nested yolobox container on the VM. A yolobox remote machine is the sandbox: it runs the requested command directly on the VM, with `/opt/yolobox/bin` wrappers first on `PATH`, Docker Engine available on the host, and persistent installs written to the VM disk.
 
-Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/tunnel` with the per-machine token from `/etc/yolobox/agent.env`, handles backend RPC for workspace/session operations, and is required for all normal remote SSH access.
+Prebuilt provider images should run the embedded VM installer at image-build time. The installer lives at `cmd/yolobox/assets/remote-vm-install.sh` and writes `/opt/yolobox/remote/ready` when the runtime is ready. It installs the AI CLIs, Docker Engine and Compose, `tmux`, `rsync`, common build tools, the YOLO wrappers, GitHub HTTPS token helper, `/usr/local/bin/yolobox-remote-session`, and the `yolobox-agent` systemd service. The agent runs `/usr/local/lib/yolobox/agent.mjs`, authenticates to `/v1/agent/tunnel` with the per-machine token from `/etc/yolobox/agent.env`, handles backend RPC for setup/session operations, and is required for all normal remote SSH access.
 
 When building an image from this repository checkout, run:
 

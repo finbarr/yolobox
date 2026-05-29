@@ -47,7 +47,7 @@ type remoteBackendTunnelKeyResponse struct {
 	PrivateKey string `json:"private_key"`
 }
 
-type remoteBackendWorkspaceRequest struct {
+type remoteBackendSyncCompleteRequest struct {
 	SourcePath  string `json:"source_path,omitempty"`
 	ProjectPath string `json:"project_path,omitempty"`
 	RepoURL     string `json:"repo_url,omitempty"`
@@ -149,22 +149,8 @@ func listRemoteBackendMachines(cfg Config) ([]remoteMachine, error) {
 	return response.Machines, nil
 }
 
-func prepareRemoteBackendWorkspace(cfg Config, machine remoteMachine) (remoteMachine, error) {
-	req := remoteBackendWorkspaceRequest{
-		SourcePath:  machine.SourcePath,
-		ProjectPath: machine.ProjectPath,
-		RepoURL:     machine.RepoURL,
-		Branch:      machine.Branch,
-	}
-	var response remoteBackendAgentResponse
-	if err := remoteBackendRequestWithTimeout(cfg, http.MethodPost, "/v1/machines/"+url.PathEscape(machine.Name)+"/workspace", req, &response, remoteBackendProvisionTimeout); err != nil {
-		return machine, err
-	}
-	return mergeRemoteBackendMachine(machine, response.Machine), nil
-}
-
 func completeRemoteBackendSync(cfg Config, machine remoteMachine) (remoteMachine, error) {
-	req := remoteBackendWorkspaceRequest{
+	req := remoteBackendSyncCompleteRequest{
 		SourcePath:  machine.SourcePath,
 		ProjectPath: machine.ProjectPath,
 		RepoURL:     machine.RepoURL,
