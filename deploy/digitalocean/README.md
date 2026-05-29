@@ -72,7 +72,9 @@ deploy/digitalocean/build-remote-image.sh \
 The builder Droplet still needs an SSH key for the temporary image build. Use
 `DIGITALOCEAN_SSH_KEYS` only when the matching private key is available to the
 host running the script. Otherwise set `YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY`
-and pass the matching private key with `--ssh-key`.
+and pass the matching private key with `--ssh-key`. Quote
+`YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY` in `.env.production` because OpenSSH
+public keys contain spaces.
 
 `--set-active` writes `YOLOBOX_REMOTE_IMAGE=<snapshot-id>` plus metadata back to
 the env file. Restart the backend after that so future creates use the snapshot:
