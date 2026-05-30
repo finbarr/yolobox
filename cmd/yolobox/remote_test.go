@@ -537,6 +537,7 @@ func TestRemoteBootstrapScriptInstallsVMRuntimeNotNestedYolobox(t *testing.T) {
 		"/v1/agent/connect",
 		"heartbeatTimeout",
 		"lastPongAt",
+		"ws.addEventListener(\"error\", reconnect)",
 		"/var/log/yolobox-remote-install.log",
 		"step \"installing base packages\"",
 	} {

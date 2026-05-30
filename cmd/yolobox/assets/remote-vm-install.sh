@@ -461,35 +461,47 @@ function connectionURL() {
 }
 
 function connect(delay = 1000) {
-  socket = new WebSocket(connectionURL(), {
+  const ws = new WebSocket(connectionURL(), {
     headers: { Authorization: `Bearer ${token}` },
   });
+  socket = ws;
 
   let heartbeat;
-  socket.addEventListener("open", () => {
+  let reconnecting = false;
+  function reconnect() {
+    if (reconnecting) return;
+    reconnecting = true;
+    if (heartbeat) clearInterval(heartbeat);
+    if (socket === ws) socket = undefined;
+    try {
+      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    } catch {}
+    setTimeout(() => connect(Math.min(delay * 2, 15000)), delay);
+  }
+
+  ws.addEventListener("open", () => {
     lastPongAt = Date.now();
     heartbeat = setInterval(() => {
       if (Date.now() - lastPongAt > heartbeatTimeout) {
-        socket.close();
+        reconnect();
         return;
       }
-      send({ type: "ping" });
+      send({ type: "ping" }, ws);
     }, heartbeatInterval);
-    send({ type: "ping" });
+    send({ type: "ping" }, ws);
   });
 
-  socket.addEventListener("message", (event) => {
+  ws.addEventListener("message", (event) => {
     handleMessage(event.data).catch((error) => {
       console.error(`yolobox agent message failed: ${error.message}`);
     });
   });
 
-  socket.addEventListener("close", () => {
-    if (heartbeat) clearInterval(heartbeat);
-    setTimeout(() => connect(Math.min(delay * 2, 15000)), delay);
-  });
+  ws.addEventListener("close", reconnect);
 
-  socket.addEventListener("error", () => {});
+  ws.addEventListener("error", reconnect);
 }
 
 async function handleMessage(data) {
@@ -700,9 +712,9 @@ function runProcess(command, args, options = {}) {
   });
 }
 
-function send(message) {
-  if (socket?.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify(message));
+function send(message, target = socket) {
+  if (target?.readyState === WebSocket.OPEN) {
+    target.send(JSON.stringify(message));
   }
 }
 EOF
