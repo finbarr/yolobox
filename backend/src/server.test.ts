@@ -158,7 +158,7 @@ test("backend authenticates machine agents only by opaque token", async () => {
   assert.equal(guessedName.statusCode, 401, guessedName.body);
 });
 
-test("backend waits for a created machine agent before returning", async () => {
+test("backend waits for a created machine to trust SSH certificates before returning", async () => {
   const { app, provider, token } = await createTestBackend("ready@example.com", "password123", { machineReadyTimeoutMs: 2000 });
   const headers = { authorization: `Bearer ${token}` };
   const create = app.inject({
@@ -182,6 +182,19 @@ test("backend waits for a created machine agent before returning", async () => {
 
   await app.ready();
   const agent = await app.injectWS("/v1/agent/connect", { headers: { authorization: `Bearer ${agentToken}`, host: "127.0.0.1" } });
+  const setupRPC = JSON.parse((await nextWSMessage(agent)).toString());
+  assert.equal(setupRPC.type, "rpc");
+  assert.equal(setupRPC.action, "run_setup");
+  assert.match(setupRPC.payload.commands[0], /cloud-init status --wait/);
+  assert.match(setupRPC.payload.commands[0], /TrustedUserCAKeys \/etc\/ssh\/yolobox_user_ca_keys/);
+  assert.match(setupRPC.payload.commands[0], /AuthorizedPrincipalsFile \/etc\/ssh\/auth_principals\/%u/);
+  assert.match(setupRPC.payload.commands[0], /yolobox:foo-/);
+  agent.send(JSON.stringify({
+    type: "rpc_result",
+    rpc_id: setupRPC.rpc_id,
+    ok: true,
+    result: { stdout: "", stderr: "" },
+  }));
   const created = await create;
   assert.equal(created.statusCode, 201, created.body);
   assert.equal(typeof created.json().machine.agent_last_seen_at, "string");

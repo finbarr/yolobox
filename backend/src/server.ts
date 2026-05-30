@@ -416,7 +416,7 @@ async function createMachine(
   await options.store.putMachine(machine);
   let ready: RemoteMachine;
   try {
-    ready = await waitForCreatedMachineAgent(options, agents, machine);
+    ready = await waitForCreatedMachineReady(options, agents, machine);
   } catch (err) {
     if (err instanceof AgentRPCError) {
       return reply.code(504).send({ id: err.code, message: err.message, machine: publicMachine(machine) });
@@ -545,7 +545,7 @@ function connectedAgent(agents: Map<string, AgentConnection>, machine: RemoteMac
   return agent?.socket.readyState === WebSocket.OPEN ? agent : undefined;
 }
 
-async function waitForCreatedMachineAgent(
+async function waitForCreatedMachineReady(
   options: BackendOptions,
   agents: Map<string, AgentConnection>,
   machine: RemoteMachine,
@@ -555,10 +555,61 @@ async function waitForCreatedMachineAgent(
   const deadline = Date.now() + timeout;
   while (Date.now() <= deadline) {
     const agent = connectedAgent(agents, machine);
-    if (agent) return normalizeMachine(options, agent.machine);
+    if (agent) {
+      try {
+        await ensureMachineSSHCertificateTrust(options, agent.machine, agent, Math.max(1000, deadline - Date.now()));
+        return normalizeMachine(options, agent.machine);
+      } catch (err) {
+        if (err instanceof AgentRPCError && err.code === "agent_disconnected") {
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+          continue;
+        }
+        throw err;
+      }
+    }
     await new Promise((resolve) => setTimeout(resolve, 1000));
   }
-  throw new AgentRPCError("remote machine was created, but its agent did not connect before the readiness timeout", "agent_disconnected");
+  throw new AgentRPCError("remote machine was created, but SSH certificate trust was not ready before the readiness timeout", "agent_timeout");
+}
+
+async function ensureMachineSSHCertificateTrust(
+  options: BackendOptions,
+  machine: RemoteMachine,
+  agent: AgentConnection,
+  timeoutMs: number,
+): Promise<void> {
+  const normalized = normalizeMachine(options, machine);
+  const principal = normalized.ssh_principal || sshPrincipalForMachine(normalized);
+  const user = safeLinuxUser(normalized.ssh_user || "root");
+  const caPublicKey = await options.sshCA.publicKey();
+  const principalPath = `/etc/ssh/auth_principals/${user}`;
+  const command = [
+    "if command -v cloud-init >/dev/null 2>&1; then cloud-init status --wait >/dev/null 2>&1 || true; fi",
+    "install -d -m 0755 /run/sshd /etc/ssh/auth_principals /etc/ssh/sshd_config.d",
+    `printf '%s\\n' ${shellQuote(caPublicKey)} > /etc/ssh/yolobox_user_ca_keys`,
+    "chmod 0644 /etc/ssh/yolobox_user_ca_keys",
+    `printf '%s\\n' ${shellQuote(principal)} > ${shellQuote(principalPath)}`,
+    `chmod 0644 ${shellQuote(principalPath)}`,
+    "printf '%s\\n' 'TrustedUserCAKeys /etc/ssh/yolobox_user_ca_keys' 'AuthorizedPrincipalsFile /etc/ssh/auth_principals/%u' 'PasswordAuthentication no' 'KbdInteractiveAuthentication no' > /etc/ssh/sshd_config.d/90-yolobox-user-ca.conf",
+    "sshd -t",
+    "(systemctl reload ssh >/dev/null 2>&1 || systemctl reload sshd >/dev/null 2>&1 || systemctl restart ssh >/dev/null 2>&1 || systemctl restart sshd >/dev/null 2>&1 || pkill -HUP sshd >/dev/null 2>&1 || true)",
+    "sshd -T | grep -Fx 'trustedusercakeys /etc/ssh/yolobox_user_ca_keys' >/dev/null",
+    "sshd -T | grep -Fx 'authorizedprincipalsfile /etc/ssh/auth_principals/%u' >/dev/null",
+    `grep -Fx -- ${shellQuote(principal)} ${shellQuote(principalPath)} >/dev/null`,
+  ].join(" && ");
+
+  await callAgentRPC(agent, "run_setup", {
+    ...machineRuntimePayload(normalized),
+    commands: [command],
+  }, timeoutMs);
+}
+
+function safeLinuxUser(value: string): string {
+  return /^[a-z_][a-z0-9_-]*[$]?$/i.test(value) ? value : "root";
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\"'\"'")}'`;
 }
 
 async function requireMachineAgentContext(
