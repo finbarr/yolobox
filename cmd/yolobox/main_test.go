@@ -1728,22 +1728,6 @@ func TestDockerfileConfiguresRTK(t *testing.T) {
 	}
 }
 
-func TestDockerfileIncludesRemoteModeSyncTools(t *testing.T) {
-	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
-	if err != nil {
-		t.Fatalf("failed to read Dockerfile: %v", err)
-	}
-	dockerfile := string(data)
-	for _, want := range []string{
-		"openssh-client",
-		"rsync",
-	} {
-		if !strings.Contains(dockerfile, want) {
-			t.Fatalf("expected Dockerfile to include %q for remote mode, got:\n%s", want, dockerfile)
-		}
-	}
-}
-
 func TestBuildRunArgsRootlessPodmanPersistentVolumes(t *testing.T) {
 	runtimeDir := t.TempDir()
 	podmanPath := filepath.Join(runtimeDir, "podman")

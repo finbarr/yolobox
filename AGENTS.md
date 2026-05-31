@@ -21,8 +21,6 @@ Do not stop at unit tests when behavior can be exercised for real. If a change a
 
 If full end-to-end verification is blocked by the environment, state exactly what was run, what was not run, and why.
 
-When the requested change replaces or removes an existing system, delete the old implementation, command handlers, aliases, docs, tests, fallback paths, compatibility shims, and "removed/deprecated command" error branches unless the user explicitly asks for backward compatibility. This repo is pre-production unless the user says otherwise, so do not preserve dead artifacts just in case. If compatibility might be needed, ask before keeping it and explain exactly what would remain.
-
 Any hard-earned lesson that changes how future work should be done belongs in `AGENTS.md`.
 
 ## Build Commands
@@ -132,16 +130,3 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Local `make lint` skips `golangci-lint` when it is not installed, but CI runs `golangci-lint-action` with the latest linter. A skipped local linter is not release-ready; before release pushes, install/run `golangci-lint` locally or run the CI linter equivalent.
 - npm's `min-release-age` requires a new enough npm. When enforcing npm package age in the base image, first upgrade npm with the older `--before` date filter, then scope `NPM_CONFIG_MIN_RELEASE_AGE` to the specific Dockerfile `RUN` installs that need it. Do not persist it in global npm config or image `ENV`, or runtime CLI self-updates can get stuck behind the age gate.
 - Release tags must only be created from a clean, up-to-date `master` branch. Push `master` and the specific release tag together, for example `git push origin master refs/tags/v0.1.2`; avoid broad `git push --tags` from feature branches.
-- Remote mode should keep the backend authoritative. Do not reintroduce CLI-side provider provisioning, local remote registry state, or multiple workspaces/sessions per remote VM unless there is an explicit product reason.
-- Remote backend auth should use Better Auth for users, passwords, and sessions. Do not hand-roll password hashing, session token storage, or multi-user auth flows in the backend.
-- Remote CLI control-plane HTTP calls should stay on HTTP/1.x unless the production proxy path is proven safe for long provisioning requests. Go HTTP/2 through Caddy produced `unexpected EOF` on slow `POST /v1/machines` calls before response headers were sent.
-- Remote direct SSH must use backend-signed short-lived user certificates and persistent host-key pinning, not reusable private keys, backend byte relays, `UserKnownHostsFile=/dev/null`, or blanket host-key suppression. Otherwise connects either depend on backend stream state or hide real host identity drift.
-- Remote CLI should stay thin. Setup commands, command wrapping, and tmux lifecycle belong behind backend/VM-agent RPC endpoints, not in CLI-generated shell scripts or broad machine PATCH calls.
-- Remote CLI must not call a user-facing workspace preparation endpoint. Remote project storage is `/opt/yolobox/project`; sync copies bytes there, and command/session RPC runs from there.
-- Remote VM runtime dependencies belong in the golden image. Do not install missing packages from backend agent RPC on user-created VMs; fail loudly and rebuild the image instead.
-- The public `yolobox.dev` DNS zone is managed at Dynu (`ns1.dyna-ns.net`, `ns2.dyna-ns.net`), not DigitalOcean DNS. DigitalOcean compute deploys still need Dynu access for `app.yolobox.dev` and `api.yolobox.dev` record changes.
-- Golden remote VM snapshots must be built from committed source or a pushed release ref, not an untracked working tree. Before snapshotting, clean cloud-init state, machine identity, authorized keys, and SSH host keys so cloned machines boot as fresh instances and receive backend-configured SSH CA trust. Keep the previous snapshot id available until a production smoke create passes.
-- Remote user VMs must not receive DigitalOcean account SSH keys. Use backend-issued short-lived SSH certificates for user access; keep SSH keys limited to explicit temporary builder flows where the matching private key is available on the host running the builder.
-- Remote mode is not verified by unit tests or backend health checks alone. Before calling remote VM auth, SSH, sync, snapshot, or agent changes done, run a real production or production-equivalent smoke: create a machine from the active snapshot, sync a project, run a command over direct SSH, restart the backend, run another command after the agent reconnect window, then destroy the smoke machine and verify provider cleanup.
-- Remote VM agents must reconnect on WebSocket `error` as well as `close`, and should watchdog backend `pong`s. Caddy/backend restarts can otherwise leave an agent process alive but disconnected from the backend's in-memory agent map.
-- Before rotating the DigitalOcean golden snapshot, verify `YOLOBOX_IMAGE_BUILDER_SSH_PUBLIC_KEY` matches the private key passed to `build-remote-image.sh`; otherwise the builder Droplet waits for SSH until timeout.

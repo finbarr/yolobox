@@ -6,23 +6,13 @@ BINDIR ?= $(PREFIX)/bin
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
 
-.PHONY: build test go-test backend-test backend-build lint image smoke-test install uninstall clean
+.PHONY: build test lint image smoke-test install uninstall clean
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) $(CMD_DIR)
 
-test: go-test backend-test
-
-go-test:
+test:
 	go test -v ./...
-
-backend-test:
-	npm --prefix backend ci
-	npm --prefix backend test
-
-backend-build:
-	npm --prefix backend ci
-	npm --prefix backend run build
 
 lint:
 	go vet ./...

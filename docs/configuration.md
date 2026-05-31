@@ -13,8 +13,6 @@ Path: `~/.config/yolobox/config.toml`
 Applies to all projects:
 
 ```toml
-# mode = "remote"
-# remote_name = "foo"
 default_harness = "codex"
 git_config = true
 opencode_config = true
@@ -34,13 +32,6 @@ memory = "8g"
 cap_add = ["SYS_PTRACE"]
 devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
-
-[remote]
-backend_url = "https://api.yolobox.dev"
-# Browser-granted Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
-token = "your-session-token"
-ssh_user = "root"
-setup = ["docker compose pull"]
 ```
 
 ### Project config
@@ -80,30 +71,6 @@ default_harness = "codex"
 ```
 
 Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`. Use `none` in project config to override a global default harness and keep bare `yolobox` as an interactive shell. `yolobox shell` always opens a shell regardless of this setting.
-
-## Remote defaults
-
-Set `mode = "remote"` and `remote_name` when bare `yolobox` should use a named remote machine instead of starting a local container.
-
-```toml
-mode = "remote"
-remote_name = "foo"
-default_harness = "codex"
-
-[remote]
-# Defaults to https://api.yolobox.dev when omitted.
-backend_url = "https://remote.example.com"
-# Browser-granted Better Auth session token written by yolobox login. Prefer YOLOBOX_TOKEN in scripts.
-token = "your-session-token"
-ssh_user = "root"
-setup = ["docker compose pull"]
-```
-
-With that config, bare `yolobox` behaves like `yolobox remote run foo codex`.
-
-Remote mode requires a Better Auth session from `remote.token`, `YOLOBOX_TOKEN`, or `yolobox login`. Plain `yolobox login` opens a browser approval flow, prints the URL for copy/paste, and stores the granted session token. The CLI asks the hosted or self-hosted backend for a bootstrapped host owned by the authenticated user, fetches a backend-signed SSH certificate, and mirrors the current folder to `/opt/yolobox/project` with `rsync`. The backend/VM agent runs setup commands, resolves command wrappers, and manages the single tmux session. Remote commands run directly from `/opt/yolobox/project` on the VM with yolobox wrappers on `PATH`; they do not start a nested yolobox container. The backend is the source of truth for machine state; the CLI stores auth/config only and asks the backend for list, status, create, destroy, and connect metadata. The hosted browser app is intended to run at `https://app.yolobox.dev` against `https://api.yolobox.dev`.
-
-Remote sync copies the whole current folder on `sync up`. That includes `.git` if present, uncommitted files, ignored files, `.env` files, dependency folders, build output, and local caches. `sync down` copies the remote project back to the local folder and requires `--force` because it can overwrite local files.
 
 ## Project file filtering
 

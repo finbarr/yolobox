@@ -55,7 +55,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nano \
     less \
     openssh-client \
-    rsync \
     gnupg \
     unzip \
     zip \

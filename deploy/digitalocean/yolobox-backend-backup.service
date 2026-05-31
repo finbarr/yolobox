@@ -1,9 +1,0 @@
-[Unit]
-Description=Back up yolobox backend state
-Wants=docker.service
-After=docker.service
-
-[Service]
-Type=oneshot
-EnvironmentFile=-/opt/yolobox/app/deploy/digitalocean/.env.production
-ExecStart=/usr/local/bin/yolobox-backend-backup

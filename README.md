@@ -182,11 +182,6 @@ yolobox                     # Run configured default harness, or shell if none
 yolobox shell               # Drop into interactive shell (for manual use)
 yolobox run <cmd...>        # Run any command in sandbox
 yolobox fork --name <env> <cmd...> # Run in a named copied folder with a Compose namespace
-yolobox login               # Open browser login and store remote backend auth
-yolobox logout              # Revoke and clear remote backend auth
-yolobox remote create <env> [--tier small|medium|large] # Create a named remote machine
-yolobox remote run <env> <cmd...> # Sync, then run on an existing remote machine
-yolobox remote connect <env> # Open a shell on a backend-known machine without syncing
 yolobox setup               # Configure yolobox settings
 yolobox upgrade             # Update binary and pull latest image
 yolobox upgrade --check     # Show latest release notes without upgrading
@@ -215,123 +210,6 @@ Compose namespacing covers default Compose-created containers, networks, and nam
 
 See the [recipes](docs/recipes.md) for common fork workflows, including parallel agents on one project and webapp routing.
 
-## Remote Mode
-
-Remote mode gives Claude, Codex, and other harnesses a named Linux machine that keeps running after your laptop disconnects. The CLI is backend-first: it always talks to a hosted or self-hosted backend, and the backend is the source of truth for machine state.
-
-```bash
-yolobox login
-yolobox login --backend-url https://remote.example.com
-yolobox remote create foo
-yolobox remote create foo --tier medium
-yolobox remote run foo codex
-yolobox remote connect foo
-yolobox remote sync up foo
-yolobox remote sync down foo --force
-yolobox remote list
-yolobox remote status foo
-yolobox remote destroy foo --force
-```
-
-Remote support is intentionally one machine, one project, and one tmux session. A named remote maps to one VM with project storage at `/opt/yolobox/project` and the session named `yolobox`. Remote mode runs Codex, Claude, shells, and `docker compose` directly on the VM with yolobox wrappers on `PATH`; it does not start a nested yolobox container. That keeps state predictable while making host installs and Docker workloads persist on the remote machine. If you want another isolated remote environment, create another named remote machine instead of stacking workspaces onto one VM.
-
-Remote run, connect, and sync use direct SSH to the VM with short-lived
-backend-signed OpenSSH user certificates. The CLI generates a temporary key,
-asks the backend to sign it for the authenticated user's machine, and then uses
-local `ssh` and `rsync` against the VM public IP. Normal user VMs are not
-created with reusable DigitalOcean account SSH keys. On DigitalOcean, the backend
-uses a one-time no-login key during create only to prevent provider password
-emails, then deletes the account key. There is no unsigned direct-SSH fallback.
-Setup commands, command wrapping, and tmux session lifecycle remain
-backend-authorized VM agent actions. Remote SSH host keys are stored in
-`~/.yolobox/remote_known_hosts` with a stable per-machine alias, so repeated
-connects do not re-accept the same host key.
-
-`yolobox login` starts a browser approval flow, prints the URL to copy/paste,
-tries to open it, and then waits for approval from the web app. Use
-`--no-open` when you only want the printed URL, or `--token` for noninteractive
-automation with an existing session token.
-
-The CLI does not keep a local machine registry. It stores only auth/config and
-asks the backend for the account's machines. `yolobox remote create foo` creates
-a backend-bootstrapped machine and syncs the current folder by default; pass
-`--no-sync` to create the machine without copying the folder
-yet. Pass `--tier small`, `--tier medium`, or `--tier large` when a new machine
-should use a non-default VM size. Create fails if that machine name already
-exists; use `remote run`, `remote connect`, or `remote status` for existing
-machines. Remote commands print progress while backend provisioning and SSH
-startup are pending; when a machine is ready, any generated preview URL is shown
-on its own line. `yolobox remote run foo ...` syncs the current folder, then asks
-the backend/agent to start the command or managed session before the CLI
-attaches over direct SSH. `yolobox remote connect foo` opens or attaches to the
-managed tmux session without syncing or bootstrapping. If backend metadata says bootstrap has not completed, connect fails
-instead of trying to repair the VM from the CLI. If the managed tmux session
-already exists, `remote run` and `remote connect` attach to that session instead
-of starting another one or replacing what is running. From a non-terminal, an
-already-running interactive session is a hard error so scripts do not silently
-succeed without starting the requested command.
-
-When the backend is configured with a preview base domain, every remote machine
-gets a stable generated preview URL such as
-`https://amber-bridge-a1b2c3.hosted.yolobox.dev`. The CLI exposes it in
-`yolobox remote list`, `yolobox remote status foo`, and the remote session as
-`YOLOBOX_PREVIEW_URL`. Hosted deployments proxy that URL to the machine's
-standard preview service.
-
-When `mode = "remote"` and `remote_name` are configured, bare `yolobox` uses
-that named remote. Explicit `yolobox remote ...` subcommands still require a
-machine name so typos in command names fail instead of becoming machine names.
-
-Remote sync copies the entire current folder into `/opt/yolobox/project` on the VM. That includes `.git` if present, untracked files, ignored files, env files, dependencies, build output, and local caches. Treat the remote machine like another trusted development machine, and remove secrets from the project folder before syncing if they should not leave your laptop. Any `[remote].setup` commands run through the VM agent after an upward sync finishes from `/opt/yolobox/project`. Downward sync intentionally requires `--force` because it can overwrite local files.
-
-Hosted and self-hosted backends can set `YOLOBOX_REMOTE_IMAGE` to a prebuilt
-yolobox VM image or provider snapshot id. The backend is responsible for
-returning bootstrapped machines; the CLI no longer sends the VM runtime
-installer over SSH. Runtime dependencies belong in that image; backend agent RPC
-fails if expected tools are missing instead of installing packages on
-user-created VMs. Installer command output is written on the VM to
-`/var/log/yolobox-remote-install.log` only when building the remote image. The
-DigitalOcean deployment bundle includes
-[`build-remote-image.sh`](deploy/digitalocean/build-remote-image.sh), which
-creates and optionally activates a new golden snapshot from a committed checkout
-or pushed release ref.
-
-When the backend creates a machine, it also creates a 48-byte random
-machine-agent token, stores only its hash, and passes the plaintext token to the
-VM through provider user data. VM-side agent endpoints authenticate only that
-token and never trust a machine name claimed by the VM. The backend also owns an
-SSH user CA, passes its public key plus a per-machine authorized principal to the
-VM, and signs temporary CLI public keys only after authenticating the machine
-owner. The same token-authenticated VM agent handles backend RPC for setup
-commands, command wrapping, and the single managed tmux session.
-
-Restarting or redeploying the backend does not sever an already established
-direct SSH or rsync connection. New remote operations need the backend to issue
-a fresh SSH certificate and may need the VM agent for setup/session RPC; the VM
-and its managed `yolobox` tmux session keep running while the agent reconnects.
-
-The hosted console is intended to live at `https://app.yolobox.dev` and call the
-hosted API at `https://api.yolobox.dev`. The backend can offer free
-account/control-plane features, bring-your-own-infra credentials, and paid
-yolobox-owned VMs. The open-source self-hostable backend lives in
-[backend/](backend/) and currently includes a DigitalOcean provider adapter
-behind a generic provider interface.
-
-Self-host the backend with Docker Compose:
-
-```bash
-BETTER_AUTH_SECRET="$(openssl rand -hex 32)" \
-DIGITALOCEAN_ACCESS_TOKEN=dop_v1_example \
-docker compose -f docker-compose.backend.yml up --build
-```
-
-For the production `app.yolobox.dev`, `api.yolobox.dev`, and
-`*.hosted.yolobox.dev` deployment on a DigitalOcean Droplet, use the Caddy,
-cloud-init, backup, and remote-image bundle in
-[`deploy/digitalocean/`](deploy/digitalocean/).
-
-See [Remote Mode](docs/remote.md) for the client contract and backend API shape.
-
 ## Configuration
 
 Run `yolobox setup` to configure your preferences with an interactive wizard.
@@ -339,8 +217,6 @@ Run `yolobox setup` to configure your preferences with an interactive wizard.
 Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
-# mode = "remote"
-# remote_name = "foo"
 default_harness = "codex" # or claude, gemini, opencode, copilot, none
 git_config = true
 opencode_config = true
@@ -360,12 +236,6 @@ memory = "8g"
 cap_add = ["SYS_PTRACE"]
 devices = ["/dev/kvm:/dev/kvm"]
 runtime_args = ["--security-opt", "seccomp=unconfined"]
-
-[remote]
-# backend_url = "https://api.yolobox.dev" # hosted backend by default
-# token = "browser-granted-session-written-by-yolobox-login"
-ssh_user = "root"
-setup = ["docker compose pull"]
 ```
 
 You can also create `.yolobox.toml` in your project for project-specific settings:
@@ -664,12 +534,7 @@ yolobox doesn't currently expose this as a flag, but you can achieve it by runni
 make image
 ```
 
-This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the local container image.
-
-Remote VMs use a VM image or snapshot rather than this Docker image. The VM
-runtime installer used for those images lives at
-`cmd/yolobox/assets/remote-vm-install.sh`. For DigitalOcean, build and rotate
-that snapshot with `deploy/digitalocean/build-remote-image.sh`.
+This builds `ghcr.io/finbarr/yolobox:latest` locally, overriding the remote image.
 
 ## Customizing the Image
 

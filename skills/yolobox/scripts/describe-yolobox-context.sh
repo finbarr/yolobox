@@ -84,10 +84,9 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
         '
         (.config.no_project // false) as $no_project |
         [
-	            "Inside yolobox: yes",
-	            "Source: manifest",
-	            "Remote VM: " + ((.remote // false) | tostring),
-	            "Automatic project mount: " + (($no_project | not) | tostring),
+            "Inside yolobox: yes",
+            "Source: manifest",
+            "Automatic project mount: " + (($no_project | not) | tostring),
             (if $no_project then "Project: (automatic mount disabled)" else "Project: " + (.paths.project // "") end),
             (if $no_project then empty else "Project writable now: " + $project_writable end),
             "Workdir: " + (.launch.working_dir // ""),
@@ -136,7 +135,6 @@ project_writable="$(path_access_state writable "$project")"
 readonly_project="unknown"
 output_path=""
 docker_socket="false"
-remote_vm="false"
 ssh_agent="false"
 github_token="false"
 clipboard="false"
@@ -151,9 +149,6 @@ elif [[ -d "$output_dir" ]]; then
 fi
 if [[ -S /var/run/docker.sock ]]; then
     docker_socket="true"
-fi
-if [[ "${YOLOBOX_REMOTE:-}" == "1" ]]; then
-    remote_vm="true"
 fi
 if [[ -n "${SSH_AUTH_SOCK:-}" && -S "${SSH_AUTH_SOCK}" ]]; then
     ssh_agent="true"
@@ -170,7 +165,6 @@ fi
 
 printf 'Inside yolobox: %s\n' "$inside"
 printf 'Source: inferred (manifest unavailable)\n'
-printf 'Remote VM: %s\n' "$remote_vm"
 printf 'Automatic project mount: unknown\n'
 printf 'Project: %s\n' "$project"
 printf 'Project writable now: %s\n' "$project_writable"

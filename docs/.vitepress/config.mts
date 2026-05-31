@@ -23,10 +23,6 @@ const pageSeo: Record<string, { title: string, description: string, noindex?: bo
     title: 'Recipes',
     description: 'Common yolobox workflows, including named agent environments, Git remote synchronization, and forked webapp routing with local HTTPS.',
   },
-  '/remote': {
-    title: 'Remote Mode',
-    description: 'Remote mode for named yolobox machines backed by a hosted or self-hosted backend, one project per VM, and persistent tmux sessions.',
-  },
   '/configuration': {
     title: 'Configuration Guide',
     description: 'Configure yolobox with global and project settings for mounts, environment variables, forwarded credentials, runtime behavior, and per-project customization.',
@@ -176,7 +172,6 @@ export default defineConfig({
           { text: 'Installation & Setup', link: '/getting-started' },
           { text: 'Commands', link: '/commands' },
           { text: 'Recipes', link: '/recipes' },
-          { text: 'Remote Mode', link: '/remote' },
           { text: "What's in the Box", link: '/whats-in-the-box' },
         ]
       },

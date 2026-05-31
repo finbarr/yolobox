@@ -29,16 +29,9 @@ go.work.sum
 Thumbs.db
 
 # Local config (user-specific)
-.env
 .yolobox.local.toml
 
 # Docs
 docs/node_modules/
 docs/.vitepress/dist/
 docs/.vitepress/cache/
-
-# Backend
-backend/node_modules/
-backend/dist/
-backend/dist-app/
-deploy/digitalocean/.env.production

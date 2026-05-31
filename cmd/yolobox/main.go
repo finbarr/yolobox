@@ -122,8 +122,8 @@ func runCmd() error {
 	args := os.Args[1:]
 	traceTiming("host: start")
 
-	// Check for updates (skip for version/help/upgrade/auth commands)
-	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "login" || args[0] == "logout")
+	// Check for updates (skip for version/help/upgrade commands)
+	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade")
 	if !skipCheck {
 		started := time.Now()
 		checkForUpdates()
@@ -149,14 +149,8 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		if err != nil {
 			return err
 		}
-		if err := validateMode(fileCfg.Mode); err != nil {
-			return err
-		}
 		if err := validateDefaultHarness(fileCfg.DefaultHarness); err != nil {
 			return err
-		}
-		if len(args) == 0 && normalizeMode(fileCfg.Mode) == "remote" {
-			return runRemoteDefault(fileCfg, projectDir)
 		}
 		if defaultHarness := normalizeDefaultHarness(fileCfg.DefaultHarness); defaultHarness != "" {
 			yoloboxArgs, toolArgs := splitToolArgs(args)
@@ -203,12 +197,6 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		return runShell(cfg)
 	case "fork":
 		return runFork(args[1:], projectDir)
-	case "remote":
-		return runRemote(args[1:], projectDir)
-	case "login":
-		return runLogin(args[1:])
-	case "logout":
-		return runLogout(args[1:])
 	case "setup":
 		_, err := runSetup()
 		return err
@@ -307,12 +295,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               Start interactive shell in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox run <cmd...>        Run a command in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox remote create <env>  Create a named remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote create <env> --tier medium")
-	fmt.Fprintln(os.Stderr, "  yolobox remote run <env> <cmd>  Sync and run on an existing remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect <env>  Open a shell on an existing remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox login               Open browser login and store remote backend auth")
-	fmt.Fprintln(os.Stderr, "  yolobox logout              Revoke and clear remote backend auth")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
@@ -371,12 +353,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
-	fmt.Fprintln(os.Stderr, "  mode = \"remote\"            # make bare yolobox use remote mode")
-	fmt.Fprintln(os.Stderr, "  remote_name = \"foo\"        # default remote machine")
 	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
-	fmt.Fprintln(os.Stderr, "  [remote]")
-	fmt.Fprintf(os.Stderr, "  backend_url = %q # defaults to hosted backend\n", defaultRemoteBackendURL)
-	fmt.Fprintln(os.Stderr, "  token = \"...\" # browser-granted session token written by yolobox login")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -389,11 +366,6 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox login               # Sign in through the browser")
-	fmt.Fprintln(os.Stderr, "  yolobox remote create foo  # Create/sync remote machine")
-	fmt.Fprintln(os.Stderr, "  yolobox remote create foo --tier medium  # Pick VM size tier")
-	fmt.Fprintln(os.Stderr, "  yolobox remote run foo codex  # Remote command")
-	fmt.Fprintln(os.Stderr, "  yolobox remote connect foo  # Remote shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
@@ -407,9 +379,6 @@ func printUsage() {
 func parseBaseFlags(name string, args []string, projectDir string) (Config, []string, error) {
 	cfg, err := loadConfig(projectDir)
 	if err != nil {
-		return Config{}, nil, err
-	}
-	if err := validateMode(cfg.Mode); err != nil {
 		return Config{}, nil, err
 	}
 
@@ -964,14 +933,8 @@ func runSetup() (Config, error) {
 
 	// Form fields
 	var selectedOptions []string
-	mode := displayMode(cfg.Mode)
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	containerName := cfg.ContainerName
-	remoteName := cfg.RemoteName
-	remoteBackendURL := cfg.Remote.BackendURL
-	remoteToken := cfg.Remote.Token
-	remoteSSHUser := cfg.Remote.SSHUser
-	remoteSetup := strings.Join(cfg.Remote.Setup, "\n")
 	podName := cfg.Pod
 	cpuLimit := cfg.CPUs
 	memoryLimit := cfg.Memory
@@ -1047,14 +1010,6 @@ func runSetup() (Config, error) {
 	form := huh.NewForm(
 		huh.NewGroup(
 			huh.NewSelect[string]().
-				Title("Default run mode").
-				Description("Choose remote to make bare yolobox run on a named remote machine").
-				Options(
-					huh.NewOption("Local container", "local"),
-					huh.NewOption("Remote machine", "remote"),
-				).
-				Value(&mode),
-			huh.NewSelect[string]().
 				Title("Default command for bare yolobox").
 				Description("Choose none to keep bare yolobox as an interactive shell").
 				Options(
@@ -1066,32 +1021,6 @@ func runSetup() (Config, error) {
 					huh.NewOption("Copilot", "copilot"),
 				).
 				Value(&defaultHarness),
-		),
-		huh.NewGroup(
-			huh.NewInput().
-				Title("Default remote name").
-				Description("Used when mode is remote").
-				Placeholder("foo").
-				Value(&remoteName),
-			huh.NewInput().
-				Title("Remote backend URL").
-				Description("Hosted backend by default; set your self-hosted backend here").
-				Placeholder(defaultRemoteBackendURL).
-				Value(&remoteBackendURL),
-			huh.NewInput().
-				Title("Remote session token").
-				Description("Optional manual token; plain yolobox login opens the browser approval flow").
-				Value(&remoteToken),
-			huh.NewInput().
-				Title("Remote SSH user").
-				Placeholder("root").
-				Value(&remoteSSHUser),
-			huh.NewText().
-				Title("Remote setup commands").
-				Description("One per line; run after folder sync on the remote host").
-				Lines(4).
-				Placeholder("docker compose pull").
-				Value(&remoteSetup),
 		),
 		huh.NewGroup(
 			huh.NewMultiSelect[string]().
@@ -1186,13 +1115,7 @@ func runSetup() (Config, error) {
 	}
 
 	// Build config from form values
-	cfg.Mode = mode
 	cfg.DefaultHarness = defaultHarness
-	cfg.RemoteName = strings.TrimSpace(remoteName)
-	cfg.Remote.BackendURL = strings.TrimRight(strings.TrimSpace(remoteBackendURL), "/")
-	cfg.Remote.Token = strings.TrimSpace(remoteToken)
-	cfg.Remote.SSHUser = strings.TrimSpace(remoteSSHUser)
-	cfg.Remote.Setup = parseMultilineInput(remoteSetup)
 	cfg.GitConfig = contains(selectedOptions, "git_config")
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")
@@ -1222,14 +1145,6 @@ func runSetup() (Config, error) {
 
 	if err := validateConfigConflicts(cfg); err != nil {
 		return cfg, err
-	}
-	if err := validateMode(cfg.Mode); err != nil {
-		return cfg, err
-	}
-	if normalizeMode(cfg.Mode) == "remote" {
-		if err := validateRemoteDefaults(cfg); err != nil {
-			return cfg, err
-		}
 	}
 	if err := validateRuntimeOptions(cfg); err != nil {
 		return cfg, err
@@ -1263,26 +1178,6 @@ func normalizeDefaultHarness(value string) string {
 		return ""
 	}
 	return value
-}
-
-func normalizeMode(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "" {
-		return "local"
-	}
-	return value
-}
-
-func displayMode(value string) string {
-	return normalizeMode(value)
-}
-
-func validateMode(value string) error {
-	mode := normalizeMode(value)
-	if mode != "local" && mode != "remote" {
-		return fmt.Errorf("invalid mode %q; expected local or remote", value)
-	}
-	return nil
 }
 
 func displayDefaultHarness(value string) string {
@@ -2188,10 +2083,6 @@ func success(format string, args ...interface{}) {
 
 func info(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, colorBlue+"→ "+colorReset+format+"\n", args...)
-}
-
-func link(format string, args ...interface{}) {
-	fmt.Fprintf(os.Stderr, colorCyan+"↗ "+colorReset+format+"\n", args...)
 }
 
 func warn(format string, args ...interface{}) {

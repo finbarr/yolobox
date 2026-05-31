@@ -8,18 +8,10 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
-### Added
-
-- Added backend-first remote mode with `yolobox login`, `yolobox logout`, Better Auth-backed machine leasing, `remote sync up`, `remote sync down --force`, `remote stop`, and local SSH preview forwarding with `remote forward`.
-- Added a default hosted backend URL at `https://api.yolobox.dev` plus `YOLOBOX_BACKEND_URL` and `YOLOBOX_TOKEN` overrides.
-- Added an open-source TypeScript backend package under `backend/` with a Fastify API, Better Auth email/password sessions, per-user machine ownership, JSON machine state, and a DigitalOcean provider adapter for self-hosting.
-- Added a Dockerfile and Docker Compose workflow for running the self-hosted backend with persistent auth and machine state.
-
 ### Changed
 
 - Scoped npm package release-age gating to yolobox's own base-image build installs; runtime npm/npx commands and CLI self-updates are unrestricted by default.
 - Added `--name` / `container_name` support for assigning a runtime container name.
-- Simplified remote mode to one VM, one project path, and one tmux session per remote machine; removed CLI-side direct provider provisioning, local remote registry state, remote workspaces, and the Go backend server.
 
 ## v0.18.0 - 2026-05-18
 
@@ -33,8 +25,6 @@ there is no `v0.6.0` tag in this repository.
 
 - GitHub releases now use the curated `CHANGELOG.md` section for the release body so CLI update prompts can show human-written notes.
 - Documented that releases must be tagged only from a clean, up-to-date `master` branch and pushed with the specific release tag.
-- Updated remote mode docs into a fuller backend/client specification covering API contracts, lifecycle, workspace sync, registry state, preview forwarding, failure behavior, security boundaries, and hosted roadmap.
-- Remote workspaces now sync under `/opt/yolobox-workspaces` and non-interactive remote commands run directly over SSH instead of requiring a terminal-backed tmux attach.
 
 ## v0.17.1 - 2026-05-17
 
