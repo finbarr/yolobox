@@ -8,6 +8,17 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.18.3 - 2026-06-02
+
+### Added
+
+- Added Antigravity CLI support with `yolobox agy` and `yolobox antigravity` shortcuts.
+- Added YOLO-mode Antigravity wrappers that run `agy --dangerously-skip-permissions`.
+
+### Changed
+
+- Documented that `--gemini-config` also covers Antigravity config under `~/.gemini/antigravity-cli`.
+
 ## v0.18.2 - 2026-06-02
 
 ### Fixed
