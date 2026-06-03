@@ -16,7 +16,7 @@ cd /path/to/your/project
 yolobox claude
 ```
 
-Use `claude`, `codex`, `gemini`, `opencode`, `copilot`, or `pi` depending on the tool you want to run.
+Use `claude`, `codex`, `gemini`, `agy`, `opencode`, `copilot`, or `pi` depending on the tool you want to run.
 
 ## Install
 
@@ -48,6 +48,7 @@ Other common entry points:
 ```bash
 yolobox codex
 yolobox gemini
+yolobox agy
 yolobox copilot
 yolobox pi
 yolobox run make test

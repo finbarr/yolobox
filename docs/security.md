@@ -51,7 +51,7 @@ Some flags deliberately widen the trust boundary:
 
 - `--docker` mounts the host Docker socket into the container
 - `--clipboard` lets clipboard commands in the container read and write the host text clipboard through a short-lived proxy
-- `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, `--pi-config`, and `--git-config` copy selected host config into the container; `--codex-config` also live-mounts host Codex sessions read/write for resume continuity
+- `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, `--pi-config`, and `--git-config` copy selected host config into the container; `--gemini-config` covers Gemini and Antigravity config under `~/.gemini`, and `--codex-config` also live-mounts host Codex sessions read/write for resume continuity
 - `--open-bridge` lets `open` and `xdg-open` commands in the container ask the host to open HTTP(S) URLs
 - `--gh-token` forwards a GitHub token for `gh` and HTTPS Git authentication
 - `--rtk` initializes RTK inside the container for supported AI CLIs, which means RTK can inspect and compress command output for those sessions

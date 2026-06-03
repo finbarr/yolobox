@@ -8,6 +8,8 @@ yolobox is built around AI shortcut commands:
 yolobox claude
 yolobox codex
 yolobox gemini
+yolobox agy
+yolobox antigravity
 yolobox opencode
 yolobox copilot
 yolobox pi
@@ -25,6 +27,8 @@ If you use one tool most of the time, set `default_harness = "codex"` or another
 yolobox claude
 yolobox codex
 yolobox gemini
+yolobox agy
+yolobox antigravity
 yolobox opencode
 yolobox copilot
 yolobox pi

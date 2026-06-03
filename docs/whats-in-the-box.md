@@ -8,6 +8,7 @@ The base image is meant to be useful immediately without turning into a giant ki
 
 - Claude Code
 - Gemini CLI
+- Antigravity CLI
 - OpenAI Codex
 - OpenCode
 - GitHub Copilot
@@ -56,6 +57,8 @@ Inside yolobox, AI CLIs are wrapped to skip approval prompts where the upstream 
 | `claude` | `claude --dangerously-skip-permissions` |
 | `codex` | `codex --ask-for-approval never --sandbox danger-full-access` |
 | `gemini` | `gemini --yolo` |
+| `agy` | `agy --dangerously-skip-permissions` |
+| `antigravity` | `agy --dangerously-skip-permissions` |
 | `opencode` | `opencode` |
 | `copilot` | `copilot --yolo` |
 | `pi` | `pi` |

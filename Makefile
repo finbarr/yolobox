@@ -60,6 +60,12 @@ smoke-test: build
 		echo "  ✗ pi"; \
 		failed=1; \
 	fi; \
+	if ./$(BINARY) run --scratch agy --version >/dev/null 2>&1; then \
+		echo "  ✓ agy"; \
+	else \
+		echo "  ✗ agy"; \
+		failed=1; \
+	fi; \
 	REAL_VER=$$(./$(BINARY) run --scratch env NO_YOLO=1 claude --version 2>/dev/null | head -1); \
 	WRAP_VER=$$(./$(BINARY) run --scratch claude --version 2>/dev/null | head -1); \
 	if [ "$$REAL_VER" = "$$WRAP_VER" ]; then \

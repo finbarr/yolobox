@@ -70,7 +70,7 @@ Set `default_harness` to one AI shortcut name to make bare `yolobox` launch that
 default_harness = "codex"
 ```
 
-Valid values are `claude`, `codex`, `gemini`, `opencode`, `copilot`, and `none`. Use `none` in project config to override a global default harness and keep bare `yolobox` as an interactive shell. `yolobox shell` always opens a shell regardless of this setting.
+Valid values are `claude`, `codex`, `gemini`, `agy`, `antigravity`, `opencode`, `copilot`, `pi`, and `none`. Use `none` in project config to override a global default harness and keep bare `yolobox` as an interactive shell. `yolobox shell` always opens a shell regardless of this setting.
 
 ## Project file filtering
 
@@ -149,14 +149,14 @@ Files copied if they exist on your host:
 |------|--------|-------------|
 | Claude | `~/.claude/CLAUDE.md` | `/home/yolo/.claude/CLAUDE.md` |
 | Claude skills | `~/.claude/skills/` | `/home/yolo/.claude/skills/` |
-| Gemini | `~/.gemini/GEMINI.md` | `/home/yolo/.gemini/GEMINI.md` |
+| Gemini/Antigravity | `~/.gemini/GEMINI.md` | `/home/yolo/.gemini/GEMINI.md` |
 | Codex | `~/.codex/AGENTS.md` | `/home/yolo/.codex/AGENTS.md` |
 | Codex skills | `~/.codex/skills/` | `/home/yolo/.codex/skills/` |
 | Pi | `~/.pi/agent/AGENTS.md` | `/home/yolo/.pi/agent/AGENTS.md` |
 | Pi skills | `~/.pi/agent/skills/` | `/home/yolo/.pi/agent/skills/` |
 | Copilot | `~/.copilot/agents/` | `/home/yolo/.copilot/agents/` |
 
-This copies instruction files and skills, not full configs, credentials, settings, or history. For full tool configs, use `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config`.
+This copies instruction files and skills, not full configs, credentials, settings, or history. For full tool configs, use `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config`. Antigravity CLI stores its config under `~/.gemini/antigravity-cli`, so `--gemini-config` covers Antigravity too.
 
 ## Auto-forwarded environment variables
 
@@ -202,7 +202,7 @@ yolobox also injects a managed guidance block into `~/.claude/CLAUDE.md` and `~/
 ## Config sync warning
 
 ::: warning
-Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config syncs your host config on every container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in config syncs your host config on every container start. Claude, Gemini/Antigravity, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Antigravity CLI stores its settings under `~/.gemini/antigravity-cli`, so `gemini_config = true` covers it. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
 :::
 
 ## Startup timing diagnostics

@@ -47,7 +47,7 @@ cd /path/to/your/project
 yolobox claude    # Let it rip
 ```
 
-Or use any other AI tool: `yolobox codex`, `yolobox gemini`, `yolobox opencode`, `yolobox copilot`, `yolobox pi`.
+Or use any other AI tool: `yolobox codex`, `yolobox gemini`, `yolobox agy`, `yolobox opencode`, `yolobox copilot`, `yolobox pi`.
 Set `default_harness = "codex"` to make bare `yolobox` launch Codex; use `yolobox shell` when you want a manual shell.
 
 Non-interactive invocations keep stdout and stderr separate, so shell redirection works as expected:
@@ -59,7 +59,7 @@ yolobox claude -- -p "Hello" 2>/dev/null
 ## What's in the Box?
 
 The base image comes batteries-included:
-- **AI CLIs**: Claude Code, Gemini CLI, OpenAI Codex, OpenCode, Copilot, Pi (all pre-configured for full-auto mode!)
+- **AI CLIs**: Claude Code, Gemini CLI, Antigravity CLI, OpenAI Codex, OpenCode, Copilot, Pi (all pre-configured for full-auto mode!)
 - **Runtimes**: Node.js 22, Python 3, Go, Bun
 - **Build tools**: make, cmake, gcc
 - **Git** + **GitHub CLI**
@@ -81,6 +81,8 @@ Inside yolobox, the AI CLIs are aliased to skip all permission prompts:
 | `claude` | `claude --dangerously-skip-permissions` |
 | `codex` | `codex --ask-for-approval never --sandbox danger-full-access` |
 | `gemini` | `gemini --yolo` |
+| `agy` | `agy --dangerously-skip-permissions` |
+| `antigravity` | `agy --dangerously-skip-permissions` |
 | `opencode` | `opencode` (no yolo flag available yet) |
 | `copilot` | `copilot --yolo` |
 | `pi` | `pi` (no yolo flag available yet) |
@@ -175,6 +177,8 @@ yolobox claude --runtime podman      # Podman
 yolobox claude              # Run Claude Code
 yolobox codex               # Run OpenAI Codex
 yolobox gemini              # Run Gemini CLI
+yolobox agy                 # Run Antigravity CLI
+yolobox antigravity         # Run Antigravity CLI
 yolobox opencode            # Run OpenCode
 yolobox copilot             # Run GitHub Copilot
 yolobox pi                  # Run Pi
@@ -219,7 +223,7 @@ Run `yolobox setup` to configure your preferences with an interactive wizard.
 Settings are saved to `~/.config/yolobox/config.toml`:
 
 ```toml
-default_harness = "codex" # or claude, gemini, opencode, copilot, none
+default_harness = "codex" # or claude, gemini, agy, opencode, copilot, pi, none
 git_config = true
 opencode_config = true
 pi_config = true
@@ -260,7 +264,7 @@ Use `container_name` or `--name` when you need a stable runtime container name f
 
 Each `runtime_args` entry is a single CLI argument. For flags that take a value, add them as separate entries so `--security-opt seccomp=unconfined` becomes `["--security-opt", "seccomp=unconfined"]`.
 
-> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will sync your host config on **every** container start. Claude, Gemini, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
+> **Note:** Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `opencode_config = true`, or `pi_config = true` in your config will sync your host config on **every** container start. Claude, Gemini/Antigravity, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Antigravity CLI stores its settings under `~/.gemini/antigravity-cli`, so `gemini_config = true` covers it. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer using `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config` for one-time syncs.
 
 Set `YOLOBOX_TIMING=1` before a command to print host and entrypoint timing markers while debugging slow startup:
 
@@ -315,7 +319,7 @@ Files copied (if they exist on your host):
 |------|--------|-------------|
 | Claude | `~/.claude/CLAUDE.md` | `/home/yolo/.claude/CLAUDE.md` |
 | Claude skills | `~/.claude/skills/` | `/home/yolo/.claude/skills/` |
-| Gemini | `~/.gemini/GEMINI.md` | `/home/yolo/.gemini/GEMINI.md` |
+| Gemini/Antigravity | `~/.gemini/GEMINI.md` | `/home/yolo/.gemini/GEMINI.md` |
 | Codex | `~/.codex/AGENTS.md` | `/home/yolo/.codex/AGENTS.md` |
 | Codex skills | `~/.codex/skills/` | `/home/yolo/.codex/skills/` |
 | Pi | `~/.pi/agent/AGENTS.md` | `/home/yolo/.pi/agent/AGENTS.md` |
@@ -399,7 +403,7 @@ Both skills follow the standard Agent Skills layout so they can be validated and
 | `--no-project` | Skip automatic project mount (caller provides `--mount` and `--runtime-arg=--workdir`) | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into container | |
 | `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
-| `--gemini-config` | Copy host `~/.gemini` config into container | |
+| `--gemini-config` | Copy host `~/.gemini` Gemini/Antigravity config into container | |
 | `--opencode-config` | Copy host `~/.config/opencode` config into container | |
 | `--pi-config` | Copy host `~/.pi/agent` config into container | |
 | `--git-config` | Copy host `~/.gitconfig` into container | |

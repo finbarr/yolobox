@@ -287,6 +287,7 @@ jobs:
           cache-to: type=registry,ref=ghcr.io/finbarr/yolobox:buildcache,mode=max
           build-args: |
             CLAUDE_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}
+            ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}
           tags: |
             ghcr.io/finbarr/yolobox:latest
             ghcr.io/finbarr/yolobox:${{ steps.version.outputs.VERSION }}

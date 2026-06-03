@@ -21,6 +21,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ARG NPM_MIN_RELEASE_AGE_DAYS=7
+ARG ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=dev
 
 # =============================================================================
 # STABLE LAYERS — large, rarely change (ordered first to minimize re-downloads)
@@ -252,6 +253,23 @@ RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/codex \
 RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/gemini \
     && echo 'exec "$REAL_BIN" --yolo "$@"' >> /opt/yolobox/bin/gemini \
     && chmod +x /opt/yolobox/bin/gemini
+
+# Antigravity CLI wrapper
+RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/agy \
+    && echo 'exec "$REAL_BIN" --dangerously-skip-permissions "$@"' >> /opt/yolobox/bin/agy \
+    && chmod +x /opt/yolobox/bin/agy
+
+# Friendly alias for the Antigravity CLI's agy binary.
+RUN printf '%s\n' \
+    '#!/bin/bash' \
+    'WRAPPER_DIR=/opt/yolobox/bin' \
+    'CLEAN_PATH=$(echo "$PATH" | tr ":" "\n" | grep -v "^$WRAPPER_DIR$" | tr "\n" ":" | sed "s/:$//" )' \
+    'REAL_BIN=$(PATH="$CLEAN_PATH" which agy 2>/dev/null)' \
+    'if [ -z "$REAL_BIN" ]; then echo "Error: agy not found" >&2; exit 1; fi' \
+    'if [ "$NO_YOLO" = "1" ]; then exec "$REAL_BIN" "$@"; fi' \
+    'exec "$REAL_BIN" --dangerously-skip-permissions "$@"' \
+    > /opt/yolobox/bin/antigravity \
+    && chmod +x /opt/yolobox/bin/antigravity
 
 # OpenCode wrapper (no yolo flag yet, passthrough for now)
 RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/opencode \
@@ -499,9 +517,9 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-op
     '    sudo chmod 600 /home/yolo/.claude/.credentials.json' \
     'fi' \
     '' \
-    '# Copy Gemini config from host staging area if present' \
+    '# Copy Gemini/Antigravity config from host staging area if present' \
     'if [ -d /host-gemini/.gemini ]; then' \
-    '    echo -e "\033[33m→ Copying host Gemini config to container\033[0m" >&2' \
+    '    echo -e "\033[33m→ Copying host Gemini/Antigravity config to container\033[0m" >&2' \
     '    sudo rm -rf /home/yolo/.gemini' \
     '    sudo cp -a /host-gemini/.gemini /home/yolo/.gemini' \
     '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
@@ -752,6 +770,14 @@ RUN NPM_CONFIG_PREFIX="" NPM_CONFIG_MIN_RELEASE_AGE="${NPM_MIN_RELEASE_AGE_DAYS}
     @github/copilot \
     @earendil-works/pi-coding-agent \
     && NPM_CONFIG_PREFIX="" npm cache clean --force
+
+RUN set -eux; \
+    echo "Antigravity CLI installer cache key: ${ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST}" >/dev/null; \
+    tmp_home="$(mktemp -d)"; \
+    installer="$(mktemp)"; \
+    curl -fsSL https://antigravity.google/cli/install.sh -o "$installer"; \
+    HOME="$tmp_home" bash "$installer" --dir /usr/local/bin; \
+    rm -rf "$tmp_home" "$installer"
 
 # RTK command-output compression proxy. Intentionally not pinned: the base image
 # captures the latest RTK release available when yolobox is built.

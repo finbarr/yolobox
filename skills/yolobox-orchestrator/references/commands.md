@@ -24,6 +24,8 @@ Launch an AI CLI in the box:
 yolobox codex
 yolobox claude
 yolobox gemini
+yolobox agy
+yolobox antigravity
 yolobox opencode
 yolobox copilot
 yolobox pi

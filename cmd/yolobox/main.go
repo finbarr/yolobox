@@ -74,6 +74,8 @@ var toolShortcuts = []string{
 	"claude",
 	"codex",
 	"gemini",
+	"agy",
+	"antigravity",
 	"opencode",
 	"copilot",
 	"pi",
@@ -327,7 +329,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
-	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini config to container")
+	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini/Antigravity config to container")
 	fmt.Fprintln(os.Stderr, "  --opencode-config     Copy host OpenCode config to container")
 	fmt.Fprintln(os.Stderr, "  --pi-config           Copy host Pi config to container")
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
@@ -353,7 +355,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
-	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, opencode, copilot, none")
+	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, agy, opencode, copilot, pi, none")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -444,7 +446,7 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
-	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini config to container")
+	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini/Antigravity config to container")
 	fs.BoolVar(&opencodeConfig, "opencode-config", false, "copy host OpenCode config to container")
 	fs.BoolVar(&piConfig, "pi-config", false, "copy host Pi config to container")
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
@@ -1017,6 +1019,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Claude", "claude"),
 					huh.NewOption("Codex", "codex"),
 					huh.NewOption("Gemini", "gemini"),
+					huh.NewOption("Antigravity", "agy"),
 					huh.NewOption("OpenCode", "opencode"),
 					huh.NewOption("Copilot", "copilot"),
 				).
@@ -1029,7 +1032,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Git identity (copy ~/.gitconfig)", "git_config"),
 					huh.NewOption("Claude config (copy ~/.claude and ~/.claude.json)", "claude_config"),
 					huh.NewOption("Codex config (sync ~/.codex; live sessions)", "codex_config"),
-					huh.NewOption("Gemini config (copy ~/.gemini)", "gemini_config"),
+					huh.NewOption("Gemini/Antigravity config (copy ~/.gemini)", "gemini_config"),
 					huh.NewOption("OpenCode config (copy ~/.config/opencode)", "opencode_config"),
 					huh.NewOption("Pi config (copy ~/.pi/agent)", "pi_config"),
 					huh.NewOption("GitHub token (gh + HTTPS git auth)", "gh_token"),
@@ -1529,7 +1532,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		traceDuration("host: mount Claude config", started)
 	}
 
-	// Mount Gemini config from host to staging area (copied to /home/yolo by entrypoint)
+	// Mount Gemini/Antigravity config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.GeminiConfig {
 		started = time.Now()
 		home, err := os.UserHomeDir()
@@ -1550,7 +1553,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-gemini/.gemini:ro")
 		}
-		traceDuration("host: mount Gemini config", started)
+		traceDuration("host: mount Gemini/Antigravity config", started)
 	}
 
 	// Mount OpenCode config from host to staging area (copied to /home/yolo by entrypoint)

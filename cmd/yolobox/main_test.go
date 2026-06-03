@@ -1725,6 +1725,28 @@ func TestDockerfileRefreshesClaudeInstallerOnReleaseBuilds(t *testing.T) {
 	}
 }
 
+func TestDockerfileRefreshesAntigravityInstallerOnReleaseBuilds(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("failed to read Dockerfile: %v", err)
+	}
+	dockerfile := string(data)
+
+	for _, want := range []string{
+		"ARG ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=dev",
+		"Antigravity CLI installer cache key: ${ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST}",
+		"curl -fsSL https://antigravity.google/cli/install.sh -o \"$installer\"",
+		"HOME=\"$tmp_home\" bash \"$installer\" --dir /usr/local/bin",
+		"/opt/yolobox/bin/agy",
+		"/opt/yolobox/bin/antigravity",
+		"--dangerously-skip-permissions",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("expected Dockerfile to contain %q", want)
+		}
+	}
+}
+
 func TestDockerfilePreservesUserClaudeLauncher(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
@@ -1747,7 +1769,7 @@ func TestDockerfilePreservesUserClaudeLauncher(t *testing.T) {
 	}
 }
 
-func TestReleaseWorkflowBustsClaudeInstallerCache(t *testing.T) {
+func TestReleaseWorkflowBustsLiveInstallerCaches(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", ".github", "workflows", "release.yml"))
 	if err != nil {
 		t.Fatalf("failed to read release workflow: %v", err)
@@ -1757,6 +1779,7 @@ func TestReleaseWorkflowBustsClaudeInstallerCache(t *testing.T) {
 	for _, want := range []string{
 		"build-args: |",
 		"CLAUDE_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}",
+		"ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("expected release workflow to contain %q", want)
@@ -2554,6 +2577,8 @@ func TestToolShortcuts(t *testing.T) {
 		"claude",
 		"codex",
 		"gemini",
+		"agy",
+		"antigravity",
 		"opencode",
 		"copilot",
 		"pi",
@@ -2686,6 +2711,12 @@ func TestRunCmdArgsDefaultHarnessNoneUsesShell(t *testing.T) {
 func TestValidateDefaultHarness(t *testing.T) {
 	if err := validateDefaultHarness("codex"); err != nil {
 		t.Fatalf("expected codex default harness to validate: %v", err)
+	}
+	if err := validateDefaultHarness("agy"); err != nil {
+		t.Fatalf("expected agy default harness to validate: %v", err)
+	}
+	if err := validateDefaultHarness("antigravity"); err != nil {
+		t.Fatalf("expected antigravity default harness to validate: %v", err)
 	}
 	if err := validateDefaultHarness("none"); err != nil {
 		t.Fatalf("expected none default harness to validate: %v", err)
