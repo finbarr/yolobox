@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.18.4 - 2026-06-09
+
+### Added
+
+- Added `yolobox update-agents` to update Claude Code, Codex, Gemini, Antigravity, OpenCode, Copilot, and Pi inside the persistent yolobox home volume, with optional per-tool targets.
+
 ## v0.18.3 - 2026-06-02
 
 ### Added
