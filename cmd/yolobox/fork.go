@@ -216,7 +216,7 @@ func runComposeCleanup(info forkInfo) {
 		warn("Skipping Compose cleanup: %v", err)
 		return
 	}
-	if strings.HasSuffix(runtimePath, "/container") {
+	if isAppleContainerPath(runtimePath) {
 		return
 	}
 

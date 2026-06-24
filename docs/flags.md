@@ -11,17 +11,17 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--runtime <name>` | Use `docker`, `podman`, or `container` | |
 | `--image <name>` | Override the base image | |
 | `--name <name>` | Assign a runtime container name | |
-| `--packages <list>` | Comma-separated apt packages for a derived custom image | Apple `container` |
-| `--customize-file <path>` | Dockerfile fragment for a derived custom image | Apple `container` |
-| `--rebuild-image` | Force rebuild of the derived custom image | Apple `container` |
+| `--packages <list>` | Comma-separated apt packages for a derived custom image | |
+| `--customize-file <path>` | Dockerfile fragment for a derived custom image | |
+| `--rebuild-image` | Force rebuild of the derived custom image | |
 
 ## Filesystem, config, and identity
 
 | Flag | Description | Incompatible with |
 |------|-------------|-------------------|
 | `--mount <src:dst>` | Extra mount, repeatable | |
-| `--exclude <glob>` | Hide matching project paths from the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
-| `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
+| `--exclude <glob>` | Hide matching project paths from the container, repeatable | `--no-project`, without `--readonly-project` |
+| `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | `--no-project`, without `--readonly-project` |
 | `--env <KEY=val>` | Extra environment variable, repeatable | |
 | `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
@@ -49,7 +49,7 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--pod <name>` | Join an existing Podman pod | `--no-network`, `--network`, `--docker` |
 | `--no-yolo` | Disable auto-confirmations | |
 | `--scratch` | Start with a fresh home and cache | |
-| `--docker` | Mount the Docker socket and join the shared `yolobox-net` network | `--no-network`, `--pod` |
+| `--docker` | Mount the Docker socket and join the shared `yolobox-net` network | `--no-network`, `--pod`, Apple `container` |
 
 ## Resources and low-level runtime control
 
@@ -58,8 +58,8 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--cpus <num>` | Limit CPUs, including fractional values like `3.5` | |
 | `--memory <limit>` | Hard memory limit like `8g` or `1024m` | |
 | `--shm-size <size>` | Size of `/dev/shm` | |
-| `--gpus <spec>` | Pass GPUs, for example `all` or `device=0` | |
-| `--device <src:dest>` | Add host devices, repeatable | |
+| `--gpus <spec>` | Pass GPUs, for example `all` or `device=0` | Apple `container` |
+| `--device <src:dest>` | Add host devices, repeatable | Apple `container` |
 | `--cap-add <cap>` | Add Linux capabilities, repeatable | |
 | `--cap-drop <cap>` | Drop Linux capabilities, repeatable | |
 | `--runtime-arg <flag>` | Pass raw runtime flags directly to Docker or Podman | |
@@ -146,9 +146,6 @@ yolobox claude --readonly-project --exclude ".env*" --copy-as ".env.sandbox:.env
 - both flags currently require `--readonly-project`
 - both flags are incompatible with `--no-project`
 
-::: warning
-`--exclude` and `--copy-as` are currently supported on Docker and Podman only. Apple's `container` runtime does not support them yet.
-:::
 
 ## Skipping the automatic project mount
 
@@ -188,4 +185,4 @@ yolobox run \
   claude
 ```
 
-Docker and Podman accept these passthrough flags unchanged. Apple's `container` runtime ignores options it does not understand.
+Docker and Podman accept these passthrough flags unchanged. Apple's `container` runtime rejects options it does not understand, so only pass flags from its own `container run --help`.

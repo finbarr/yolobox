@@ -13,13 +13,19 @@ import (
 
 var currentUID = os.Getuid
 
+// isAppleContainerPath checks if a resolved runtime binary path is Apple's
+// container tool.
+func isAppleContainerPath(path string) bool {
+	return filepath.Base(path) == "container"
+}
+
 // isAppleContainer checks if the resolved runtime is Apple's container tool.
 func isAppleContainer(runtime string) bool {
 	path, err := resolveRuntime(runtime)
 	if err != nil {
 		return false
 	}
-	return strings.HasSuffix(path, "/container")
+	return isAppleContainerPath(path)
 }
 
 // isRootlessPodman returns true when the resolved runtime is podman and the
@@ -32,6 +38,19 @@ func isRootlessPodman(runtime string) bool {
 		return false
 	}
 	return strings.HasSuffix(path, "/podman") && currentUID() != 0
+}
+
+// volumeRemoveArgs returns the runtime-appropriate volume removal command.
+// Apple's container tool uses `volume delete` and has no force flag.
+func volumeRemoveArgs(apple bool, force bool, volumes ...string) []string {
+	if apple {
+		return append([]string{"volume", "delete"}, volumes...)
+	}
+	args := []string{"volume", "rm"}
+	if force {
+		args = append(args, "-f")
+	}
+	return append(args, volumes...)
 }
 
 func persistentVolumeMount(name, target string, rootlessPodman bool) string {
@@ -117,31 +136,6 @@ func copyDirDereferenced(src, dst string) error {
 		}
 	}
 	return nil
-}
-
-// prepareFileMountDir creates a temp directory with copies of files for Apple container
-// (which only supports directory mounts, not file mounts). Returns the temp dir path.
-func prepareFileMountDir(files map[string]string) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "yolobox-mounts-*")
-	if err != nil {
-		return "", fmt.Errorf("failed to create temp dir for file mounts: %w", err)
-	}
-
-	for srcPath, destName := range files {
-		data, err := os.ReadFile(srcPath)
-		if err != nil {
-			continue
-		}
-		destPath := filepath.Join(tmpDir, destName)
-		if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
-			continue
-		}
-		if err := os.WriteFile(destPath, data, 0644); err != nil {
-			continue
-		}
-	}
-
-	return tmpDir, nil
 }
 
 // findDockerSocket returns the Docker socket path to use as a volume mount source.
@@ -231,10 +225,16 @@ func ensureDockerNetwork(runtimeName string, networkName string) error {
 		return err
 	}
 
+	if exec.Command(runtimePath, "network", "inspect", networkName).Run() == nil {
+		return nil
+	}
+
 	cmd := exec.Command(runtimePath, "network", "create", networkName)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		if strings.Contains(string(output), "already exists") {
+		// Race guard: another yolobox instance may have created it between
+		// the inspect and the create.
+		if strings.Contains(strings.ToLower(string(output)), "exists") {
 			return nil
 		}
 		return fmt.Errorf("failed to create Docker network %q: %s", networkName, strings.TrimSpace(string(output)))

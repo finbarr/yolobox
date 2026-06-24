@@ -87,7 +87,6 @@ copy_as = [".env.sandbox:.env"]
 - `copy_as` takes precedence if it targets the same path as `exclude`
 - both options currently require `readonly_project = true` or `--readonly-project`
 - both options are incompatible with `no_project = true` or `--no-project`
-- Apple's `container` runtime does not support this feature yet
 
 ## Skipping the automatic project mount
 

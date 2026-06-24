@@ -147,7 +147,14 @@ func hostBridgeHostName(runtimeName string) string {
 		runtimeBase = filepath.Base(path)
 	}
 	switch runtimeBase {
-	case "podman", "container":
+	case "container":
+		// Apple container provides no host.docker.internal-style hostname;
+		// the host's LAN IP is reachable through the vmnet NAT.
+		if ip := firstNonLoopbackIPv4(); ip != "" {
+			return ip
+		}
+		return "host.containers.internal"
+	case "podman":
 		return "host.containers.internal"
 	default:
 		return "host.docker.internal"

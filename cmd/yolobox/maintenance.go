@@ -40,8 +40,7 @@ func resetVolumes(args []string) error {
 
 	warn("Removing yolobox volumes...")
 	volumes := []string{"yolobox-home", "yolobox-cache"}
-	args = append([]string{"volume", "rm"}, volumes...)
-	if err := execCommand(runtimePath, args); err != nil {
+	if err := execCommand(runtimePath, volumeRemoveArgs(isAppleContainerPath(runtimePath), false, volumes...)); err != nil {
 		return err
 	}
 	success("Fresh start! All volumes removed.")
@@ -87,7 +86,7 @@ func uninstallYolobox(args []string) error {
 			if err == nil {
 				info("Removing Docker volumes...")
 				volumes := []string{"yolobox-home", "yolobox-cache", "yolobox-output"}
-				_ = execCommand(runtimePath, append([]string{"volume", "rm", "-f"}, volumes...))
+				_ = execCommand(runtimePath, volumeRemoveArgs(isAppleContainerPath(runtimePath), true, volumes...))
 			}
 		}
 	}
@@ -238,6 +237,11 @@ func upgradeYolobox(args []string) error {
 	runtimePath, err := resolveRuntime(cfg.Runtime)
 	if err != nil {
 		return err
+	}
+	if isAppleContainerPath(runtimePath) {
+		if err := appleContainerPreflight(runtimePath); err != nil {
+			return err
+		}
 	}
 	if err := execCommand(runtimePath, []string{"pull", cfg.Image}); err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)

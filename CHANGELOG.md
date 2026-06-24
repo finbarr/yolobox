@@ -8,6 +8,22 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Made Apple `container` the preferred runtime on macOS: auto-detection now tries `container` before `docker` and `podman` (Linux order is unchanged).
+- Added an Apple container version gate: yolobox requires container >= 1.0 and prints upgrade instructions for older installs (`--runtime container` errors; auto-detection warns and falls back to Docker/Podman).
+- yolobox now starts the Apple container system service automatically when it is not running.
+- Enabled custom image builds (`--packages`, `--customize-file`, `--rebuild-image`) on Apple container via `container build`.
+- Enabled `--exclude` and `--copy-as` project filtering on Apple container.
+- Apple container runs now default to a 4 GB memory limit (its per-container VM default is too small for AI CLIs); explicit `--memory` or config still wins.
+
+### Changed
+
+- Apple container now uses direct file bind mounts (supported since container 1.0) instead of the staged `/host-files` directory workaround; the `YOLOBOX_HOST_FILES` entrypoint fallback was removed from the image. Older yolobox binaries need the previous image to copy host configs on Apple container.
+- `--scratch --readonly-project` on Apple container mounts `/output` as tmpfs because container does not auto-delete anonymous volumes.
+- `yolobox reset` and `yolobox uninstall` translate volume removal to `container volume delete` on Apple container.
+- `--gpus`, `--device`, and `--docker` now fail fast with clear errors on Apple container instead of passing unsupported flags through to `container run`.
+
 ## v0.18.4 - 2026-06-09
 
 ### Added

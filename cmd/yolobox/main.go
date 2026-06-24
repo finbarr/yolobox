@@ -314,7 +314,7 @@ func printUsage() {
 	}
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
-	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker, podman, or container")
+	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: container (preferred on macOS), docker, or podman")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
 	fmt.Fprintln(os.Stderr, "  --name <name>         Assign a runtime container name")
 	fmt.Fprintln(os.Stderr, "  --pod <name>          Join existing Podman pod (shares its network)")
@@ -674,7 +674,7 @@ func validateConfigConflicts(cfg Config) error {
 }
 
 func validateRuntimeConstraints(cfg Config) error {
-	if cfg.Pod == "" {
+	if cfg.Pod == "" && cfg.GPUs == "" && len(cfg.Devices) == 0 && !cfg.Docker {
 		return nil
 	}
 
@@ -682,8 +682,19 @@ func validateRuntimeConstraints(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if filepath.Base(runtimePath) != "podman" {
+	if cfg.Pod != "" && filepath.Base(runtimePath) != "podman" {
 		return fmt.Errorf("--pod requires the podman runtime (set --runtime podman)")
+	}
+	if isAppleContainerPath(runtimePath) {
+		if cfg.GPUs != "" {
+			return fmt.Errorf("--gpus is not supported by Apple container (use --runtime docker or podman)")
+		}
+		if len(cfg.Devices) > 0 {
+			return fmt.Errorf("--device is not supported by Apple container (use --runtime docker or podman)")
+		}
+		if cfg.Docker {
+			return fmt.Errorf("--docker (Docker socket forwarding) requires the docker or podman runtime")
+		}
 	}
 	return nil
 }
@@ -801,6 +812,17 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		return validateRuntimeConstraints(cfg)
 	}); err != nil {
 		return err
+	}
+	if isAppleContainer(cfg.Runtime) {
+		runtimePath, err := resolveRuntime(cfg.Runtime)
+		if err != nil {
+			return err
+		}
+		if err := traceTimed("host: apple container preflight", func() error {
+			return appleContainerPreflight(runtimePath)
+		}); err != nil {
+			return err
+		}
 	}
 	if hasCustomization(cfg) {
 		started = time.Now()
@@ -1312,11 +1334,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// that should be removed after the container exits
 	var cleanupPaths []string
 
-	// Check if we're using Apple container (doesn't support file mounts)
 	appleContainer := isAppleContainer(cfg.Runtime)
-	if appleContainer && (len(cfg.Exclude) > 0 || len(cfg.CopyAs) > 0) {
-		return nil, nil, fmt.Errorf("--exclude and --copy-as are not supported with Apple container runtime")
-	}
 
 	// Check if we're using rootless Podman (needs --userns=keep-id for bind mount permissions)
 	rootlessPodman := isRootlessPodman(cfg.Runtime)
@@ -1448,7 +1466,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			projectMount += ":ro"
 			// Create a writable output directory
 			if cfg.Scratch {
-				args = append(args, "-v", "/output") // anonymous volume, deleted with container
+				if appleContainer {
+					// Apple container does not auto-delete anonymous volumes
+					// with --rm, so use a tmpfs for the same ephemeral semantics.
+					args = append(args, "--tmpfs", "/output")
+				} else {
+					args = append(args, "-v", "/output") // anonymous volume, deleted with container
+				}
 			} else {
 				args = append(args, "-v", persistentVolumeMount("yolobox-output", "/output", rootlessPodman))
 			}
@@ -1464,13 +1488,6 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if !cfg.Scratch {
 		args = append(args, "-v", persistentVolumeMount("yolobox-home", "/home/yolo", rootlessPodman))
 		args = append(args, "-v", persistentVolumeMount("yolobox-cache", "/var/cache", rootlessPodman))
-	}
-
-	// For Apple container, we need to collect files and mount via a temp directory
-	// (Apple container only supports directory mounts, not file mounts)
-	var appleContainerFiles map[string]string
-	if appleContainer {
-		appleContainerFiles = make(map[string]string)
 	}
 
 	// Mount Claude config from host to staging area (copied to /home/yolo by entrypoint)
@@ -1499,11 +1516,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			// Preprocess to remove installMethod (host install method doesn't apply in container)
 			if processedPath := preprocessClaudeConfig(claudeConfigFile); processedPath != "" {
 				cleanupPaths = append(cleanupPaths, processedPath)
-				if appleContainer {
-					appleContainerFiles[processedPath] = "claude/.claude.json"
-				} else {
-					args = append(args, "-v", processedPath+":/host-claude/.claude.json:ro")
-				}
+				args = append(args, "-v", processedPath+":/host-claude/.claude.json:ro")
 			}
 		}
 		// On macOS, extract OAuth credentials from Keychain and mount as .credentials.json
@@ -1519,11 +1532,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 							if chmodErr := os.Chmod(f.Name(), 0600); chmodErr == nil {
 								credsPath := f.Name()
 								cleanupPaths = append(cleanupPaths, credsPath)
-								if appleContainer {
-									appleContainerFiles[credsPath] = "claude/.credentials.json"
-								} else {
-									args = append(args, "-v", credsPath+":/host-claude/.credentials.json:ro")
-								}
+								args = append(args, "-v", credsPath+":/host-claude/.credentials.json:ro")
 							} else {
 								_ = os.Remove(f.Name())
 							}
@@ -1642,11 +1651,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 		gitConfigFile := filepath.Join(home, ".gitconfig")
 		if _, err := os.Stat(gitConfigFile); err == nil {
-			if appleContainer {
-				appleContainerFiles[gitConfigFile] = "git/.gitconfig"
-			} else {
-				args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
-			}
+			args = append(args, "-v", gitConfigFile+":/host-git/.gitconfig:ro")
 		}
 		traceDuration("host: mount git config", started)
 	}
@@ -1662,11 +1667,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// Claude: ~/.claude/CLAUDE.md
 		claudeMd := filepath.Join(home, ".claude", "CLAUDE.md")
 		if _, err := os.Stat(claudeMd); err == nil {
-			if appleContainer {
-				appleContainerFiles[claudeMd] = "agent-instructions/claude/CLAUDE.md"
-			} else {
-				args = append(args, "-v", claudeMd+":/host-agent-instructions/claude/CLAUDE.md:ro")
-			}
+			args = append(args, "-v", claudeMd+":/host-agent-instructions/claude/CLAUDE.md:ro")
 		}
 		// Claude: ~/.claude/skills/ directory
 		claudeSkills := filepath.Join(home, ".claude", "skills")
@@ -1686,20 +1687,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// Gemini: ~/.gemini/GEMINI.md
 		geminiMd := filepath.Join(home, ".gemini", "GEMINI.md")
 		if _, err := os.Stat(geminiMd); err == nil {
-			if appleContainer {
-				appleContainerFiles[geminiMd] = "agent-instructions/gemini/GEMINI.md"
-			} else {
-				args = append(args, "-v", geminiMd+":/host-agent-instructions/gemini/GEMINI.md:ro")
-			}
+			args = append(args, "-v", geminiMd+":/host-agent-instructions/gemini/GEMINI.md:ro")
 		}
 		// Codex: ~/.codex/AGENTS.md
 		codexMd := filepath.Join(home, ".codex", "AGENTS.md")
 		if _, err := os.Stat(codexMd); err == nil {
-			if appleContainer {
-				appleContainerFiles[codexMd] = "agent-instructions/codex/AGENTS.md"
-			} else {
-				args = append(args, "-v", codexMd+":/host-agent-instructions/codex/AGENTS.md:ro")
-			}
+			args = append(args, "-v", codexMd+":/host-agent-instructions/codex/AGENTS.md:ro")
 		}
 		// Codex: ~/.codex/skills/ directory
 		codexSkills := filepath.Join(home, ".codex", "skills")
@@ -1719,11 +1712,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// Pi: ~/.pi/agent/AGENTS.md
 		piMd := filepath.Join(home, ".pi", "agent", "AGENTS.md")
 		if _, err := os.Stat(piMd); err == nil {
-			if appleContainer {
-				appleContainerFiles[piMd] = "agent-instructions/pi/AGENTS.md"
-			} else {
-				args = append(args, "-v", piMd+":/host-agent-instructions/pi/AGENTS.md:ro")
-			}
+			args = append(args, "-v", piMd+":/host-agent-instructions/pi/AGENTS.md:ro")
 		}
 		// Pi: ~/.pi/agent/skills/ directory
 		piSkills := filepath.Join(home, ".pi", "agent", "skills")
@@ -1740,7 +1729,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 			args = append(args, "-v", mountSrc+":/host-agent-instructions/pi/skills:ro")
 		}
-		// Copilot: ~/.copilot/agents/ directory (this is already a directory, works with Apple container)
+		// Copilot: ~/.copilot/agents/ directory
 		copilotAgents := filepath.Join(home, ".copilot", "agents")
 		if info, err := os.Stat(copilotAgents); err == nil && info.IsDir() {
 			mountSrc := copilotAgents
@@ -1758,18 +1747,6 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		traceDuration("host: mount agent instructions", started)
 	}
 
-	// For Apple container: create temp dir with collected files and mount it
-	if appleContainer && len(appleContainerFiles) > 0 {
-		tmpDir, err := prepareFileMountDir(appleContainerFiles)
-		if err != nil {
-			return nil, nil, err
-		}
-		cleanupPaths = append(cleanupPaths, tmpDir)
-		// Mount the temp dir; entrypoint will need to handle the different paths
-		args = append(args, "-v", tmpDir+":/host-files:ro")
-		args = append(args, "-e", "YOLOBOX_HOST_FILES=/host-files")
-	}
-
 	// Extra mounts
 	for _, mount := range cfg.Mounts {
 		resolved, err := resolveMount(mount, absProject)
@@ -1781,7 +1758,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Resource & security controls
 	args = appendRunFlag(args, "cpus", cfg.CPUs)
-	args = appendRunFlag(args, "memory", cfg.Memory)
+	memory := cfg.Memory
+	if memory == "" && appleContainer {
+		// Apple container allocates memory per container VM with a small
+		// default (~1G); AI CLIs need more headroom to avoid OOM kills.
+		memory = "4g"
+	}
+	args = appendRunFlag(args, "memory", memory)
 	args = appendRunFlag(args, "shm-size", cfg.ShmSize)
 	args = appendRunFlag(args, "gpus", cfg.GPUs)
 	for _, d := range cfg.Devices {
@@ -1926,18 +1909,41 @@ func parseCommaSeparatedValues(input string) []string {
 	return values
 }
 
+// runtimeAutoDetectOrder returns the runtimes tried during auto-detection.
+// Apple container is preferred on macOS; it does not exist elsewhere.
+func runtimeAutoDetectOrder(goos string) []string {
+	if goos == "darwin" {
+		return []string{"container", "docker", "podman"}
+	}
+	return []string{"docker", "podman"}
+}
+
+var appleContainerFallbackWarned bool
+
 func resolveRuntime(name string) (string, error) {
 	if name == "" {
-		if path, err := exec.LookPath("docker"); err == nil {
+		for _, candidate := range runtimeAutoDetectOrder(runtime.GOOS) {
+			path, err := exec.LookPath(candidate)
+			if err != nil {
+				continue
+			}
+			// Skip Apple container installs that are too old to support
+			// yolobox; explicit --runtime container still hard-errors later.
+			if candidate == "container" {
+				if verr := checkAppleContainerVersion(path); verr != nil {
+					if !appleContainerFallbackWarned {
+						appleContainerFallbackWarned = true
+						warn("Ignoring Apple container at %s: %v", path, verr)
+					}
+					continue
+				}
+			}
 			return path, nil
 		}
-		if path, err := exec.LookPath("podman"); err == nil {
-			return path, nil
+		if runtime.GOOS == "darwin" {
+			return "", fmt.Errorf("no container runtime found. Install Apple container, Docker, or Podman and try again")
 		}
-		if path, err := exec.LookPath("container"); err == nil {
-			return path, nil
-		}
-		return "", fmt.Errorf("no container runtime found. Install docker, podman, or Apple container and try again")
+		return "", fmt.Errorf("no container runtime found. Install docker or podman and try again")
 	}
 	if name == "colima" {
 		name = "docker"
@@ -2064,8 +2070,8 @@ func checkDockerMemory(runtime string) {
 		return
 	}
 
-	// Skip memory check for Apple container (uses native VM with dynamic memory)
-	if strings.HasSuffix(runtimePath, "/container") {
+	// Skip memory check for Apple container (memory is allocated per container VM)
+	if isAppleContainerPath(runtimePath) {
 		return
 	}
 
