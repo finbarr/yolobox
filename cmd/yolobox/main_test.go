@@ -46,7 +46,9 @@ exit 0
 	if err := os.WriteFile(dockerPath, []byte(script), 0755); err != nil {
 		t.Fatalf("failed to write fake docker runtime: %v", err)
 	}
-	t.Setenv("PATH", runtimeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// Replace PATH entirely so runtime auto-detection cannot find a real
+	// container/docker/podman binary installed on the host.
+	t.Setenv("PATH", runtimeDir)
 	t.Setenv("YOLOBOX_FAKE_RUNTIME_ARGS", argsFile)
 	return argsFile
 }
@@ -1289,6 +1291,12 @@ func TestBuildRunArgsContextManifestAppleRuntime(t *testing.T) {
 	if !strings.Contains(argsStr, "YOLOBOX_CONTEXT_FILE=/run/yolobox/context.json") {
 		t.Fatalf("expected context env var for Apple container runtime, got %s", argsStr)
 	}
+	if strings.Contains(argsStr, "/host-files") {
+		t.Fatalf("did not expect staged /host-files mount for Apple container runtime, got %s", argsStr)
+	}
+	if strings.Contains(argsStr, "YOLOBOX_HOST_FILES") {
+		t.Fatalf("did not expect YOLOBOX_HOST_FILES env var for Apple container runtime, got %s", argsStr)
+	}
 }
 
 func TestBuildRunArgsNoYolo(t *testing.T) {
@@ -1946,8 +1954,11 @@ func TestBuildRunArgsProjectFilteringReadonlyProject(t *testing.T) {
 	}
 }
 
-func TestBuildRunArgsProjectFilteringAppleRuntimeUnsupported(t *testing.T) {
+func TestBuildRunArgsProjectFilteringAppleRuntimeSupported(t *testing.T) {
 	projectDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(projectDir, ".env"), []byte("SECRET=1\n"), 0644); err != nil {
+		t.Fatalf("failed to write .env: %v", err)
+	}
 	runtimeDir := t.TempDir()
 	containerPath := filepath.Join(runtimeDir, "container")
 	if err := os.WriteFile(containerPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
@@ -1956,17 +1967,29 @@ func TestBuildRunArgsProjectFilteringAppleRuntimeUnsupported(t *testing.T) {
 	t.Setenv("PATH", runtimeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	cfg := Config{
-		Runtime: "container",
-		Image:   "test-image",
-		Exclude: []string{".env*"},
+		Runtime:         "container",
+		Image:           "test-image",
+		ReadonlyProject: true,
+		Exclude:         []string{".env*"},
 	}
 
-	_, _, err := buildRunArgs(cfg, projectDir, []string{"bash"}, false)
-	if err == nil {
-		t.Fatal("expected Apple container runtime to reject file filtering")
-	}
-	if !strings.Contains(err.Error(), "not supported with Apple container runtime") {
+	args, cleanupPaths, err := buildRunArgs(cfg, projectDir, []string{"bash"}, false)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if len(cleanupPaths) == 0 {
+		t.Fatal("expected staged readonly project view")
+	}
+	viewRoot := cleanupPaths[0]
+	if !strings.Contains(argsStr, viewRoot+":"+projectDir+":ro") {
+		t.Fatalf("expected readonly staged project mount, got %s", argsStr)
+	}
+	if placeholder, err := os.ReadFile(filepath.Join(viewRoot, ".env")); err != nil {
+		t.Fatalf("expected excluded placeholder file in staged view: %v", err)
+	} else if len(placeholder) != 0 {
+		t.Fatalf("expected excluded placeholder to be empty, got %q", string(placeholder))
 	}
 }
 
@@ -2089,7 +2112,11 @@ func TestBuildRunArgsScratch(t *testing.T) {
 }
 
 func TestBuildRunArgsScratchWithReadonlyProject(t *testing.T) {
+	// Pin to docker: a host with Apple container installed would otherwise
+	// auto-detect it and use --tmpfs /output instead of an anonymous volume.
+	installFakeDockerRuntime(t)
 	cfg := Config{
+		Runtime:         "docker",
 		Image:           "test-image",
 		Scratch:         true,
 		ReadonlyProject: true,
@@ -2248,7 +2275,7 @@ func TestHasCustomization(t *testing.T) {
 }
 
 func TestGenerateCustomDockerfile(t *testing.T) {
-	dockerfile, err := generateCustomDockerfile("ghcr.io/finbarr/yolobox:latest", []string{"maven", "default-jdk", "maven"}, "USER root\nRUN echo hi\nUSER yolo\n")
+	dockerfile, err := generateCustomDockerfile("ghcr.io/finbarr/yolobox:latest", []string{"maven", "default-jdk", "maven"}, "USER root\nRUN echo hi\nUSER yolo\n", true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2265,7 +2292,7 @@ func TestGenerateCustomDockerfile(t *testing.T) {
 }
 
 func TestGenerateCustomDockerfileRejectsInvalidPackage(t *testing.T) {
-	_, err := generateCustomDockerfile("base", []string{"$(evil)"}, "")
+	_, err := generateCustomDockerfile("base", []string{"$(evil)"}, "", true)
 	if err == nil {
 		t.Fatal("expected invalid package to be rejected")
 	}

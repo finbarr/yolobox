@@ -64,7 +64,7 @@ func loadCustomizeFragment(path string) (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-func generateCustomDockerfile(baseImage string, packages []string, fragment string) (string, error) {
+func generateCustomDockerfile(baseImage string, packages []string, fragment string, useBuildKitCacheMounts bool) (string, error) {
 	normalized := normalizePackages(packages)
 	for _, pkg := range normalized {
 		if !isValidPackageName(pkg) {
@@ -73,16 +73,22 @@ func generateCustomDockerfile(baseImage string, packages []string, fragment stri
 	}
 
 	var builder strings.Builder
-	builder.WriteString("# syntax=docker/dockerfile:1\n")
+	if useBuildKitCacheMounts {
+		builder.WriteString("# syntax=docker/dockerfile:1\n")
+	}
 	builder.WriteString("FROM ")
 	builder.WriteString(baseImage)
 	builder.WriteString("\n")
 
 	if len(normalized) > 0 {
 		builder.WriteString("USER root\n")
-		builder.WriteString("RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\\n")
-		builder.WriteString("    --mount=type=cache,target=/var/lib/apt,sharing=locked \\\n")
-		builder.WriteString("    apt-get update && apt-get install -y --no-install-recommends ")
+		if useBuildKitCacheMounts {
+			builder.WriteString("RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \\\n")
+			builder.WriteString("    --mount=type=cache,target=/var/lib/apt,sharing=locked \\\n")
+			builder.WriteString("    apt-get update && apt-get install -y --no-install-recommends ")
+		} else {
+			builder.WriteString("RUN apt-get update && apt-get install -y --no-install-recommends ")
+		}
 		builder.WriteString(strings.Join(normalized, " "))
 		builder.WriteString(" && rm -rf /var/lib/apt/lists/*\n")
 		builder.WriteString("USER yolo\n")
@@ -109,10 +115,9 @@ func customImageTag(baseImageID, dockerfile string, packages []string) string {
 }
 
 func inspectImageID(runtimePath, image string) (string, error) {
-	cmd := exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}")
-	output, err := cmd.Output()
+	output, err := runImageInspect(runtimePath, image)
 	if err != nil {
-		pullCmd := exec.Command(runtimePath, "pull", image)
+		pullCmd := exec.Command(runtimePath, "image", "pull", image)
 		pullCmd.Stdin = os.Stdin
 		pullCmd.Stdout = os.Stdout
 		pullCmd.Stderr = os.Stderr
@@ -120,13 +125,24 @@ func inspectImageID(runtimePath, image string) (string, error) {
 			return "", fmt.Errorf("failed to inspect or pull base image %q: %w", image, err)
 		}
 
-		cmd = exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}")
-		output, err = cmd.Output()
+		output, err = runImageInspect(runtimePath, image)
 		if err != nil {
 			return "", fmt.Errorf("failed to inspect base image %q: %w", image, err)
 		}
 	}
+	if isAppleContainerPath(runtimePath) {
+		return parseAppleImageDigest(output)
+	}
 	return strings.TrimSpace(string(output)), nil
+}
+
+// runImageInspect returns an image identifier in raw bytes. Apple's container
+// tool only emits JSON (no --format flag), so the caller parses its output.
+func runImageInspect(runtimePath, image string) ([]byte, error) {
+	if isAppleContainerPath(runtimePath) {
+		return exec.Command(runtimePath, "image", "inspect", image).Output()
+	}
+	return exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}").Output()
 }
 
 func customImageExists(runtimePath, tag string) bool {
@@ -135,7 +151,9 @@ func customImageExists(runtimePath, tag string) bool {
 
 func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir string) error {
 	cmd := exec.Command(runtimePath, "build", "-t", tag, "-f", dockerfilePath, contextDir)
-	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+	if !isAppleContainerPath(runtimePath) {
+		cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -146,9 +164,6 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	runtimePath, err := resolveRuntime(cfg.Runtime)
 	if err != nil {
 		return "", err
-	}
-	if filepath.Base(runtimePath) == "container" {
-		return "", fmt.Errorf("custom images are not supported with Apple container runtime")
 	}
 
 	customizeFile, err := resolveCustomizeFile(cfg.Customize.Dockerfile, projectDir)
@@ -161,7 +176,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	dockerfile, err := generateCustomDockerfile(cfg.Image, cfg.Customize.Packages, fragment)
+	dockerfile, err := generateCustomDockerfile(cfg.Image, cfg.Customize.Packages, fragment, true)
 	if err != nil {
 		return "", err
 	}

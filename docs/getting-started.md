@@ -61,19 +61,31 @@ You can also set a default harness in config, such as `default_harness = "codex"
 
 ## Runtime support
 
-yolobox auto-detects the first supported runtime it can use.
+yolobox auto-detects the first supported runtime it can use. On macOS the
+order is Apple container → Docker → Podman; on Linux it is Docker → Podman.
 
 | Platform | Supported runtimes |
 |---|---|
-| macOS | Docker Desktop, OrbStack, Colima, Apple container (macOS Tahoe+) |
+| macOS | Apple container (macOS 26+, Apple silicon, container >= 1.0), Docker Desktop, OrbStack, Colima |
 | Linux | Docker, Podman |
+
+Apple's [container](https://github.com/apple/container) runs each sandbox in
+its own lightweight VM with no Docker daemon required:
+
+```bash
+brew install container
+container system start
+```
+
+yolobox requires container >= 1.0 and skips older installs during
+auto-detection (it starts the system service automatically when needed).
 
 Force a runtime explicitly:
 
 ```bash
+yolobox claude --runtime container
 yolobox claude --runtime docker
 yolobox claude --runtime podman
-yolobox claude --runtime container
 ```
 
 ## Next pages
@@ -90,4 +102,7 @@ Claude Code needs at least 4 GB of RAM allocated to Docker. Colima defaults to 2
 ```bash
 colima stop && colima start --memory 8
 ```
+
+Apple container allocates memory per container VM, so yolobox defaults it to
+4 GB there. Raise it with `--memory 8g` or `memory = "8g"` in config if needed.
 :::

@@ -84,12 +84,11 @@ You still pay one rebuild after a base-image update, but you do not have to manu
 
 ## Runtime requirement
 
-Derived-image customization requires a runtime that can build images:
+Derived-image customization works on all supported runtimes:
 
+- Apple container (>= 1.0, builds with `container build`)
 - Docker
 - Podman
-
-Apple's `container` runtime can run yolobox, but it cannot build custom images.
 
 ## Fully custom images
 
