@@ -354,6 +354,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --packages <list>     Comma-separated apt packages for a custom image")
 	fmt.Fprintln(os.Stderr, "  --customize-file <path> Dockerfile fragment for a custom image")
 	fmt.Fprintln(os.Stderr, "  --rebuild-image       Force rebuild of the custom image")
+	fmt.Fprintln(os.Stderr, "  --ensure-latest       Pull the latest base image before running (rebuilds any derived image)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
@@ -439,6 +440,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		packages      string
 		customizeFile string
 		rebuildImage  bool
+		ensureLatest  bool
 	)
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
@@ -483,6 +485,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.StringVar(&packages, "packages", "", "comma-separated apt packages for a custom image")
 	fs.StringVar(&customizeFile, "customize-file", "", "path to a Dockerfile fragment for a custom image")
 	fs.BoolVar(&rebuildImage, "rebuild-image", false, "force rebuild of the custom image")
+	fs.BoolVar(&ensureLatest, "ensure-latest", false, "pull the latest base image (and rebuild any derived image) before running")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -613,6 +616,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if rebuildImage {
 		cfg.RebuildImage = true
+	}
+	if ensureLatest {
+		cfg.EnsureLatest = true
 	}
 
 	// Validate conflicting options after config + CLI values have been merged.
@@ -801,6 +807,14 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		return validateRuntimeConstraints(cfg)
 	}); err != nil {
 		return err
+	}
+	if cfg.EnsureLatest {
+		started = time.Now()
+		err := pullLatestBaseImage(cfg)
+		traceDuration("host: pull latest base image", started)
+		if err != nil {
+			return fmt.Errorf("failed to pull latest base image: %w", err)
+		}
 	}
 	if hasCustomization(cfg) {
 		started = time.Now()
@@ -1229,7 +1243,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"env": true, "h": true, "help": true,
 		"cpus": true, "memory": true, "shm-size": true, "gpus": true,
 		"device": true, "cap-add": true, "cap-drop": true, "runtime-arg": true,
-		"packages": true, "customize-file": true, "rebuild-image": true,
+		"packages": true, "customize-file": true, "rebuild-image": true, "ensure-latest": true,
 	}
 
 	flagsWithValues := map[string]bool{

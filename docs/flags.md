@@ -14,6 +14,22 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 | `--packages <list>` | Comma-separated apt packages for a derived custom image | Apple `container` |
 | `--customize-file <path>` | Dockerfile fragment for a derived custom image | Apple `container` |
 | `--rebuild-image` | Force rebuild of the derived custom image | Apple `container` |
+| `--ensure-latest` | Pull the latest base image before running, then rebuild any derived image on top | |
+
+### `--ensure-latest` vs `--rebuild-image` vs `yolobox upgrade`
+
+These target different layers:
+
+- `--ensure-latest` — pulls the latest **base** image from the registry for this
+  run (even if a copy already exists locally), then rebuilds the derived custom
+  image on top if your project has customization. Use it to guarantee the image
+  you are about to run is current. It does not touch the yolobox binary.
+- `--rebuild-image` — rebuilds only the **derived** custom image (packages /
+  Dockerfile fragment). It does not refresh the base image, and has no effect
+  without customization.
+- `yolobox upgrade` — updates the yolobox **binary** and pulls the latest base
+  image. This is the full update path; `--ensure-latest` is the per-run,
+  image-only subset.
 
 ## Filesystem, config, and identity
 

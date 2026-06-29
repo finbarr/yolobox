@@ -142,6 +142,23 @@ func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir string) error
 	return cmd.Run()
 }
 
+// pullLatestBaseImage force-pulls the configured base image from its registry,
+// even when a copy already exists locally, so a stale-but-present local image is
+// refreshed. Any derived image is rebuilt afterwards by prepareCustomImage because
+// a changed base image ID changes the derived content-hash tag.
+func pullLatestBaseImage(cfg Config) error {
+	runtimePath, err := resolveRuntime(cfg.Runtime)
+	if err != nil {
+		return err
+	}
+	info("Pulling latest base image %s...", cfg.Image)
+	cmd := exec.Command(runtimePath, "pull", cfg.Image)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	runtimePath, err := resolveRuntime(cfg.Runtime)
 	if err != nil {

@@ -72,6 +72,24 @@ Normal behavior:
 - Dockerfile-fragment customizations ask the runtime to build again so context changes are noticed
 - cached layers are reused when inputs have not materially changed
 
+`--rebuild-image` only rebuilds the derived layer; it does not refresh the base
+image, and it has no effect in a project with no customization.
+
+## Refresh the base image for a run
+
+To guarantee the image you are about to run is current, use `--ensure-latest`:
+
+```bash
+yolobox shell --ensure-latest
+```
+
+It pulls the latest base image from the registry for this run — even if a copy
+already exists locally — and then rebuilds the derived image on top when the base
+or your customization changed. With no customization it simply runs on the
+freshly-pulled base. Unlike `yolobox upgrade`, it does not touch the yolobox
+binary. A pull whose local copy is already current is cheap (a digest check, no
+re-download).
+
 ## Upgrade behavior
 
 This approach is designed to keep `yolobox upgrade` relatively painless:

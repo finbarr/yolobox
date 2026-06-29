@@ -65,6 +65,7 @@ type Config struct {
 
 	Setup        bool       `toml:"-"`
 	RebuildImage bool       `toml:"-"`
+	EnsureLatest bool       `toml:"-"`
 	Fork         ForkConfig `toml:"-"`
 
 	ClipboardEndpoint  string `toml:"-"`
