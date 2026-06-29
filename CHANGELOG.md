@@ -8,6 +8,10 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Added `--ensure-latest` to pull the latest base image before running and rebuild any derived custom image when the base changed.
+
 ## v0.18.4 - 2026-06-09
 
 ### Added

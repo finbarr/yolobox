@@ -76,6 +76,21 @@ func TestEnsureLatestPullsBaseImage(t *testing.T) {
 	if logHasLine(log, "build ") {
 		t.Fatalf("did not expect a build without customization, got:\n%s", strings.Join(log, "\n"))
 	}
+	// The base image (not a derived image) must run, and the final container
+	// command should be the expected `bash` for `shell`.
+	sawRun := false
+	for _, line := range log {
+		if !strings.HasPrefix(line, "run ") {
+			continue
+		}
+		sawRun = true
+		if !strings.HasSuffix(line, " bash") {
+			t.Fatalf("expected container command to end with `bash`, got: %q", line)
+		}
+	}
+	if !sawRun {
+		t.Fatalf("expected a container run, got:\n%s", strings.Join(log, "\n"))
+	}
 }
 
 func TestEnsureLatestBuildsDerivedImageAfterPull(t *testing.T) {
