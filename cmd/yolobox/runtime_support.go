@@ -224,6 +224,22 @@ func findSSHAgentSocket() (string, error) {
 	return "", fmt.Errorf("could not determine SSH agent socket path for macOS Docker VM")
 }
 
+// pullImage force-pulls image with the resolved runtime, wiring through the
+// current stdio so progress is visible. The subcommand is runtime-aware: Apple's
+// container CLI spells it `container image pull <image>`, whereas Docker/Podman
+// use `<runtime> pull <image>`.
+func pullImage(runtimePath, image string) error {
+	args := []string{"pull", image}
+	if filepath.Base(runtimePath) == "container" {
+		args = []string{"image", "pull", image}
+	}
+	cmd := exec.Command(runtimePath, args...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
 // ensureDockerNetwork creates the yolobox-net Docker network if it doesn't exist.
 func ensureDockerNetwork(runtimeName string, networkName string) error {
 	runtimePath, err := resolveRuntime(runtimeName)

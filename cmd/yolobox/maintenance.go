@@ -239,7 +239,7 @@ func upgradeYolobox(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := execCommand(runtimePath, []string{"pull", cfg.Image}); err != nil {
+	if err := pullImage(runtimePath, cfg.Image); err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
 

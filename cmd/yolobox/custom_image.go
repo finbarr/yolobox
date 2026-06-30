@@ -112,11 +112,7 @@ func inspectImageID(runtimePath, image string) (string, error) {
 	cmd := exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}")
 	output, err := cmd.Output()
 	if err != nil {
-		pullCmd := exec.Command(runtimePath, "pull", image)
-		pullCmd.Stdin = os.Stdin
-		pullCmd.Stdout = os.Stdout
-		pullCmd.Stderr = os.Stderr
-		if pullErr := pullCmd.Run(); pullErr != nil {
+		if pullErr := pullImage(runtimePath, image); pullErr != nil {
 			return "", fmt.Errorf("failed to inspect or pull base image %q: %w", image, err)
 		}
 
@@ -140,6 +136,19 @@ func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir string) error
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+// pullLatestBaseImage force-pulls the configured base image from its registry,
+// even when a copy already exists locally, so a stale-but-present local image is
+// refreshed. Any derived image is rebuilt afterwards by prepareCustomImage because
+// a changed base image ID changes the derived content-hash tag.
+func pullLatestBaseImage(cfg Config) error {
+	runtimePath, err := resolveRuntime(cfg.Runtime)
+	if err != nil {
+		return err
+	}
+	info("Pulling base image %s...", cfg.Image)
+	return pullImage(runtimePath, cfg.Image)
 }
 
 func prepareCustomImage(cfg *Config, projectDir string) (string, error) {

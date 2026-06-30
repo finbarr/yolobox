@@ -72,6 +72,37 @@ Normal behavior:
 - Dockerfile-fragment customizations ask the runtime to build again so context changes are noticed
 - cached layers are reused when inputs have not materially changed
 
+`--rebuild-image` only rebuilds the derived layer; it does not refresh the base
+image, and it has no effect in a project with no customization.
+
+## Refresh the base image for a run
+
+To guarantee the image you are about to run is current, use `--ensure-latest`:
+
+```bash
+yolobox shell --ensure-latest
+```
+
+It force-pulls the **configured base image** from its registry for this run —
+even if a copy already exists locally — and then rebuilds the derived image on
+top when the base or your customization changed. With no customization it simply
+runs on the freshly-pulled base. Unlike `yolobox upgrade`, it does not touch the
+yolobox binary. A pull whose local copy is already current is cheap (a digest
+check, no re-download).
+
+"Configured base image" means whatever `--image` / `image` resolves to, defaulting
+to `ghcr.io/finbarr/yolobox:latest`. The flag re-pulls that exact reference:
+
+- with the default `:latest` tag, this fetches the newest published image;
+- with a **pinned tag** (e.g. `--image ghcr.io/finbarr/yolobox:v0.18.4`), it
+  re-pulls that tag — a no-op unless the tag was re-pushed, so it never moves you
+  past the pin;
+- with a **fully custom base** (`--image your/image`), it pulls `your/image`;
+  `ghcr.io/finbarr/yolobox:latest` is not pulled in that case.
+
+In other words `--ensure-latest` means "force-refresh the base image this run is
+configured to use," not "switch to `:latest`."
+
 ## Upgrade behavior
 
 This approach is designed to keep `yolobox upgrade` relatively painless:
