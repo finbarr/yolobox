@@ -354,7 +354,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --packages <list>     Comma-separated apt packages for a custom image")
 	fmt.Fprintln(os.Stderr, "  --customize-file <path> Dockerfile fragment for a custom image")
 	fmt.Fprintln(os.Stderr, "  --rebuild-image       Force rebuild of the custom image")
-	fmt.Fprintln(os.Stderr, "  --ensure-latest       Pull the latest base image before running (rebuilds any derived image)")
+	fmt.Fprintln(os.Stderr, "  --ensure-latest       Force-pull the configured base image before running (rebuilds any derived image)")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
@@ -485,7 +485,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.StringVar(&packages, "packages", "", "comma-separated apt packages for a custom image")
 	fs.StringVar(&customizeFile, "customize-file", "", "path to a Dockerfile fragment for a custom image")
 	fs.BoolVar(&rebuildImage, "rebuild-image", false, "force rebuild of the custom image")
-	fs.BoolVar(&ensureLatest, "ensure-latest", false, "pull the latest base image (and rebuild any derived image) before running")
+	fs.BoolVar(&ensureLatest, "ensure-latest", false, "force-pull the configured base image (and rebuild any derived image) before running")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {

@@ -112,11 +112,7 @@ func inspectImageID(runtimePath, image string) (string, error) {
 	cmd := exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}")
 	output, err := cmd.Output()
 	if err != nil {
-		pullCmd := exec.Command(runtimePath, "pull", image)
-		pullCmd.Stdin = os.Stdin
-		pullCmd.Stdout = os.Stdout
-		pullCmd.Stderr = os.Stderr
-		if pullErr := pullCmd.Run(); pullErr != nil {
+		if pullErr := pullImage(runtimePath, image); pullErr != nil {
 			return "", fmt.Errorf("failed to inspect or pull base image %q: %w", image, err)
 		}
 
@@ -151,12 +147,8 @@ func pullLatestBaseImage(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	info("Pulling latest base image %s...", cfg.Image)
-	cmd := exec.Command(runtimePath, "pull", cfg.Image)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	info("Pulling base image %s...", cfg.Image)
+	return pullImage(runtimePath, cfg.Image)
 }
 
 func prepareCustomImage(cfg *Config, projectDir string) (string, error) {

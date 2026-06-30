@@ -143,6 +143,46 @@ func TestEnsureLatestPullsUnderNoNetwork(t *testing.T) {
 	}
 }
 
+// installLoggingRuntimeNamed installs a fake runtime binary under the given name
+// (e.g. "docker" or "container") that appends each invocation's args to a log
+// file, so a test can assert the exact pull subcommand used.
+func installLoggingRuntimeNamed(t *testing.T, name string) (string, string) {
+	t.Helper()
+	runtimeDir := t.TempDir()
+	logFile := filepath.Join(t.TempDir(), name+"-log")
+	binPath := filepath.Join(runtimeDir, name)
+	script := `#!/bin/sh
+echo "$*" >> "` + logFile + `"
+exit 0
+`
+	if err := os.WriteFile(binPath, []byte(script), 0755); err != nil {
+		t.Fatalf("write fake %s: %v", name, err)
+	}
+	return binPath, logFile
+}
+
+func TestPullImageUsesPlainPullForDocker(t *testing.T) {
+	binPath, logFile := installLoggingRuntimeNamed(t, "docker")
+	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest"); err != nil {
+		t.Fatalf("pullImage: %v", err)
+	}
+	log := readRuntimeLog(t, logFile)
+	if !logHasLine(log, "pull ghcr.io/finbarr/yolobox:latest") {
+		t.Fatalf("expected `pull <image>` for docker, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+func TestPullImageUsesImagePullForAppleContainer(t *testing.T) {
+	binPath, logFile := installLoggingRuntimeNamed(t, "container")
+	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest"); err != nil {
+		t.Fatalf("pullImage: %v", err)
+	}
+	log := readRuntimeLog(t, logFile)
+	if !logHasLine(log, "image pull ghcr.io/finbarr/yolobox:latest") {
+		t.Fatalf("expected `image pull <image>` for Apple container, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
 func TestEnsureLatestToolShortcutNotForwardedToTool(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
