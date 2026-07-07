@@ -76,10 +76,12 @@ For the full tool list, YOLO-mode wrapper table, RTK notes, npm package freshnes
 
 ## Project Customization
 
-If one project needs extra tools, add a small project config instead of forking the whole base image:
+If one project needs extra tools or environment variables, add a small project config instead of forking the whole base image:
 
 ```toml
 # .yolobox.toml
+env = ["CODEX_HOME=/home/yolo/.codex-account"]
+
 [customize]
 packages = ["default-jdk", "maven"]
 ```
@@ -92,7 +94,7 @@ yolobox run mvn --version
 
 Project-level customization can also layer a Dockerfile fragment on top of the base image. The first run builds a derived image; later runs reuse it until the base image or customization inputs change.
 
-See [Project-Level Customization](https://yolobox.dev/customizing) for package installs, Dockerfile fragments, rebuild behavior, upgrade behavior, and fully custom images.
+Use container paths for env values because they are passed directly to the process inside yolobox. See [Configuration](https://yolobox.dev/configuration) for project env settings, and [Project-Level Customization](https://yolobox.dev/customizing) for package installs, Dockerfile fragments, rebuild behavior, upgrade behavior, and fully custom images.
 
 ## Common Workflows
 

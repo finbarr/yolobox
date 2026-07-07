@@ -56,6 +56,12 @@ shm_size = "2g"
 packages = ["default-jdk", "maven"]
 ```
 
+Use `env = ["KEY=value"]` for per-project environment variables that should be passed directly to the process inside yolobox. Values are not shell-expanded by yolobox, so use container paths such as `/home/yolo/.codex-account` rather than `~/.codex-account` when configuring tool homes:
+
+```toml
+env = ["CODEX_HOME=/home/yolo/.codex-account"]
+```
+
 ### Precedence
 
 CLI flags > project config > global config > defaults

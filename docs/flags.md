@@ -104,6 +104,14 @@ yolobox automatically passes a short list of common API/token environment variab
 
 Use `--no-env-passthrough` to disable those automatic host-derived environment variables. Explicit `--env KEY=value` entries still pass through, and `--gh-token` still forwards a GitHub token when requested.
 
+For project-specific variables, put the same values in `.yolobox.toml`:
+
+```toml
+env = ["CODEX_HOME=/home/yolo/.codex-account"]
+```
+
+The value is passed directly into the container process. Use container paths rather than host-only paths or shell shortcuts such as `~`.
+
 ## RTK command compression
 
 The `--rtk` flag enables RTK command-output compression for supported AI shortcuts. yolobox runs RTK init inside the container for Claude, Codex, Gemini, or OpenCode after any host config sync, so copied host config does not overwrite the RTK hooks.

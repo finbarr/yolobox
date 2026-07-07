@@ -74,6 +74,12 @@ Disable automatic host environment passthrough for untrusted work:
 yolobox run --no-env-passthrough env
 ```
 
+Set project-specific environment variables in `.yolobox.toml` when a tool needs a per-project home or account:
+
+```toml
+env = ["CODEX_HOME=/home/yolo/.codex-account"]
+```
+
 ## Docker and network access
 
 Allow Docker commands inside the box:

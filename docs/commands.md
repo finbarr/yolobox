@@ -77,6 +77,13 @@ yolobox codex --open-bridge
 yolobox codex --rtk
 ```
 
+### Set a project-specific environment variable
+
+```toml
+# .yolobox.toml
+env = ["CODEX_HOME=/home/yolo/.codex-account"]
+```
+
 ### Run one command in isolation
 
 ```bash
