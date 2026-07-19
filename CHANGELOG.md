@@ -11,6 +11,7 @@ there is no `v0.6.0` tag in this repository.
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
+- `env = [...]` config entries and `--env` values now expand `$VAR` and `${VAR}` references from the host environment; `$$` escapes a literal `$`, and key-only entries still pass through unchanged.
 
 ## v0.18.4 - 2026-06-09
 

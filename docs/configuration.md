@@ -164,6 +164,22 @@ Files copied if they exist on your host:
 
 This copies instruction files and skills, not full configs, credentials, settings, or history. For full tool configs, use `--claude-config`, `--codex-config`, `--gemini-config`, `--opencode-config`, or `--pi-config`. Antigravity CLI stores its config under `~/.gemini/antigravity-cli`, so `--gemini-config` covers Antigravity too.
 
+## Explicit environment variables
+
+Pass extra environment variables with `env = [...]` in config or `--env KEY=value` on the CLI.
+
+Values support host environment expansion: `$VAR` and `${VAR}` in the value are replaced with the host's value at launch time. Unset variables expand to an empty string, and `$$` produces a literal `$`.
+
+```toml
+env = [
+  "DEBUG=1",                      # literal value
+  "SANDBOX_TOKEN=$HOST_TOKEN",    # reads HOST_TOKEN from the host environment
+  "MY_API_KEY",                   # key only: forwards MY_API_KEY from the host as-is
+]
+```
+
+Key-only entries (no `=`) are passed to the container runtime unchanged, which forwards the variable from the host under the same name.
+
 ## Auto-forwarded environment variables
 
 These are automatically passed into the container if they are set on the host:

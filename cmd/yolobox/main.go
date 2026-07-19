@@ -322,7 +322,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --exclude <glob>      Hide project paths from the container (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --copy-as <src:dst>   Mount a file at a project path inside the container")
-	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
+	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable); $VAR in val expands from host env")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
@@ -471,7 +471,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.Var(&mounts, "mount", "extra mount src:dst")
 	fs.Var(&excludes, "exclude", "hide matching project paths from the container")
 	fs.Var(&copyAs, "copy-as", "mount a file at another project path inside the container")
-	fs.Var(&envVars, "env", "environment variable KEY=value")
+	fs.Var(&envVars, "env", "environment variable KEY=value ($VAR in value expands from host env)")
 
 	// Resource limits & security
 	fs.StringVar(&cpus, "cpus", "", "limit number of CPUs (supports fractions)")
@@ -1441,9 +1441,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		traceDuration("host: get GitHub token", started)
 	}
 
-	// User-specified env vars
+	// User-specified env vars, with $VAR/${VAR} in values expanded from the host
 	for _, env := range cfg.Env {
-		args = append(args, "-e", env)
+		args = append(args, "-e", expandEnvEntry(env))
 	}
 
 	if !cfg.NoProject {
