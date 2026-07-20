@@ -22,6 +22,7 @@ ENV LANG=C.UTF-8
 ENV LC_ALL=C.UTF-8
 ARG NPM_MIN_RELEASE_AGE_DAYS=7
 ARG ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=dev
+ARG KIMI_CODE_INSTALLER_CACHE_BUST=dev
 
 # =============================================================================
 # STABLE LAYERS — large, rarely change (ordered first to minimize re-downloads)
@@ -254,6 +255,21 @@ RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/gemini \
     && echo 'exec "$REAL_BIN" --yolo "$@"' >> /opt/yolobox/bin/gemini \
     && chmod +x /opt/yolobox/bin/gemini
 
+# Kimi Code wrapper. Prompt mode already runs non-interactively under Kimi's
+# auto policy, and explicit permission modes must not be combined with --yolo.
+RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/kimi \
+    && printf '%s\n' \
+        'for arg in "$@"; do' \
+        '    case "$arg" in' \
+        '        -p|--prompt|--prompt=*|--auto|-y|--yolo|--yes|--auto-approve)' \
+        '            exec "$REAL_BIN" "$@"' \
+        '            ;;' \
+        '    esac' \
+        'done' \
+        'exec "$REAL_BIN" --yolo "$@"' \
+        >> /opt/yolobox/bin/kimi \
+    && chmod +x /opt/yolobox/bin/kimi
+
 # Antigravity CLI wrapper
 RUN cp /opt/yolobox/wrapper-template /opt/yolobox/bin/agy \
     && echo 'exec "$REAL_BIN" --dangerously-skip-permissions "$@"' >> /opt/yolobox/bin/agy \
@@ -385,7 +401,7 @@ RUN printf '%s\n' \
     chmod +x /usr/local/bin/yolobox-uid-fix.sh
 
 # Create entrypoint script
-RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-kimi /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -525,6 +541,14 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-op
     '    sudo chown -R yolo:yolo /home/yolo/.gemini' \
     'fi' \
     '' \
+    '# Sync Kimi Code config from host staging area if present. Keep the' \
+    '# container binary and volatile logs/update state local to the box.' \
+    'if [ -d /host-kimi/.kimi-code ]; then' \
+    '    echo -e "\033[33m→ Syncing host Kimi Code config to container\033[0m" >&2' \
+    '    sudo mkdir -p /home/yolo/.kimi-code' \
+    '    sudo rsync -a --chown=yolo:yolo --exclude=bin/ --exclude=logs/ --exclude=updates/ /host-kimi/.kimi-code/ /home/yolo/.kimi-code/' \
+    'fi' \
+    '' \
     '# Copy OpenCode config from host staging area if present' \
     'if [ -d /host-opencode/.config/opencode ]; then' \
     '    echo -e "\033[33m→ Copying host OpenCode config to container\033[0m" >&2' \
@@ -642,6 +666,25 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-op
     '    sudo chown -R yolo:yolo /home/yolo/.codex/skills' \
     '    COPIED_AGENT_INSTRUCTIONS=1' \
     'fi' \
+    '# Kimi Code: AGENTS.md' \
+    'KIMI_MD="/host-agent-instructions/kimi/AGENTS.md"' \
+    '[ ! -f "$KIMI_MD" ] && [ -f "$HF/agent-instructions/kimi/AGENTS.md" ] && KIMI_MD="$HF/agent-instructions/kimi/AGENTS.md"' \
+    'if [ -f "$KIMI_MD" ]; then' \
+    '    mkdir -p /home/yolo/.kimi-code' \
+    '    sudo cp -a "$KIMI_MD" /home/yolo/.kimi-code/AGENTS.md' \
+    '    sudo chown yolo:yolo /home/yolo/.kimi-code/AGENTS.md' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
+    '# Kimi Code: skills/ directory' \
+    'KIMI_SKILLS_DIR="/host-agent-instructions/kimi/skills"' \
+    '[ ! -d "$KIMI_SKILLS_DIR" ] && [ -d "$HF/agent-instructions/kimi/skills" ] && KIMI_SKILLS_DIR="$HF/agent-instructions/kimi/skills"' \
+    'if [ -d "$KIMI_SKILLS_DIR" ]; then' \
+    '    mkdir -p /home/yolo/.kimi-code' \
+    '    sudo rm -rf /home/yolo/.kimi-code/skills' \
+    '    sudo cp -a "$KIMI_SKILLS_DIR" /home/yolo/.kimi-code/skills' \
+    '    sudo chown -R yolo:yolo /home/yolo/.kimi-code/skills' \
+    '    COPIED_AGENT_INSTRUCTIONS=1' \
+    'fi' \
     '# Pi: AGENTS.md' \
     'PI_MD="/host-agent-instructions/pi/AGENTS.md"' \
     '[ ! -f "$PI_MD" ] && [ -f "$HF/agent-instructions/pi/AGENTS.md" ] && PI_MD="$HF/agent-instructions/pi/AGENTS.md"' \
@@ -678,18 +721,21 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-op
     '' \
     '# Install built-in yolobox skill from the image (named volume may shadow /home/yolo)' \
     'if [ -d /opt/yolobox/skills/yolobox ]; then' \
-    '    mkdir -p /home/yolo/.codex/skills /home/yolo/.claude/skills' \
+    '    mkdir -p /home/yolo/.codex/skills /home/yolo/.claude/skills /home/yolo/.kimi-code/skills' \
     '    sudo rm -rf /home/yolo/.codex/skills/yolobox-context' \
     '    sudo rm -rf /home/yolo/.codex/skills/yolobox' \
     '    sudo cp -a /opt/yolobox/skills/yolobox /home/yolo/.codex/skills/yolobox' \
     '    sudo rm -rf /home/yolo/.claude/skills/yolobox' \
     '    sudo cp -a /opt/yolobox/skills/yolobox /home/yolo/.claude/skills/yolobox' \
-    '    sudo chown -R yolo:yolo /home/yolo/.codex/skills/yolobox /home/yolo/.claude/skills/yolobox' \
+    '    sudo rm -rf /home/yolo/.kimi-code/skills/yolobox' \
+    '    sudo cp -a /opt/yolobox/skills/yolobox /home/yolo/.kimi-code/skills/yolobox' \
+    '    sudo chown -R yolo:yolo /home/yolo/.codex/skills/yolobox /home/yolo/.claude/skills/yolobox /home/yolo/.kimi-code/skills/yolobox' \
     'fi' \
     '' \
-    '# Inject built-in agent guidance so Claude and Codex use the yolobox skill when it matters' \
+    '# Inject built-in agent guidance so supported agents use the yolobox skill when it matters' \
     'inject_agent_guidance /home/yolo/.claude/CLAUDE.md /opt/yolobox/agent-instructions/claude/yolobox.md "<!-- BEGIN YOLOBOX MANAGED BLOCK -->" "<!-- END YOLOBOX MANAGED BLOCK -->"' \
     'inject_agent_guidance /home/yolo/.codex/AGENTS.md /opt/yolobox/agent-instructions/codex/yolobox.md "# BEGIN YOLOBOX MANAGED BLOCK" "# END YOLOBOX MANAGED BLOCK"' \
+    'inject_agent_guidance /home/yolo/.kimi-code/AGENTS.md /opt/yolobox/agent-instructions/kimi/yolobox.md "# BEGIN YOLOBOX MANAGED BLOCK" "# END YOLOBOX MANAGED BLOCK"' \
     '' \
     '# Handle Docker socket access without mutating host socket permissions' \
     'if [ -S /var/run/docker.sock ]; then' \
@@ -712,6 +758,10 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-op
     'mkdir -p /home/yolo/.local/bin' \
     'if [ ! -x /home/yolo/.local/bin/claude ]; then' \
     '    ln -sf /usr/local/bin/claude /home/yolo/.local/bin/claude' \
+    'fi' \
+    '# Seed Kimi Code launcher only when missing or broken; user upgrades live in /home/yolo' \
+    'if [ ! -x /home/yolo/.local/bin/kimi ]; then' \
+    '    ln -sf /usr/local/bin/kimi /home/yolo/.local/bin/kimi' \
     'fi' \
     '' \
     '# Auto-trust project directory for Claude Code (this is yolobox after all)' \
@@ -778,6 +828,21 @@ RUN set -eux; \
     curl -fsSL https://antigravity.google/cli/install.sh -o "$installer"; \
     HOME="$tmp_home" bash "$installer" --dir /usr/local/bin; \
     rm -rf "$tmp_home" "$installer"
+
+RUN set -eux; \
+    echo "Kimi Code installer cache key: ${KIMI_CODE_INSTALLER_CACHE_BUST}" >/dev/null; \
+    curl_home="$(mktemp -d)"; \
+    printf '%s\n' \
+        'retry = 5' \
+        'retry-all-errors' \
+        'retry-delay = 2' \
+        'connect-timeout = 20' \
+        'max-time = 300' \
+        > "$curl_home/.curlrc"; \
+    installer="$(mktemp)"; \
+    CURL_HOME="$curl_home" curl -fsSL https://code.kimi.com/kimi-code/install.sh -o "$installer"; \
+    CURL_HOME="$curl_home" KIMI_INSTALL_DIR=/usr/local KIMI_NO_MODIFY_PATH=1 bash "$installer"; \
+    rm -rf "$curl_home" "$installer"
 
 # RTK command-output compression proxy. Intentionally not pinned: the base image
 # captures the latest RTK release available when yolobox is built.

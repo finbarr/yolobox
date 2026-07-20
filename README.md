@@ -13,7 +13,7 @@ Docs: [yolobox.dev](https://yolobox.dev)
 
 Changelog: [CHANGELOG.md](CHANGELOG.md)
 
-Run [Claude Code](https://claude.ai/code), [Codex](https://openai.com/codex/), Gemini, Antigravity, OpenCode, Copilot, Pi, or any AI coding agent in "yolo mode" without nuking your home directory.
+Run [Claude Code](https://claude.ai/code), [Codex](https://openai.com/codex/), [Kimi Code](https://github.com/MoonshotAI/kimi-code), Gemini, Antigravity, OpenCode, Copilot, Pi, or any AI coding agent in "yolo mode" without nuking your home directory.
 
 ## The Problem
 
@@ -27,7 +27,7 @@ AI coding agents are incredibly powerful when you let them run commands without 
 - the agent has full permissions and sudo inside the container
 - your home directory is not mounted unless you explicitly opt in
 - persistent volumes keep tools, configs, and sessions across runs
-- Claude and Codex get built-in yolobox guidance so they can understand the sandbox they are running in
+- Claude, Codex, and Kimi Code get built-in yolobox guidance so they can understand the sandbox they are running in
 
 The AI can go absolutely wild inside the sandbox. Your actual home directory? Untouchable.
 
@@ -53,6 +53,7 @@ Other AI shortcuts work the same way:
 ```bash
 yolobox codex
 yolobox gemini
+yolobox kimi
 yolobox agy
 yolobox antigravity
 yolobox opencode

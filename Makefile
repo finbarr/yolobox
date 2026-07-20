@@ -54,6 +54,12 @@ smoke-test: build
 		echo "  ✗ codex"; \
 		failed=1; \
 	fi; \
+	if ./$(BINARY) run --scratch kimi --version >/dev/null 2>&1; then \
+		echo "  ✓ kimi"; \
+	else \
+		echo "  ✗ kimi"; \
+		failed=1; \
+	fi; \
 	if ./$(BINARY) run --scratch pi --version >/dev/null 2>&1; then \
 		echo "  ✓ pi"; \
 	else \
@@ -80,6 +86,14 @@ smoke-test: build
 		echo "  ✓ codex wrapper matches real binary ($$RUN_VER)"; \
 	else \
 		echo "  ✗ codex version mismatch: real=$$IMG_VER, wrapper=$$RUN_VER"; \
+		failed=1; \
+	fi; \
+	IMG_VER=$$(./$(BINARY) run --scratch env NO_YOLO=1 kimi --version 2>/dev/null | head -1); \
+	RUN_VER=$$(./$(BINARY) run --scratch kimi --version 2>/dev/null | head -1); \
+	if [ "$$IMG_VER" = "$$RUN_VER" ]; then \
+		echo "  ✓ kimi wrapper matches real binary ($$RUN_VER)"; \
+	else \
+		echo "  ✗ kimi version mismatch: real=$$IMG_VER, wrapper=$$RUN_VER"; \
 		failed=1; \
 	fi; \
 	[ $$failed -eq 0 ]

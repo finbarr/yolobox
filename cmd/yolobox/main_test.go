@@ -124,6 +124,7 @@ func TestMergeConfig(t *testing.T) {
 		NoEnvPassthrough: true,
 		Scratch:          true,
 		CodexConfig:      true,
+		KimiConfig:       true,
 		OpencodeConfig:   true,
 		PiConfig:         true,
 		RTK:              true,
@@ -159,6 +160,9 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if !dst.CodexConfig {
 		t.Error("expected CodexConfig to be true")
+	}
+	if !dst.KimiConfig {
+		t.Error("expected KimiConfig to be true")
 	}
 	if !dst.OpencodeConfig {
 		t.Error("expected OpencodeConfig to be true")
@@ -300,6 +304,30 @@ func TestLoadConfigOpencodeConfig(t *testing.T) {
 	}
 }
 
+func TestLoadConfigKimiConfig(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("kimi_config = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.KimiConfig {
+		t.Fatal("expected kimi_config to load from config file")
+	}
+}
+
 func TestLoadConfigPiConfig(t *testing.T) {
 	projectDir := t.TempDir()
 	configHome := t.TempDir()
@@ -410,6 +438,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 		ClaudeConfig:   true,
 		CodexConfig:    true,
 		GeminiConfig:   true,
+		KimiConfig:     true,
 		OpencodeConfig: true,
 		PiConfig:       true,
 		RTK:            true,
@@ -429,6 +458,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 		"claude_config = true",
 		"codex_config = true",
 		"gemini_config = true",
+		"kimi_config = true",
 		"opencode_config = true",
 		"pi_config = true",
 		"rtk = true",
@@ -878,6 +908,16 @@ func TestBuildRunArgsCopyAgentInstructionsIncludesAgentSkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(piDir, "skills", "demo-pi-skill", "SKILL.md"), []byte("---\nname: demo-pi-skill\ndescription: test\n---\n"), 0644); err != nil {
 		t.Fatalf("failed to write Pi skill: %v", err)
 	}
+	kimiDir := filepath.Join(homeDir, ".kimi-code")
+	if err := os.MkdirAll(filepath.Join(kimiDir, "skills", "demo-kimi-skill"), 0755); err != nil {
+		t.Fatalf("failed to create Kimi Code skills dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kimiDir, "AGENTS.md"), []byte("host kimi guidance\n"), 0644); err != nil {
+		t.Fatalf("failed to write Kimi Code AGENTS.md: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kimiDir, "skills", "demo-kimi-skill", "SKILL.md"), []byte("---\nname: demo-kimi-skill\ndescription: test\n---\n"), 0644); err != nil {
+		t.Fatalf("failed to write Kimi Code skill: %v", err)
+	}
 
 	cfg := Config{CopyAgentInstructions: true}
 	args, _, err := buildRunArgs(cfg, projectDir, []string{"echo", "hello"}, false)
@@ -897,6 +937,12 @@ func TestBuildRunArgsCopyAgentInstructionsIncludesAgentSkills(t *testing.T) {
 	}
 	if !strings.Contains(argsStr, filepath.Join(codexDir, "skills")+":/host-agent-instructions/codex/skills:ro") {
 		t.Fatalf("expected Codex skills mount, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, filepath.Join(kimiDir, "AGENTS.md")+":/host-agent-instructions/kimi/AGENTS.md:ro") {
+		t.Fatalf("expected Kimi Code AGENTS.md mount, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, filepath.Join(kimiDir, "skills")+":/host-agent-instructions/kimi/skills:ro") {
+		t.Fatalf("expected Kimi Code skills mount, got %s", argsStr)
 	}
 	if !strings.Contains(argsStr, filepath.Join(piDir, "AGENTS.md")+":/host-agent-instructions/pi/AGENTS.md:ro") {
 		t.Fatalf("expected Pi AGENTS.md mount, got %s", argsStr)
@@ -920,6 +966,7 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 		ClaudeConfig:       true,
 		CodexConfig:        true,
 		GeminiConfig:       true,
+		KimiConfig:         true,
 		OpencodeConfig:     true,
 		PiConfig:           true,
 		RTK:                true,
@@ -1023,6 +1070,9 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	}
 	if !manifest.Config.GeminiConfig {
 		t.Fatal("expected gemini_config in manifest config")
+	}
+	if !manifest.Config.KimiConfig {
+		t.Fatal("expected kimi_config in manifest config")
 	}
 	if !manifest.Config.OpencodeConfig {
 		t.Fatal("expected opencode_config in manifest config")
@@ -1551,6 +1601,34 @@ func TestBuildRunArgsOpencodeConfig(t *testing.T) {
 	}
 }
 
+func TestBuildRunArgsKimiConfig(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	kimiConfigDir := filepath.Join(home, ".kimi-code")
+	if err := os.MkdirAll(kimiConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create Kimi Code config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(kimiConfigDir, "config.toml"), []byte("default_permission_mode = \"manual\"\n"), 0644); err != nil {
+		t.Fatalf("failed to write Kimi Code config file: %v", err)
+	}
+
+	cfg := Config{
+		Image:      "test-image",
+		KimiConfig: true,
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, kimiConfigDir+":/host-kimi/.kimi-code:ro") {
+		t.Fatalf("expected Kimi Code config mount, got %s", argsStr)
+	}
+}
+
 func TestBuildRunArgsPiConfig(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -1639,6 +1717,34 @@ func TestDockerfilePiConfigAndInstructionsImport(t *testing.T) {
 		"/host-agent-instructions/pi/skills",
 		"sudo cp -a \"$PI_MD\" /home/yolo/.pi/agent/AGENTS.md",
 		"sudo cp -a \"$PI_SKILLS_DIR\" /home/yolo/.pi/agent/skills",
+	} {
+		if !strings.Contains(dockerfile, want) {
+			t.Fatalf("expected Dockerfile to contain %q", want)
+		}
+	}
+}
+
+func TestDockerfileKimiCodeIntegration(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("failed to read Dockerfile: %v", err)
+	}
+	dockerfile := string(data)
+
+	for _, want := range []string{
+		"ARG KIMI_CODE_INSTALLER_CACHE_BUST=dev",
+		"https://code.kimi.com/kimi-code/install.sh",
+		"CURL_HOME=\"$curl_home\"",
+		"'retry-all-errors'",
+		"KIMI_INSTALL_DIR=/usr/local KIMI_NO_MODIFY_PATH=1",
+		"/opt/yolobox/bin/kimi",
+		"exec \"$REAL_BIN\" --yolo \"$@\"",
+		"-p|--prompt|--prompt=*|--auto|-y|--yolo|--yes|--auto-approve",
+		"/host-kimi/.kimi-code",
+		"--exclude=bin/ --exclude=logs/ --exclude=updates/",
+		"/home/yolo/.kimi-code/skills/yolobox",
+		"/opt/yolobox/agent-instructions/kimi/yolobox.md",
+		"if [ ! -x /home/yolo/.local/bin/kimi ]; then",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("expected Dockerfile to contain %q", want)
@@ -1780,6 +1886,7 @@ func TestReleaseWorkflowBustsLiveInstallerCaches(t *testing.T) {
 		"build-args: |",
 		"CLAUDE_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}",
 		"ANTIGRAVITY_CLI_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}",
+		"KIMI_CODE_INSTALLER_CACHE_BUST=${{ github.ref_name }}-${{ github.sha }}",
 	} {
 		if !strings.Contains(workflow, want) {
 			t.Fatalf("expected release workflow to contain %q", want)
@@ -2023,6 +2130,20 @@ func TestShouldAttachTTY(t *testing.T) {
 		{
 			name:      "pi print mode keeps streams separate",
 			command:   []string{"pi", "--print", "hello"},
+			stdinTTY:  true,
+			stdoutTTY: true,
+			want:      false,
+		},
+		{
+			name:      "kimi prompt mode keeps streams separate",
+			command:   []string{"kimi", "--prompt", "hello"},
+			stdinTTY:  true,
+			stdoutTTY: true,
+			want:      false,
+		},
+		{
+			name:      "kimi inline prompt mode keeps streams separate",
+			command:   []string{"kimi", "--prompt=hello"},
 			stdinTTY:  true,
 			stdoutTTY: true,
 			want:      false,
@@ -2517,7 +2638,7 @@ func TestRunCmdArgsUpdateAgentsUsesPersistentNoProjectContainer(t *testing.T) {
 	argsFile := installFakeDockerRuntime(t)
 	defer silenceStderr(t)()
 
-	if err := runCmdArgs([]string{"update-agents", "codex", "antigravity"}, projectDir, nil); err != nil {
+	if err := runCmdArgs([]string{"update-agents", "codex", "kimi", "antigravity"}, projectDir, nil); err != nil {
 		t.Fatalf("runCmdArgs update-agents failed: %v", err)
 	}
 
@@ -2529,9 +2650,13 @@ func TestRunCmdArgsUpdateAgentsUsesPersistentNoProjectContainer(t *testing.T) {
 	for _, want := range []string{
 		"yolobox-home:/home/yolo",
 		"\nbash\n-lc\n",
-		"targets=(\"codex\" \"agy\")",
+		"targets=(\"codex\" \"kimi\" \"agy\")",
 		"npm install -g --no-audit --no-fund \"$package@latest\"",
 		"@openai/codex",
+		"https://code.kimi.com/kimi-code/install.sh",
+		"CURL_HOME=\"$curl_home\"",
+		"'retry-all-errors'",
+		"KIMI_INSTALL_DIR=\"$HOME/.local\" KIMI_NO_MODIFY_PATH=1",
 		"https://antigravity.google/cli/install.sh",
 		"HOME=\"$tmp_home\" bash \"$installer\" --dir \"$install_dir\"",
 	} {
@@ -2675,6 +2800,7 @@ func TestToolShortcuts(t *testing.T) {
 		"claude",
 		"codex",
 		"gemini",
+		"kimi",
 		"agy",
 		"antigravity",
 		"opencode",
@@ -2815,6 +2941,9 @@ func TestValidateDefaultHarness(t *testing.T) {
 	}
 	if err := validateDefaultHarness("antigravity"); err != nil {
 		t.Fatalf("expected antigravity default harness to validate: %v", err)
+	}
+	if err := validateDefaultHarness("kimi"); err != nil {
+		t.Fatalf("expected kimi default harness to validate: %v", err)
 	}
 	if err := validateDefaultHarness("none"); err != nil {
 		t.Fatalf("expected none default harness to validate: %v", err)
@@ -3153,6 +3282,12 @@ func TestSplitToolArgs(t *testing.T) {
 			wantTool:    []string{"--resume"},
 		},
 		{
+			name:        "kimi config flag stays with yolobox",
+			args:        []string{"--kimi-config", "--continue"},
+			wantYolobox: []string{"--kimi-config"},
+			wantTool:    []string{"--continue"},
+		},
+		{
 			name:        "rtk flag stays with yolobox",
 			args:        []string{"--rtk", "--resume"},
 			wantYolobox: []string{"--rtk"},
@@ -3267,6 +3402,17 @@ func TestParseFlagsOpencodeConfig(t *testing.T) {
 		t.Fatal("expected OpencodeConfig to be true after parsing --opencode-config")
 	}
 	expectSliceEqual(t, rest, []string{"opencode", "--version"})
+}
+
+func TestParseFlagsKimiConfig(t *testing.T) {
+	cfg, rest, err := parseBaseFlags("run", []string{"--kimi-config", "kimi", "--version"}, t.TempDir())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.KimiConfig {
+		t.Fatal("expected KimiConfig to be true after parsing --kimi-config")
+	}
+	expectSliceEqual(t, rest, []string{"kimi", "--version"})
 }
 
 func TestParseFlagsPiConfig(t *testing.T) {

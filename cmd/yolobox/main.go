@@ -74,6 +74,7 @@ var toolShortcuts = []string{
 	"claude",
 	"codex",
 	"gemini",
+	"kimi",
 	"agy",
 	"antigravity",
 	"opencode",
@@ -333,6 +334,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini/Antigravity config to container")
+	fmt.Fprintln(os.Stderr, "  --kimi-config         Sync host Kimi Code config to container")
 	fmt.Fprintln(os.Stderr, "  --opencode-config     Copy host OpenCode config to container")
 	fmt.Fprintln(os.Stderr, "  --pi-config           Copy host Pi config to container")
 	fmt.Fprintln(os.Stderr, "  --git-config          Copy host git config to container")
@@ -359,7 +361,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sCONFIG:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  Global:  ~/.config/yolobox/config.toml")
 	fmt.Fprintln(os.Stderr, "  Project: .yolobox.toml")
-	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, agy, opencode, copilot, pi, none")
+	fmt.Fprintln(os.Stderr, "  default_harness = \"codex\"  # or claude, gemini, kimi, agy, opencode, copilot, pi, none")
 	fmt.Fprintln(os.Stderr, "")
 	fmt.Fprintf(os.Stderr, "%sAUTO-FORWARDED ENV VARS:%s\n", colorBold, colorReset)
 	for _, line := range wrapCommaList(autoPassthroughEnvVars, 76) {
@@ -412,6 +414,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		claudeConfig          bool
 		codexConfig           bool
 		geminiConfig          bool
+		kimiConfig            bool
 		opencodeConfig        bool
 		piConfig              bool
 		gitConfig             bool
@@ -457,6 +460,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini/Antigravity config to container")
+	fs.BoolVar(&kimiConfig, "kimi-config", false, "sync host Kimi Code config to container")
 	fs.BoolVar(&opencodeConfig, "opencode-config", false, "copy host OpenCode config to container")
 	fs.BoolVar(&piConfig, "pi-config", false, "copy host Pi config to container")
 	fs.BoolVar(&gitConfig, "git-config", false, "copy host git config to container")
@@ -536,6 +540,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if geminiConfig {
 		cfg.GeminiConfig = true
+	}
+	if kimiConfig {
+		cfg.KimiConfig = true
 	}
 	if opencodeConfig {
 		cfg.OpencodeConfig = true
@@ -982,6 +989,9 @@ func runSetup() (Config, error) {
 	if cfg.GeminiConfig {
 		selectedOptions = append(selectedOptions, "gemini_config")
 	}
+	if cfg.KimiConfig {
+		selectedOptions = append(selectedOptions, "kimi_config")
+	}
 	if cfg.OpencodeConfig {
 		selectedOptions = append(selectedOptions, "opencode_config")
 	}
@@ -1041,6 +1051,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Claude", "claude"),
 					huh.NewOption("Codex", "codex"),
 					huh.NewOption("Gemini", "gemini"),
+					huh.NewOption("Kimi Code", "kimi"),
 					huh.NewOption("Antigravity", "agy"),
 					huh.NewOption("OpenCode", "opencode"),
 					huh.NewOption("Copilot", "copilot"),
@@ -1055,6 +1066,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Claude config (copy ~/.claude and ~/.claude.json)", "claude_config"),
 					huh.NewOption("Codex config (sync ~/.codex; live sessions)", "codex_config"),
 					huh.NewOption("Gemini/Antigravity config (copy ~/.gemini)", "gemini_config"),
+					huh.NewOption("Kimi Code config (sync ~/.kimi-code)", "kimi_config"),
 					huh.NewOption("OpenCode config (copy ~/.config/opencode)", "opencode_config"),
 					huh.NewOption("Pi config (copy ~/.pi/agent)", "pi_config"),
 					huh.NewOption("GitHub token (gh + HTTPS git auth)", "gh_token"),
@@ -1145,6 +1157,7 @@ func runSetup() (Config, error) {
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")
 	cfg.GeminiConfig = contains(selectedOptions, "gemini_config")
+	cfg.KimiConfig = contains(selectedOptions, "kimi_config")
 	cfg.OpencodeConfig = contains(selectedOptions, "opencode_config")
 	cfg.PiConfig = contains(selectedOptions, "pi_config")
 	cfg.GhToken = contains(selectedOptions, "gh_token")
@@ -1236,7 +1249,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true,
-		"codex-config": true, "gemini-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
+		"codex-config": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
@@ -1578,6 +1591,20 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		traceDuration("host: mount Gemini/Antigravity config", started)
 	}
 
+	// Mount Kimi Code config from host to staging area (synced to /home/yolo by entrypoint)
+	if cfg.KimiConfig {
+		started = time.Now()
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, nil, err
+		}
+		kimiConfigDir := filepath.Join(home, ".kimi-code")
+		if _, err := os.Stat(kimiConfigDir); err == nil {
+			args = append(args, "-v", kimiConfigDir+":/host-kimi/.kimi-code:ro")
+		}
+		traceDuration("host: mount Kimi Code config", started)
+	}
+
 	// Mount OpenCode config from host to staging area (copied to /home/yolo by entrypoint)
 	if cfg.OpencodeConfig {
 		started = time.Now()
@@ -1729,6 +1756,30 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 				}
 			}
 			args = append(args, "-v", mountSrc+":/host-agent-instructions/codex/skills:ro")
+		}
+		// Kimi Code: ~/.kimi-code/AGENTS.md
+		kimiMd := filepath.Join(home, ".kimi-code", "AGENTS.md")
+		if _, err := os.Stat(kimiMd); err == nil {
+			if appleContainer {
+				appleContainerFiles[kimiMd] = "agent-instructions/kimi/AGENTS.md"
+			} else {
+				args = append(args, "-v", kimiMd+":/host-agent-instructions/kimi/AGENTS.md:ro")
+			}
+		}
+		// Kimi Code: ~/.kimi-code/skills/ directory
+		kimiSkills := filepath.Join(home, ".kimi-code", "skills")
+		if info, err := os.Stat(kimiSkills); err == nil && info.IsDir() {
+			mountSrc := kimiSkills
+			if dirContainsSymlinks(kimiSkills) {
+				staged, err := stageDirResolvingSymlinks(kimiSkills)
+				if err != nil {
+					warn("Failed to resolve symlinks in %s: %s", kimiSkills, err)
+				} else {
+					mountSrc = staged
+					cleanupPaths = append(cleanupPaths, staged)
+				}
+			}
+			args = append(args, "-v", mountSrc+":/host-agent-instructions/kimi/skills:ro")
 		}
 		// Pi: ~/.pi/agent/AGENTS.md
 		piMd := filepath.Join(home, ".pi", "agent", "AGENTS.md")
