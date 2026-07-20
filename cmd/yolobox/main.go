@@ -303,7 +303,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox update-agents [name...]  Update bundled AI CLIs in persistent home")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
-	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes (fresh start)")
+	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes, all architectures (add --platform to target one)")
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
 	fmt.Fprintln(os.Stderr, "  yolobox version             Show version info")
 	fmt.Fprintln(os.Stderr, "  yolobox help                Show this help")
@@ -316,6 +316,7 @@ func printUsage() {
 	fmt.Fprintf(os.Stderr, "%sFLAGS:%s\n", colorBold, colorReset)
 	fmt.Fprintln(os.Stderr, "  --runtime <name>      Container runtime: docker, podman, or container")
 	fmt.Fprintln(os.Stderr, "  --image <name>        Base image to use")
+	fmt.Fprintln(os.Stderr, "  --platform <value>    Container platform (e.g. linux/amd64); volumes are kept per architecture")
 	fmt.Fprintln(os.Stderr, "  --name <name>         Assign a runtime container name")
 	fmt.Fprintln(os.Stderr, "  --pod <name>          Join existing Podman pod (shares its network)")
 	fmt.Fprintln(os.Stderr, "  --setup               Run interactive setup before starting")
@@ -400,6 +401,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	var (
 		runtimeFlag           string
 		imageFlag             string
+		platformFlag          string
 		containerName         string
 		podFlag               string
 		networkFlag           string
@@ -445,6 +447,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 
 	fs.StringVar(&runtimeFlag, "runtime", "", "container runtime")
 	fs.StringVar(&imageFlag, "image", "", "container image")
+	fs.StringVar(&platformFlag, "platform", "", "container platform, e.g. linux/amd64 (persistent volumes are kept per architecture)")
 	fs.StringVar(&containerName, "name", "", "runtime container name")
 	fs.StringVar(&podFlag, "pod", "", "join existing podman pod")
 	fs.StringVar(&networkFlag, "network", "", "container network to join")
@@ -500,6 +503,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if imageFlag != "" {
 		cfg.Image = imageFlag
+	}
+	if platformFlag != "" {
+		cfg.Platform = platformFlag
 	}
 	if containerName != "" {
 		cfg.ContainerName = containerName
@@ -1240,14 +1246,14 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
-		"env": true, "h": true, "help": true,
+		"env": true, "h": true, "help": true, "platform": true,
 		"cpus": true, "memory": true, "shm-size": true, "gpus": true,
 		"device": true, "cap-add": true, "cap-drop": true, "runtime-arg": true,
 		"packages": true, "customize-file": true, "rebuild-image": true, "ensure-latest": true,
 	}
 
 	flagsWithValues := map[string]bool{
-		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
+		"runtime": true, "image": true, "name": true, "network": true, "pod": true, "platform": true,
 		"mount": true, "exclude": true, "copy-as": true, "env": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
@@ -1331,12 +1337,21 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if appleContainer && (len(cfg.Exclude) > 0 || len(cfg.CopyAs) > 0) {
 		return nil, nil, fmt.Errorf("--exclude and --copy-as are not supported with Apple container runtime")
 	}
+	if appleContainer && cfg.Platform != "" {
+		return nil, nil, fmt.Errorf("--platform is not supported with Apple container runtime")
+	}
+
+	containerArch, err := resolveContainerArch(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
 
 	// Check if we're using rootless Podman (needs --userns=keep-id for bind mount permissions)
 	rootlessPodman := isRootlessPodman(cfg.Runtime)
 
 	args := []string{"run", "--rm"}
 	args = appendRunFlag(args, "name", cfg.ContainerName)
+	args = appendRunFlag(args, "platform", cfg.Platform)
 
 	// Rootless Podman: map the host user to container UID 1000 (yolo) so
 	// bind-mounted files are accessible. Without this, the host user maps to
@@ -1464,7 +1479,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			if cfg.Scratch {
 				args = append(args, "-v", "/output") // anonymous volume, deleted with container
 			} else {
-				args = append(args, "-v", persistentVolumeMount("yolobox-output", "/output", rootlessPodman))
+				args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-output", containerArch), "/output", rootlessPodman))
 			}
 		}
 		args = append(args, "-v", projectMount)
@@ -1476,8 +1491,8 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// next. :U also repairs older keep-id volumes that were created with
 	// subordinate-ID ownership and now appear as uid/gid 999 in-container.
 	if !cfg.Scratch {
-		args = append(args, "-v", persistentVolumeMount("yolobox-home", "/home/yolo", rootlessPodman))
-		args = append(args, "-v", persistentVolumeMount("yolobox-cache", "/var/cache", rootlessPodman))
+		args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-home", containerArch), "/home/yolo", rootlessPodman))
+		args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-cache", containerArch), "/var/cache", rootlessPodman))
 	}
 
 	// For Apple container, we need to collect files and mount via a temp directory

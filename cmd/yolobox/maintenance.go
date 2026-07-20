@@ -18,6 +18,7 @@ func resetVolumes(args []string) error {
 	fs := flag.NewFlagSet("reset", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	force := fs.Bool("force", false, "remove volumes")
+	platform := fs.String("platform", "", "only remove volumes for this platform/architecture (e.g. linux/amd64)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage()
@@ -38,14 +39,38 @@ func resetVolumes(args []string) error {
 		return err
 	}
 
-	warn("Removing yolobox volumes...")
-	volumes := []string{"yolobox-home", "yolobox-cache"}
-	args = append([]string{"volume", "rm"}, volumes...)
+	var volumes []string
+	if *platform != "" {
+		volumes, err = volumesForPlatform(*platform)
+		if err != nil {
+			return err
+		}
+		warn("Removing yolobox volumes for %s...", *platform)
+	} else {
+		volumes = discoverYoloboxVolumes(runtimePath)
+		warn("Removing yolobox volumes (all architectures)...")
+	}
+	args = append([]string{"volume", "rm", "-f"}, volumes...)
 	if err := execCommand(runtimePath, args); err != nil {
 		return err
 	}
-	success("Fresh start! All volumes removed.")
+	success("Fresh start! Volumes removed.")
 	return nil
+}
+
+// discoverYoloboxVolumes lists the runtime's volumes and returns the yolobox
+// persistent volumes, including per-architecture variants. Falls back to the
+// legacy fixed names when the query fails.
+func discoverYoloboxVolumes(runtimePath string) []string {
+	output, err := exec.Command(runtimePath, "volume", "ls", "--format", "{{.Name}}").Output()
+	if err != nil {
+		return persistentVolumeBases
+	}
+	volumes := matchYoloboxVolumes(strings.Fields(string(output)))
+	if len(volumes) == 0 {
+		return persistentVolumeBases
+	}
+	return volumes
 }
 
 func uninstallYolobox(args []string) error {
@@ -65,7 +90,7 @@ func uninstallYolobox(args []string) error {
 		fmt.Println("  - yolobox binary")
 		fmt.Println("  - ~/.config/yolobox/ (config and cache)")
 		if !*keepVolumes {
-			fmt.Println("  - Docker volumes (yolobox-home, yolobox-cache)")
+			fmt.Println("  - Docker volumes (yolobox-home, yolobox-cache, yolobox-output, and per-architecture variants)")
 		}
 		fmt.Println("")
 		return fmt.Errorf("run with --force to confirm (use --keep-volumes to preserve Docker data)")
@@ -86,7 +111,7 @@ func uninstallYolobox(args []string) error {
 			runtimePath, err := resolveRuntime(cfg.Runtime)
 			if err == nil {
 				info("Removing Docker volumes...")
-				volumes := []string{"yolobox-home", "yolobox-cache", "yolobox-output"}
+				volumes := discoverYoloboxVolumes(runtimePath)
 				_ = execCommand(runtimePath, append([]string{"volume", "rm", "-f"}, volumes...))
 			}
 		}
@@ -239,7 +264,7 @@ func upgradeYolobox(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := pullImage(runtimePath, cfg.Image); err != nil {
+	if err := pullImage(runtimePath, cfg.Image, cfg.Platform); err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
 

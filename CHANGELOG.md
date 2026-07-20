@@ -11,6 +11,9 @@ there is no `v0.6.0` tag in this repository.
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
+- Added `--platform` flag and `platform` config key to run the container under emulation (e.g. `linux/amd64` on Apple Silicon), passed through to runtime `run`, `pull`, and custom-image `build`.
+- Persistent volumes are now kept per architecture: the native architecture keeps the legacy `yolobox-home`/`yolobox-cache`/`yolobox-output` names, while emulated architectures get suffixed volumes (e.g. `yolobox-home-amd64`), so native and emulated sessions no longer share `/home/yolo`. The architecture is detected from `--platform`, `runtime_args`, or `DOCKER_DEFAULT_PLATFORM`.
+- Added `--platform` to `yolobox reset` to wipe a single architecture's volumes; without it, reset now discovers and removes yolobox volumes for all architectures (including `yolobox-output`, which was previously missed).
 
 ## v0.18.4 - 2026-06-09
 

@@ -163,7 +163,7 @@ exit 0
 
 func TestPullImageUsesPlainPullForDocker(t *testing.T) {
 	binPath, logFile := installLoggingRuntimeNamed(t, "docker")
-	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest"); err != nil {
+	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest", ""); err != nil {
 		t.Fatalf("pullImage: %v", err)
 	}
 	log := readRuntimeLog(t, logFile)
@@ -174,7 +174,7 @@ func TestPullImageUsesPlainPullForDocker(t *testing.T) {
 
 func TestPullImageUsesImagePullForAppleContainer(t *testing.T) {
 	binPath, logFile := installLoggingRuntimeNamed(t, "container")
-	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest"); err != nil {
+	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest", ""); err != nil {
 		t.Fatalf("pullImage: %v", err)
 	}
 	log := readRuntimeLog(t, logFile)

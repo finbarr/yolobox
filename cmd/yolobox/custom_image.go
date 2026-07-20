@@ -108,11 +108,11 @@ func customImageTag(baseImageID, dockerfile string, packages []string) string {
 	return "yolobox-custom:" + hex.EncodeToString(sum[:])[:12]
 }
 
-func inspectImageID(runtimePath, image string) (string, error) {
+func inspectImageID(runtimePath, image, platform string) (string, error) {
 	cmd := exec.Command(runtimePath, "image", "inspect", image, "--format", "{{.Id}}")
 	output, err := cmd.Output()
 	if err != nil {
-		if pullErr := pullImage(runtimePath, image); pullErr != nil {
+		if pullErr := pullImage(runtimePath, image, platform); pullErr != nil {
 			return "", fmt.Errorf("failed to inspect or pull base image %q: %w", image, err)
 		}
 
@@ -129,8 +129,13 @@ func customImageExists(runtimePath, tag string) bool {
 	return exec.Command(runtimePath, "image", "inspect", tag).Run() == nil
 }
 
-func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir string) error {
-	cmd := exec.Command(runtimePath, "build", "-t", tag, "-f", dockerfilePath, contextDir)
+func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform string) error {
+	buildArgs := []string{"build", "-t", tag, "-f", dockerfilePath}
+	if platform != "" {
+		buildArgs = append(buildArgs, "--platform", platform)
+	}
+	buildArgs = append(buildArgs, contextDir)
+	cmd := exec.Command(runtimePath, buildArgs...)
 	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
@@ -148,7 +153,7 @@ func pullLatestBaseImage(cfg Config) error {
 		return err
 	}
 	info("Pulling base image %s...", cfg.Image)
-	return pullImage(runtimePath, cfg.Image)
+	return pullImage(runtimePath, cfg.Image, cfg.Platform)
 }
 
 func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
@@ -174,7 +179,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	baseImageID, err := inspectImageID(runtimePath, cfg.Image)
+	baseImageID, err := inspectImageID(runtimePath, cfg.Image, cfg.Platform)
 	if err != nil {
 		return "", err
 	}
@@ -204,7 +209,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	}
 
 	info("Building custom image %s...", tag)
-	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir); err != nil {
+	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, cfg.Platform); err != nil {
 		return "", fmt.Errorf("failed to build custom image: %w", err)
 	}
 	return tag, nil

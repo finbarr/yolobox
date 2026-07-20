@@ -14,6 +14,7 @@ Applies to all projects:
 
 ```toml
 default_harness = "codex"
+# platform = "linux/amd64" # run emulated; persistent volumes are kept per architecture
 git_config = true
 opencode_config = true
 pi_config = true
@@ -67,6 +68,12 @@ env = ["CODEX_HOME=/home/yolo/.codex-account"]
 CLI flags > project config > global config > defaults
 
 Use `container_name` or `--name` only when you need a stable runtime container name for inspection or integration. Fixed names cannot run concurrently; Docker, Podman, or Apple container will reject a second live container with the same name.
+
+## Emulated architectures
+
+Set `platform` (or pass `--platform`) to run the container under emulation, e.g. `linux/amd64` on Apple Silicon. The value is passed to the runtime's `run`, `pull`, and custom-image `build` commands. Apple `container` does not support it.
+
+Persistent volumes are kept per architecture so native and emulated sessions never share `/home/yolo`, `/var/cache`, or `/output`: the native architecture uses the legacy names (`yolobox-home`, `yolobox-cache`, `yolobox-output`), while any other architecture gets suffixed volumes such as `yolobox-home-amd64`. The architecture is taken from `platform`/`--platform`, a `--platform` entry in `runtime_args`, or the `DOCKER_DEFAULT_PLATFORM` environment variable, in that order. `yolobox reset --force` removes all of them; add `--platform` to reset just one architecture.
 
 ## Default harness
 
