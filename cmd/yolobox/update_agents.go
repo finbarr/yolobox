@@ -10,6 +10,7 @@ var agentUpdateTargets = []string{
 	"claude",
 	"codex",
 	"gemini",
+	"kimi",
 	"agy",
 	"opencode",
 	"copilot",
@@ -20,6 +21,7 @@ var agentUpdateAliases = map[string]string{
 	"claude":      "claude",
 	"codex":       "codex",
 	"gemini":      "gemini",
+	"kimi":        "kimi",
 	"agy":         "agy",
 	"antigravity": "agy",
 	"opencode":    "opencode",
@@ -61,6 +63,7 @@ func updateAgentsDefaults(cfg Config) Config {
 	cfg.ClaudeConfig = false
 	cfg.CodexConfig = false
 	cfg.GeminiConfig = false
+	cfg.KimiConfig = false
 	cfg.OpencodeConfig = false
 	cfg.PiConfig = false
 	cfg.GitConfig = false
@@ -214,6 +217,33 @@ update_antigravity() {
     print_version "Antigravity CLI" agy
 }
 
+update_kimi() {
+    require_command curl "Kimi Code"
+    require_command bash "Kimi Code"
+    printf 'updating Kimi Code\n'
+    local curl_home=""
+    local installer=""
+    curl_home="$(mktemp -d)"
+    printf '%s\n' \
+        'retry = 5' \
+        'retry-all-errors' \
+        'retry-delay = 2' \
+        'connect-timeout = 20' \
+        'max-time = 300' \
+        > "$curl_home/.curlrc"
+    installer="$(mktemp)"
+    if ! CURL_HOME="$curl_home" curl -fsSL https://code.kimi.com/kimi-code/install.sh -o "$installer"; then
+        rm -rf "$curl_home" "$installer"
+        return 1
+    fi
+    if ! CURL_HOME="$curl_home" KIMI_INSTALL_DIR="$HOME/.local" KIMI_NO_MODIFY_PATH=1 bash "$installer"; then
+        rm -rf "$curl_home" "$installer"
+        return 1
+    fi
+    rm -rf "$curl_home" "$installer"
+    print_version "Kimi Code" kimi
+}
+
 for target in "${targets[@]}"; do
     case "$target" in
         claude)
@@ -224,6 +254,9 @@ for target in "${targets[@]}"; do
             ;;
         gemini)
             npm_update "Gemini CLI" gemini "@google/gemini-cli"
+            ;;
+        kimi)
+            update_kimi
             ;;
         agy)
             update_antigravity

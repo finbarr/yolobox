@@ -8,6 +8,7 @@ yolobox is built around AI shortcut commands:
 yolobox claude
 yolobox codex
 yolobox gemini
+yolobox kimi
 yolobox agy
 yolobox antigravity
 yolobox opencode
@@ -27,6 +28,7 @@ If you use one tool most of the time, set `default_harness = "codex"` or another
 yolobox claude
 yolobox codex
 yolobox gemini
+yolobox kimi
 yolobox agy
 yolobox antigravity
 yolobox opencode
@@ -153,10 +155,11 @@ The check prints the current version, latest version, and a short summary from t
 ```bash
 yolobox update-agents
 yolobox update-agents claude codex
+yolobox update-agents kimi
 yolobox update-agents antigravity
 ```
 
-`update-agents` runs inside the persistent yolobox home volume and refreshes Claude Code, Codex, Gemini, Antigravity, OpenCode, Copilot, and Pi. It uses global/default runtime settings, ignores `.yolobox.toml`, skips the project mount, and rejects `--scratch`, because updates made in scratch mode would disappear when the container exits.
+`update-agents` runs inside the persistent yolobox home volume and refreshes Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi. It uses global/default runtime settings, ignores `.yolobox.toml`, skips the project mount, and rejects `--scratch`, because updates made in scratch mode would disappear when the container exits.
 
 ### Reset persistent state
 
