@@ -10,11 +10,12 @@ The base image is meant to be useful immediately without turning into a giant ki
 - Gemini CLI
 - Antigravity CLI
 - OpenAI Codex
+- Kimi Code
 - OpenCode
 - GitHub Copilot
 - Pi
 
-Claude and Codex sessions also get a built-in `yolobox` skill that helps the agent orient itself to the trusted sandbox it is running in, then reads `/run/yolobox/context.json` and describes the active environment. yolobox also injects managed guidance into their user instruction files so they know when to use that skill. The host-side `yolobox-orchestrator` skill lives in the repo's `skills/` directory but is not auto-installed inside the container because it is meant for agents running outside yolobox.
+Claude, Codex, and Kimi Code sessions also get a built-in `yolobox` skill that helps the agent orient itself to the trusted sandbox it is running in, then reads `/run/yolobox/context.json` and describes the active environment. yolobox also injects managed guidance into their user instruction files so they know when to use that skill. The host-side `yolobox-orchestrator` skill lives in the repo's `skills/` directory but is not auto-installed inside the container because it is meant for agents running outside yolobox.
 
 RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or set `rtk = true` to initialize it for Claude, Codex, Gemini, or OpenCode inside the container.
 
@@ -27,7 +28,7 @@ RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or 
 
 npm is upgraded during the image build using npm's date-based `--before` filter. yolobox's own later npm/npx installs in that image build run with `NPM_CONFIG_MIN_RELEASE_AGE=7`, but the finished box does not keep the release-age setting at runtime.
 
-Bundled AI CLI versions are captured when the base image is built, but they are only a starting point. User-level npm/global installs and Claude self-upgrades live in the persistent home volume and are not reset at startup. Use `yolobox update-agents` to refresh Claude Code, Codex, Gemini, Antigravity, OpenCode, Copilot, and Pi inside that persistent home volume. `yolobox upgrade` refreshes the bundled image defaults; it is not required just to upgrade a tool yourself.
+Bundled AI CLI versions are captured when the base image is built, but they are only a starting point. User-level installs and self-upgrades live in the persistent home volume and are not reset at startup. Use `yolobox update-agents` to refresh Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi inside that persistent home volume. `yolobox upgrade` refreshes the bundled image defaults; it is not required just to upgrade a tool yourself.
 
 ### Build tools
 
@@ -57,6 +58,7 @@ Inside yolobox, AI CLIs are wrapped to skip approval prompts where the upstream 
 | `claude` | `claude --dangerously-skip-permissions` |
 | `codex` | `codex --ask-for-approval never --sandbox danger-full-access` |
 | `gemini` | `gemini --yolo` |
+| `kimi` | `kimi --yolo` |
 | `agy` | `agy --dangerously-skip-permissions` |
 | `antigravity` | `agy --dangerously-skip-permissions` |
 | `opencode` | `opencode` |
@@ -66,6 +68,8 @@ Inside yolobox, AI CLIs are wrapped to skip approval prompts where the upstream 
 No confirmations, no guardrails. That is the product.
 
 OpenCode and Pi do not have dedicated yolo flags yet, but they still run inside the yolobox sandbox.
+
+Kimi Code prompt mode (`kimi --prompt` or `kimi -p`) already uses its non-interactive auto policy, so the wrapper does not add `--yolo` there. It also preserves an explicit `--auto` or upstream permission-mode flag instead of creating a conflicting combination.
 
 ## Why the base image stays lean
 

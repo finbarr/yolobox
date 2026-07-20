@@ -316,6 +316,12 @@ func toolInvocationNeedsTTY(tool string, args []string) bool {
 				return false
 			}
 		}
+	case "kimi":
+		for _, arg := range args {
+			if arg == "-p" || arg == "--prompt" || strings.HasPrefix(arg, "--prompt=") {
+				return false
+			}
+		}
 	}
 	return true
 }

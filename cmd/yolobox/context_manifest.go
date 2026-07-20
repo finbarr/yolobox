@@ -74,6 +74,7 @@ type contextConfigManifest struct {
 	ClaudeConfig          bool                           `json:"claude_config"`
 	CodexConfig           bool                           `json:"codex_config"`
 	GeminiConfig          bool                           `json:"gemini_config"`
+	KimiConfig            bool                           `json:"kimi_config"`
 	OpencodeConfig        bool                           `json:"opencode_config"`
 	PiConfig              bool                           `json:"pi_config"`
 	GitConfig             bool                           `json:"git_config"`
@@ -180,6 +181,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ClaudeConfig:          cfg.ClaudeConfig,
 			CodexConfig:           cfg.CodexConfig,
 			GeminiConfig:          cfg.GeminiConfig,
+			KimiConfig:            cfg.KimiConfig,
 			OpencodeConfig:        cfg.OpencodeConfig,
 			PiConfig:              cfg.PiConfig,
 			GitConfig:             cfg.GitConfig,

@@ -52,6 +52,7 @@ These target different layers:
 | `--claude-config` | Copy host `~/.claude` config into the container | |
 | `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` Gemini/Antigravity config into the container | |
+| `--kimi-config` | Sync host `~/.kimi-code` config, credentials, skills, and sessions into the container | |
 | `--opencode-config` | Copy host `~/.config/opencode` config into the container | |
 | `--pi-config` | Copy host `~/.pi/agent` config into the container | |
 | `--git-config` | Copy host `~/.gitconfig` into the container | |

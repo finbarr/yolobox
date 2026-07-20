@@ -8,12 +8,19 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.18.5 - 2026-07-19
+
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
 - Added `--platform` flag and `platform` config key to run the container under emulation (e.g. `linux/amd64` on Apple Silicon), passed through to runtime `run`, `pull`, and custom-image `build`.
 - Persistent volumes are now kept per architecture: the native architecture keeps the legacy `yolobox-home`/`yolobox-cache`/`yolobox-output` names, while emulated architectures get suffixed volumes (e.g. `yolobox-home-amd64`), so native and emulated sessions no longer share `/home/yolo`. The architecture is detected from `--platform`, `runtime_args`, or `DOCKER_DEFAULT_PLATFORM`.
 - Added `--platform` to `yolobox reset` to wipe a single architecture's volumes; without it, reset now discovers and removes yolobox volumes for all architectures (including `yolobox-output`, which was previously missed).
+- Added first-class Kimi Code support with a bundled CLI, the `yolobox kimi` shortcut, setup and default-harness integration, optional `~/.kimi-code` sync, persistent updates through `yolobox update-agents kimi`, and built-in yolobox guidance.
+
+### Changed
+
+- Clarified project-level `env` configuration across the README, docs site, and bundled orchestrator guidance.
 
 ## v0.18.4 - 2026-06-09
 
