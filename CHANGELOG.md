@@ -8,9 +8,16 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.18.5 - 2026-07-19
+
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
+- Added first-class Kimi Code support with a bundled CLI, the `yolobox kimi` shortcut, setup and default-harness integration, optional `~/.kimi-code` sync, persistent updates through `yolobox update-agents kimi`, and built-in yolobox guidance.
+
+### Changed
+
+- Clarified project-level `env` configuration across the README, docs site, and bundled orchestrator guidance.
 
 ## v0.18.4 - 2026-06-09
 
