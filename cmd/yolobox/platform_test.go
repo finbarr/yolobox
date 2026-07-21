@@ -224,10 +224,139 @@ func TestBuildRunArgsDockerDefaultPlatformEnv(t *testing.T) {
 	if !strings.Contains(argsStr, "yolobox-home-amd64:/home/yolo") {
 		t.Errorf("expected arch-suffixed home volume from DOCKER_DEFAULT_PLATFORM, got %s", argsStr)
 	}
-	// The docker CLI already honors DOCKER_DEFAULT_PLATFORM itself; yolobox
-	// only adds --platform when configured explicitly.
+	// The env var is part of the effective platform, so yolobox emits it
+	// explicitly rather than trusting the runtime to apply it. That keeps the
+	// architecture that runs in step with the volumes that were mounted, and
+	// carries the same value to pull and custom-image build.
+	if !strings.Contains(argsStr, "--platform linux/amd64") {
+		t.Errorf("expected explicit --platform from DOCKER_DEFAULT_PLATFORM, got %s", argsStr)
+	}
+}
+
+// Apple container cannot act on DOCKER_DEFAULT_PLATFORM and only runs the
+// native architecture, so an ambient value must not select another
+// architecture's volumes for it.
+func TestBuildRunArgsDockerDefaultPlatformIgnoredForAppleContainer(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+
+	runtimeDir := t.TempDir()
+	containerPath := filepath.Join(runtimeDir, "container")
+	if err := os.WriteFile(containerPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake container runtime: %v", err)
+	}
+	t.Setenv("PATH", runtimeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := Config{Runtime: "container", Image: "test-image"}
+
+	args, _, err := buildRunArgs(cfg, t.TempDir(), []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
 	if strings.Contains(argsStr, "--platform") {
-		t.Errorf("did not expect explicit --platform from env-only config, got %s", argsStr)
+		t.Errorf("Apple container must not receive --platform, got %s", argsStr)
+	}
+	if strings.Contains(argsStr, "yolobox-home-amd64") {
+		t.Errorf("Apple container must keep native volumes, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, "yolobox-home:/home/yolo") {
+		t.Errorf("expected native home volume for Apple container, got %s", argsStr)
+	}
+}
+
+func TestResolveContainerArchIgnoresEnvForAppleContainer(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+
+	runtimeDir := t.TempDir()
+	containerPath := filepath.Join(runtimeDir, "container")
+	if err := os.WriteFile(containerPath, []byte("#!/bin/sh\nexit 0\n"), 0755); err != nil {
+		t.Fatalf("failed to write fake container runtime: %v", err)
+	}
+	t.Setenv("PATH", runtimeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	arch, err := resolveContainerArch(Config{Runtime: "container"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if arch != "arm64" {
+		t.Errorf("expected native arm64 for Apple container, got %q", arch)
+	}
+}
+
+// One effective platform must reach every runtime invocation. An ambient
+// DOCKER_DEFAULT_PLATFORM that only reached `run` would pull one architecture
+// and run another.
+func TestDockerDefaultPlatformReachesPullAndRun(t *testing.T) {
+	projectDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "linux/amd64")
+	logFile := installLoggingDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	if err := runCmdArgs([]string{"shell", "--ensure-latest"}, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs: %v", err)
+	}
+
+	log := readRuntimeLog(t, logFile)
+	sawPull, sawRun := false, false
+	for _, line := range log {
+		switch {
+		case strings.HasPrefix(line, "pull "):
+			sawPull = true
+			if !strings.Contains(line, "--platform linux/amd64") {
+				t.Errorf("expected pull to carry the effective platform, got: %q", line)
+			}
+		case strings.HasPrefix(line, "run "):
+			sawRun = true
+			if !strings.Contains(line, "--platform linux/amd64") {
+				t.Errorf("expected run to carry the effective platform, got: %q", line)
+			}
+		}
+	}
+	if !sawPull || !sawRun {
+		t.Fatalf("expected both a pull and a run, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+func TestContextManifestReportsPlatformAndArch(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "")
+
+	// Native run: no platform is passed to the runtime, but the architecture
+	// the volumes belong to is still reported.
+	manifest := buildContextManifest(Config{Image: "test-image"}, "/test/project", []string{"bash"}, false, nil, false)
+	if manifest.Runtime.Platform != "" {
+		t.Errorf("expected no platform for a native run, got %q", manifest.Runtime.Platform)
+	}
+	if manifest.Runtime.Arch != "arm64" {
+		t.Errorf("expected native arm64 arch, got %q", manifest.Runtime.Arch)
+	}
+
+	// Emulated run: the manifest reports the same normalized value the runtime
+	// receives, plus the configured value under config.
+	manifest = buildContextManifest(Config{Image: "test-image", Platform: "amd64"}, "/test/project", []string{"bash"}, false, nil, false)
+	if manifest.Runtime.Platform != "linux/amd64" {
+		t.Errorf("expected normalized linux/amd64, got %q", manifest.Runtime.Platform)
+	}
+	if manifest.Runtime.Arch != "amd64" {
+		t.Errorf("expected amd64 arch, got %q", manifest.Runtime.Arch)
+	}
+	if manifest.Config.Platform != "amd64" {
+		t.Errorf("expected configured platform preserved, got %q", manifest.Config.Platform)
+	}
+
+	// Raw runtime_args are resolved the same way, so in-box guidance sees the
+	// architecture the runtime actually got.
+	manifest = buildContextManifest(
+		Config{Image: "test-image", RuntimeArgs: []string{"--platform=linux/amd64"}},
+		"/test/project", []string{"bash"}, false, nil, false,
+	)
+	if manifest.Runtime.Arch != "amd64" {
+		t.Errorf("expected amd64 arch from runtime_args, got %q", manifest.Runtime.Arch)
 	}
 }
 

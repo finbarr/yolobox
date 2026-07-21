@@ -74,7 +74,15 @@ Use `container_name` or `--name` only when you need a stable runtime container n
 
 Set `platform` (or pass `--platform`) to run the container under emulation, e.g. `linux/amd64` on Apple Silicon. The value is passed to the runtime's `run`, `pull`, and custom-image `build` commands. Apple `container` does not support it.
 
-Persistent volumes are kept per architecture so native and emulated sessions never share `/home/yolo`, `/var/cache`, or `/output`: the native architecture uses the legacy names (`yolobox-home`, `yolobox-cache`, `yolobox-output`), while any other architecture gets suffixed volumes such as `yolobox-home-amd64`. The architecture is taken from the effective platform — `platform`/`--platform` or a `--platform` entry in `runtime_args`, which must agree if both are set — or else the `DOCKER_DEFAULT_PLATFORM` environment variable. That same effective platform is used consistently for the run, image pulls, and custom-image builds. `yolobox reset --force` removes all of them; add `--platform` to reset just one architecture.
+Persistent volumes are kept per architecture so native and emulated sessions never share `/home/yolo`, `/var/cache`, or `/output`: the native architecture uses the legacy names (`yolobox-home`, `yolobox-cache`, `yolobox-output`), while any other architecture gets suffixed volumes such as `yolobox-home-amd64`. `yolobox reset --force` removes all of them; add `--platform` to reset just one architecture.
+
+yolobox resolves a single effective platform and uses it for the run, image pulls, custom-image builds, and volume selection, so the architecture that runs always matches the volumes that are mounted. In precedence order:
+
+1. `platform` / `--platform`, or a `--platform` entry in `runtime_args`. If both are set they must agree, otherwise yolobox errors out.
+2. The `DOCKER_DEFAULT_PLATFORM` environment variable. yolobox passes this on explicitly rather than leaving it to the runtime. It is ignored for Apple `container`, which cannot act on it and always runs natively.
+3. The native host architecture.
+
+The resolved platform and architecture are reported in the [context manifest](#context-manifest) as `runtime.platform` and `runtime.arch`.
 
 ## Default harness
 
@@ -202,11 +210,11 @@ Set `no_env_passthrough = true` or pass `--no-env-passthrough` to disable all au
 On macOS, `gh` stores tokens in Keychain, not environment variables. Use `--gh-token` or `gh_token = true` if you want yolobox to extract and forward the GitHub token. When a token is present, yolobox also configures HTTPS Git auth for `github.com` remotes.
 :::
 
-## Runtime context manifest
+## Runtime context manifest {#context-manifest}
 
 Every yolobox session provides a runtime manifest at `/run/yolobox/context.json` and sets `YOLOBOX_CONTEXT_FILE` to that path.
 
-The manifest is intended for agents and scripts running inside the container. It exposes the resolved runtime and launch context in JSON, including an `inside_yolobox` confirmation, the effective config, container paths, launch command, fork metadata when `yolobox fork` is active, and the keys of forwarded environment variables without copying their values into the manifest.
+The manifest is intended for agents and scripts running inside the container. It exposes the resolved runtime and launch context in JSON, including an `inside_yolobox` confirmation, the effective config, container paths, the resolved container platform and architecture, launch command, fork metadata when `yolobox fork` is active, and the keys of forwarded environment variables without copying their values into the manifest.
 
 The canonical skill packages live under [`skills/`](https://github.com/finbarr/yolobox/tree/master/skills):
 

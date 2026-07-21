@@ -8,14 +8,18 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Added `--platform` flag and `platform` config key to run the container under emulation (e.g. `linux/amd64` on Apple Silicon), passed through to runtime `run`, `pull`, and custom-image `build`.
+- Persistent volumes are now kept per architecture: the native architecture keeps the legacy `yolobox-home`/`yolobox-cache`/`yolobox-output` names, while emulated architectures get suffixed volumes (e.g. `yolobox-home-amd64`), so native and emulated sessions no longer share `/home/yolo`. The architecture comes from a single effective platform — `--platform`/`platform`, a `--platform` entry in `runtime_args`, or `DOCKER_DEFAULT_PLATFORM` (ignored for Apple `container`, which cannot act on it) — so the architecture that runs always matches the volumes that are mounted.
+- Added `--platform` to `yolobox reset` to wipe a single architecture's volumes; without it, reset now discovers and removes yolobox volumes for all architectures (including `yolobox-output`, which was previously missed).
+- The context manifest now reports the effective platform and container architecture, so in-box guidance sees the same resolved launch context as the runtime.
+
 ## v0.18.5 - 2026-07-19
 
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
-- Added `--platform` flag and `platform` config key to run the container under emulation (e.g. `linux/amd64` on Apple Silicon), passed through to runtime `run`, `pull`, and custom-image `build`.
-- Persistent volumes are now kept per architecture: the native architecture keeps the legacy `yolobox-home`/`yolobox-cache`/`yolobox-output` names, while emulated architectures get suffixed volumes (e.g. `yolobox-home-amd64`), so native and emulated sessions no longer share `/home/yolo`. The architecture is detected from `--platform`, `runtime_args`, or `DOCKER_DEFAULT_PLATFORM`.
-- Added `--platform` to `yolobox reset` to wipe a single architecture's volumes; without it, reset now discovers and removes yolobox volumes for all architectures (including `yolobox-output`, which was previously missed).
 - Added first-class Kimi Code support with a bundled CLI, the `yolobox kimi` shortcut, setup and default-harness integration, optional `~/.kimi-code` sync, persistent updates through `yolobox update-agents kimi`, and built-in yolobox guidance.
 
 ### Changed

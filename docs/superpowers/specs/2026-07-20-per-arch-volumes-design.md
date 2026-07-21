@@ -1,6 +1,6 @@
 # Per-architecture persistent volumes
 
-Date: 2026-07-20
+Date: 2026-07-20 (revised 2026-07-21 after two review rounds on PR #60)
 Status: approved
 
 ## Problem
@@ -40,12 +40,31 @@ image pulls, custom-image builds, and volume selection:
 1. `--platform` flag / `platform` config, or a `--platform` value already
    present in `runtime_args`. If both are set they must agree (after
    normalization); conflicting values are an error.
-2. `DOCKER_DEFAULT_PLATFORM` environment variable
+2. `DOCKER_DEFAULT_PLATFORM` environment variable, **except** when the selected
+   runtime is Apple `container`, which never reads that Docker-specific
+   variable and runs the native architecture regardless. Honoring it there
+   would mount another architecture's volumes into a native container.
 3. Native host architecture (`runtime.GOARCH`)
+
+`DOCKER_DEFAULT_PLATFORM` resolves into the effective platform rather than
+being consulted only when naming volumes, so yolobox passes it explicitly to
+run, pull, and build. That is what makes "one effective platform" true in
+practice: the architecture the container actually gets cannot drift from the
+architecture whose volumes were mounted, regardless of whether a given runtime
+honors the variable on its own.
 
 The architecture component is extracted from the platform string (`linux/amd64`
 → `amd64`) and normalized: `x86_64` → `amd64`, `aarch64` → `arm64`. Variant
 suffixes (`linux/arm/v7`) keep the arch component only (`arm`).
+
+### Context manifest
+
+`runtime.platform` (the normalized value passed to the runtime, empty for a
+native run), `runtime.arch` (the architecture whose volumes are mounted), and
+`config.platform` (the configured value) are part of the context manifest, so
+in-box guidance sees the same resolved launch context as the runtime. The
+bundled `yolobox` skill surfaces both, and its inference fallback reports
+`uname -m` when no manifest is available.
 
 ### Volume naming
 
@@ -102,10 +121,22 @@ Unit tests following existing `main_test.go` patterns:
 - Platform parsing/normalization (`linux/amd64`, `amd64`, `x86_64`,
   `aarch64`, `linux/arm/v7`, invalid values).
 - Arch resolution precedence (flag > runtime_args > env > native).
+- `DOCKER_DEFAULT_PLATFORM` is ignored for Apple `container`: no `--platform`
+  is emitted and native volume names are kept.
 - Volume naming: native → legacy names, non-native → suffixed.
 - `buildRunArgs`: emits `--platform` and the correct `-v` volume names.
+- End-to-end: an ambient `DOCKER_DEFAULT_PLATFORM` reaches both the pull and
+  the run, against a logging fake runtime.
+- Context manifest reports platform/arch for native, flag-configured, and
+  `runtime_args`-configured runs.
 - Reset volume matching: which discovered names are removed, with and without
   `--platform`.
+
+## CI
+
+`npm run docs:build` runs as a CI job on pull requests. The docs deploy
+workflow only runs on `master`, so a VitePress parse error (for example
+unescaped `{{ }}` in Markdown) previously reached master with green checks.
 
 ## Docs
 

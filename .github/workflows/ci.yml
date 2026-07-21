@@ -48,6 +48,30 @@ jobs:
         with:
           version: latest
 
+  docs:
+    name: Docs Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: docs/package-lock.json
+
+      - name: Install docs dependencies
+        working-directory: docs
+        run: npm ci
+
+      # Catches VitePress parse errors (e.g. unescaped {{ }} in Markdown) on the
+      # PR instead of after merge, where the deploy workflow is the first thing
+      # to run the build.
+      - name: Build docs site
+        working-directory: docs
+        run: npm run docs:build
+
   build:
     name: Build
     runs-on: ${{ matrix.os }}

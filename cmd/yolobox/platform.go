@@ -89,10 +89,27 @@ func platformFromRuntimeArgs(args []string) string {
 	return ""
 }
 
+// platformFromEnv returns DOCKER_DEFAULT_PLATFORM when the selected runtime can
+// actually act on it. Apple `container` never reads the Docker-specific
+// variable and runs the native architecture regardless, so honoring it there
+// would mount another architecture's volumes into a native container.
+func platformFromEnv(cfg Config) string {
+	value := os.Getenv("DOCKER_DEFAULT_PLATFORM")
+	if value == "" || isAppleContainer(cfg.Runtime) {
+		return ""
+	}
+	return value
+}
+
 // effectivePlatform returns the single platform value used for run, pull,
 // custom-image build, and volume selection. The platform option and a
 // --platform inside runtime_args must agree (after normalization); anything
 // else would pull one architecture and run another.
+//
+// DOCKER_DEFAULT_PLATFORM is the lowest-precedence source. Resolving it here
+// rather than only when picking volumes means yolobox passes it explicitly to
+// run, pull, and build, so the architecture the container actually gets cannot
+// drift from the architecture whose volumes were mounted.
 func effectivePlatform(cfg Config) (string, error) {
 	fromArgs := platformFromRuntimeArgs(cfg.RuntimeArgs)
 	if cfg.Platform != "" && fromArgs != "" && dockerPlatform(cfg.Platform) != dockerPlatform(fromArgs) {
@@ -101,7 +118,10 @@ func effectivePlatform(cfg Config) (string, error) {
 	if cfg.Platform != "" {
 		return cfg.Platform, nil
 	}
-	return fromArgs, nil
+	if fromArgs != "" {
+		return fromArgs, nil
+	}
+	return platformFromEnv(cfg), nil
 }
 
 // stripPlatformFromRuntimeArgs removes --platform entries from raw runtime
@@ -121,9 +141,9 @@ func stripPlatformFromRuntimeArgs(args []string) []string {
 	return out
 }
 
-// resolveContainerArch determines the architecture the container will run as:
-// the effective platform if one is configured, then DOCKER_DEFAULT_PLATFORM,
-// then the native host architecture.
+// resolveContainerArch determines the architecture the container will run as.
+// It derives from the effective platform alone, so volume selection can never
+// disagree with the --platform yolobox actually passes to the runtime.
 func resolveContainerArch(cfg Config) (string, error) {
 	platform, err := effectivePlatform(cfg)
 	if err != nil {
@@ -131,9 +151,6 @@ func resolveContainerArch(cfg Config) (string, error) {
 	}
 	if platform != "" {
 		return archFromPlatform(platform)
-	}
-	if value := os.Getenv("DOCKER_DEFAULT_PLATFORM"); value != "" {
-		return archFromPlatform(value)
 	}
 	return nativeArch, nil
 }

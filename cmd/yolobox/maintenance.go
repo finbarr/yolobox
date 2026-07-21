@@ -264,7 +264,11 @@ func upgradeYolobox(args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := pullImage(runtimePath, cfg.Image, cfg.Platform); err != nil {
+	platform, err := effectivePlatform(cfg)
+	if err != nil {
+		return err
+	}
+	if err := pullImage(runtimePath, cfg.Image, platform); err != nil {
 		return fmt.Errorf("failed to pull image: %w", err)
 	}
 
