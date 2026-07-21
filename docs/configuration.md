@@ -192,9 +192,13 @@ env_from_host = [
 
 With that config, a host shell holding a read-write `GH_TOKEN` and a read-only `YOLOBOX_READONLY_GH_TOKEN` gives the container only the read-only one, without the token ever being written into `.yolobox.toml`.
 
-Both sides are plain variable names — write `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN`, not `GH_TOKEN=$YOLOBOX_READONLY_GH_TOKEN`. If the host variable is not set, nothing is passed for that entry, so the container keeps whatever the image provides.
+Both sides are plain variable names — write `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN`, not `GH_TOKEN=$YOLOBOX_READONLY_GH_TOKEN`.
 
-Set a given key in either `env` or `env_from_host`, not both: yolobox passes both to the container runtime and the runtime decides which one wins.
+An alias owns its container variable, and it fails closed:
+
+- If the host variable is not set, yolobox refuses to start the container. Skipping the entry would let the more privileged variable it replaces reach the container instead.
+- The alias suppresses every other source for that key. [Automatic passthrough](#auto-forwarded-environment-variables) and `--gh-token` are skipped for an aliased key, so `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN` cannot be shadowed by the host's read-write `GH_TOKEN`.
+- Setting the same key in both `env` and `env_from_host` is an error. Pick one.
 
 ## Auto-forwarded environment variables
 

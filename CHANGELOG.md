@@ -10,7 +10,7 @@ there is no `v0.6.0` tag in this repository.
 
 ### Added
 
-- Added `env_from_host = [...]` config entries and `--env-from-host KEY=HOST_VAR` to set a container environment variable from a differently named host variable, for example mapping a read-only host token into `GH_TOKEN` inside the container. `env` and `--env` values remain verbatim.
+- Added `env_from_host = [...]` config entries and `--env-from-host KEY=HOST_VAR` to set a container environment variable from a differently named host variable, for example mapping a read-only host token into `GH_TOKEN` inside the container. `env` and `--env` values remain verbatim. An alias owns its container variable: automatic passthrough and `--gh-token` are suppressed for that key, setting the same key in both `env` and `env_from_host` is rejected, and an unset host source aborts the run instead of falling back to the variable the alias replaces.
 
 ## v0.18.5 - 2026-07-19
 

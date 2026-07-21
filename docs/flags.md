@@ -122,7 +122,7 @@ To give the container a different value than the host uses under the same name, 
 yolobox run --env-from-host GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN claude
 ```
 
-Both sides are plain variable names, with no `$`. If the host variable is unset, nothing is passed. See [renaming host variables](/configuration#renaming-host-variables) for details.
+Both sides are plain variable names, with no `$`. An alias fails closed: yolobox refuses to start if the host variable is unset, and it suppresses automatic passthrough and `--gh-token` for that key so the value it replaces cannot leak in. See [renaming host variables](/configuration#renaming-host-variables) for details.
 
 ## RTK command compression
 

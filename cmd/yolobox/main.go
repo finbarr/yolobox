@@ -739,6 +739,9 @@ func validateRuntimeOptions(cfg Config) error {
 	if err := validateEnvFromHost(cfg.EnvFromHost); err != nil {
 		return err
 	}
+	if err := validateEnvFromHostConflicts(cfg.Env, cfg.EnvFromHost); err != nil {
+		return err
+	}
 	if cfg.ContainerName != "" && !containerNamePattern.MatchString(cfg.ContainerName) {
 		return fmt.Errorf("invalid --name value %q: expected letters, numbers, dots, underscores, or dashes, starting with a letter or number", cfg.ContainerName)
 	}
@@ -1442,10 +1445,19 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 	}
 
+	// Host env aliases own their container variable outright. Suppress any
+	// competing automatic forwarding of the same key instead of relying on the
+	// runtime's duplicate "-e" precedence, so a least-privilege alias cannot be
+	// shadowed by the very variable it replaces.
+	aliasedEnvKeys := envFromHostKeySet(cfg.EnvFromHost)
+
 	// Auto-passthrough common API keys unless disabled for untrusted work.
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
 	if !cfg.NoEnvPassthrough {
 		for _, key := range autoPassthroughEnvVars {
+			if aliasedEnvKeys[key] {
+				continue
+			}
 			if val := os.Getenv(key); val != "" {
 				autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
 				args = append(args, "-e", key+"="+val)
@@ -1455,7 +1467,10 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Forward GitHub CLI token (extracted from keychain/credential store)
 	ghTokenForwarded := false
-	if cfg.GhToken {
+	if cfg.GhToken && aliasedEnvKeys["GH_TOKEN"] {
+		warn("Ignoring --gh-token because env_from_host sets GH_TOKEN.")
+	}
+	if cfg.GhToken && !aliasedEnvKeys["GH_TOKEN"] {
 		started = time.Now()
 		if token := getGhToken(); token != "" {
 			args = append(args, "-e", "GH_TOKEN="+token)
@@ -1470,7 +1485,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	// Host variables aliased into the container under a different name
-	args = append(args, hostEnvAliasArgs(cfg.EnvFromHost)...)
+	aliasArgs, err := hostEnvAliasArgs(cfg.EnvFromHost)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, aliasArgs...)
 
 	if !cfg.NoProject {
 		started = time.Now()
