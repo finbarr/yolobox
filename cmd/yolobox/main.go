@@ -323,7 +323,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --mount <src:dst>     Extra mount (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --exclude <glob>      Hide project paths from the container (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --copy-as <src:dst>   Mount a file at a project path inside the container")
-	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable); $VAR in val expands from host env")
+	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
+	fmt.Fprintln(os.Stderr, "  --env-from-host <KEY=HOST_VAR>")
+	fmt.Fprintln(os.Stderr, "                        Set KEY from the host's HOST_VAR (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
@@ -430,6 +432,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		excludes              stringSliceFlag
 		copyAs                stringSliceFlag
 		envVars               stringSliceFlag
+		envFromHost           stringSliceFlag
 
 		// Resource limits & security
 		cpus          string
@@ -475,7 +478,8 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.Var(&mounts, "mount", "extra mount src:dst")
 	fs.Var(&excludes, "exclude", "hide matching project paths from the container")
 	fs.Var(&copyAs, "copy-as", "mount a file at another project path inside the container")
-	fs.Var(&envVars, "env", "environment variable KEY=value ($VAR in value expands from host env)")
+	fs.Var(&envVars, "env", "environment variable KEY=value")
+	fs.Var(&envFromHost, "env-from-host", "set container variable KEY from host variable HOST_VAR (KEY=HOST_VAR)")
 
 	// Resource limits & security
 	fs.StringVar(&cpus, "cpus", "", "limit number of CPUs (supports fractions)")
@@ -588,6 +592,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if len(envVars) > 0 {
 		cfg.Env = append(cfg.Env, envVars...)
+	}
+	if len(envFromHost) > 0 {
+		cfg.EnvFromHost = append(cfg.EnvFromHost, envFromHost...)
 	}
 
 	if cpus != "" {
@@ -728,6 +735,9 @@ func validateRuntimeOptions(cfg Config) error {
 		if strings.TrimSpace(arg) == "" {
 			return fmt.Errorf("--runtime-arg entries cannot be blank")
 		}
+	}
+	if err := validateEnvFromHost(cfg.EnvFromHost); err != nil {
+		return err
 	}
 	if cfg.ContainerName != "" && !containerNamePattern.MatchString(cfg.ContainerName) {
 		return fmt.Errorf("invalid --name value %q: expected letters, numbers, dots, underscores, or dashes, starting with a letter or number", cfg.ContainerName)
@@ -1253,7 +1263,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
-		"env": true, "h": true, "help": true,
+		"env": true, "env-from-host": true, "h": true, "help": true,
 		"cpus": true, "memory": true, "shm-size": true, "gpus": true,
 		"device": true, "cap-add": true, "cap-drop": true, "runtime-arg": true,
 		"packages": true, "customize-file": true, "rebuild-image": true, "ensure-latest": true,
@@ -1261,7 +1271,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 
 	flagsWithValues := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
-		"mount": true, "exclude": true, "copy-as": true, "env": true, "cpus": true, "memory": true,
+		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
 	}
@@ -1454,10 +1464,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		traceDuration("host: get GitHub token", started)
 	}
 
-	// User-specified env vars, with $VAR/${VAR} in values expanded from the host
+	// User-specified env vars
 	for _, env := range cfg.Env {
-		args = append(args, "-e", expandEnvEntry(env))
+		args = append(args, "-e", env)
 	}
+
+	// Host variables aliased into the container under a different name
+	args = append(args, hostEnvAliasArgs(cfg.EnvFromHost)...)
 
 	if !cfg.NoProject {
 		started = time.Now()

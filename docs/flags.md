@@ -42,7 +42,8 @@ These target different layers:
 | `--mount <src:dst>` | Extra mount, repeatable | |
 | `--exclude <glob>` | Hide matching project paths from the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
 | `--copy-as <src:dst>` | Mount a file at another project path inside the container, repeatable | Apple `container`, `--no-project`, without `--readonly-project` |
-| `--env <KEY=val>` | Extra environment variable, repeatable; `$VAR` in the value expands from the host environment | |
+| `--env <KEY=val>` | Extra environment variable, repeatable | |
+| `--env-from-host <KEY=HOST_VAR>` | Set container variable `KEY` from the host's `HOST_VAR`, repeatable | |
 | `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
@@ -113,7 +114,15 @@ env = ["CODEX_HOME=/home/yolo/.codex-account"]
 
 Use container paths rather than host-only paths or shell shortcuts such as `~`.
 
-`--env` values and `env = [...]` config entries support host environment expansion: `$VAR` and `${VAR}` in the value are replaced with the host's value at launch time, unset variables expand to an empty string, and `$$` produces a literal `$`. Key-only entries such as `--env MY_API_KEY` forward the variable from the host unchanged. See [explicit environment variables](/configuration#explicit-environment-variables) for details.
+`--env` and `env = [...]` values are passed through verbatim; nothing in them is interpreted. Key-only entries such as `--env MY_API_KEY` forward that variable from the host unchanged.
+
+To give the container a different value than the host uses under the same name, use `--env-from-host KEY=HOST_VAR` or `env_from_host = [...]`, which sets the container's `KEY` from the host's `HOST_VAR`:
+
+```bash
+yolobox run --env-from-host GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN claude
+```
+
+Both sides are plain variable names, with no `$`. If the host variable is unset, nothing is passed. See [renaming host variables](/configuration#renaming-host-variables) for details.
 
 ## RTK command compression
 

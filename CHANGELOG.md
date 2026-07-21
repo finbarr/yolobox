@@ -8,12 +8,15 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Added `env_from_host = [...]` config entries and `--env-from-host KEY=HOST_VAR` to set a container environment variable from a differently named host variable, for example mapping a read-only host token into `GH_TOKEN` inside the container. `env` and `--env` values remain verbatim.
+
 ## v0.18.5 - 2026-07-19
 
 ### Added
 
 - Added `--ensure-latest` to force-pull the configured base image before running and rebuild any derived custom image when the base changed.
-- `env = [...]` config entries and `--env` values now expand `$VAR` and `${VAR}` references from the host environment; `$$` escapes a literal `$`, and key-only entries still pass through unchanged.
 - Added first-class Kimi Code support with a bundled CLI, the `yolobox kimi` shortcut, setup and default-harness integration, optional `~/.kimi-code` sync, persistent updates through `yolobox update-agents kimi`, and built-in yolobox guidance.
 
 ### Changed

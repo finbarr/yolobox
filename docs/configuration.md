@@ -171,17 +171,30 @@ This copies instruction files and skills, not full configs, credentials, setting
 
 Pass extra environment variables with `env = [...]` in config or `--env KEY=value` on the CLI.
 
-Values support host environment expansion: `$VAR` and `${VAR}` in the value are replaced with the host's value at launch time. Unset variables expand to an empty string, and `$$` produces a literal `$`.
-
 ```toml
 env = [
-  "DEBUG=1",                      # literal value
-  "SANDBOX_TOKEN=$HOST_TOKEN",    # reads HOST_TOKEN from the host environment
-  "MY_API_KEY",                   # key only: forwards MY_API_KEY from the host as-is
+  "DEBUG=1",       # literal value, passed through verbatim
+  "MY_API_KEY",    # key only: forwards MY_API_KEY from the host as-is
 ]
 ```
 
-Key-only entries (no `=`) are passed to the container runtime unchanged, which forwards the variable from the host under the same name.
+Values are passed to the container runtime verbatim. Nothing in them is interpreted, so a value containing `$` (a bcrypt hash, a shell fragment, a jq filter) arrives unchanged. Key-only entries (no `=`) are passed to the runtime unchanged too, which forwards the variable from the host under the same name.
+
+## Renaming host variables
+
+`env_from_host = [...]` in config and `--env-from-host KEY=HOST_VAR` on the CLI set the container variable `KEY` from the host variable `HOST_VAR`. Use this to give the sandbox a different value than the host uses under the same name:
+
+```toml
+env_from_host = [
+  "GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN",  # container GH_TOKEN = host YOLOBOX_READONLY_GH_TOKEN
+]
+```
+
+With that config, a host shell holding a read-write `GH_TOKEN` and a read-only `YOLOBOX_READONLY_GH_TOKEN` gives the container only the read-only one, without the token ever being written into `.yolobox.toml`.
+
+Both sides are plain variable names — write `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN`, not `GH_TOKEN=$YOLOBOX_READONLY_GH_TOKEN`. If the host variable is not set, nothing is passed for that entry, so the container keeps whatever the image provides.
+
+Set a given key in either `env` or `env_from_host`, not both: yolobox passes both to the container runtime and the runtime decides which one wins.
 
 ## Auto-forwarded environment variables
 
