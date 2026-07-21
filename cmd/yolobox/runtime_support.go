@@ -229,6 +229,7 @@ func findSSHAgentSocket() (string, error) {
 // container CLI spells it `container image pull <image>`, whereas Docker/Podman
 // use `<runtime> pull <image>`.
 func pullImage(runtimePath, image, platform string) error {
+	platform = dockerPlatform(platform)
 	args := []string{"pull", image}
 	if filepath.Base(runtimePath) == "container" {
 		// Apple's container CLI has no --platform flag.

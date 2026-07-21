@@ -130,6 +130,7 @@ func customImageExists(runtimePath, tag string) bool {
 }
 
 func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform string) error {
+	platform = dockerPlatform(platform)
 	buildArgs := []string{"build", "-t", tag, "-f", dockerfilePath}
 	if platform != "" {
 		buildArgs = append(buildArgs, "--platform", platform)
@@ -152,8 +153,12 @@ func pullLatestBaseImage(cfg Config) error {
 	if err != nil {
 		return err
 	}
+	platform, err := effectivePlatform(cfg)
+	if err != nil {
+		return err
+	}
 	info("Pulling base image %s...", cfg.Image)
-	return pullImage(runtimePath, cfg.Image, cfg.Platform)
+	return pullImage(runtimePath, cfg.Image, platform)
 }
 
 func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
@@ -163,6 +168,11 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	}
 	if filepath.Base(runtimePath) == "container" {
 		return "", fmt.Errorf("custom images are not supported with Apple container runtime")
+	}
+
+	platform, err := effectivePlatform(*cfg)
+	if err != nil {
+		return "", err
 	}
 
 	customizeFile, err := resolveCustomizeFile(cfg.Customize.Dockerfile, projectDir)
@@ -179,7 +189,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	baseImageID, err := inspectImageID(runtimePath, cfg.Image, cfg.Platform)
+	baseImageID, err := inspectImageID(runtimePath, cfg.Image, platform)
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +219,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	}
 
 	info("Building custom image %s...", tag)
-	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, cfg.Platform); err != nil {
+	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform); err != nil {
 		return "", fmt.Errorf("failed to build custom image: %w", err)
 	}
 	return tag, nil

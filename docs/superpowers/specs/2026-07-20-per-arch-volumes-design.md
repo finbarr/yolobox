@@ -34,12 +34,14 @@ persistent volumes, without losing existing users' data on upgrade.
 
 ### Architecture resolution (for volume naming)
 
-First match wins:
+A single effective platform is resolved and used consistently for the run,
+image pulls, custom-image builds, and volume selection:
 
-1. `--platform` flag / `platform` config
-2. A `--platform` value already present in `runtime_args`
-3. `DOCKER_DEFAULT_PLATFORM` environment variable
-4. Native host architecture (`runtime.GOARCH`)
+1. `--platform` flag / `platform` config, or a `--platform` value already
+   present in `runtime_args`. If both are set they must agree (after
+   normalization); conflicting values are an error.
+2. `DOCKER_DEFAULT_PLATFORM` environment variable
+3. Native host architecture (`runtime.GOARCH`)
 
 The architecture component is extracted from the platform string (`linux/amd64`
 → `amd64`) and normalized: `x86_64` → `amd64`, `aarch64` → `arm64`. Variant
@@ -59,8 +61,8 @@ volumes.
 ### `reset`
 
 - `yolobox reset --force` (default): wipes **all** yolobox persistent volumes
-  across every architecture. Volumes are discovered by querying the runtime
-  (`volume ls --format {{.Name}}`) and matching
+  across every architecture. Volumes are discovered by querying the runtime's
+  volume list (`volume ls`, names only) and matching
   `^yolobox-(home|cache|output)(-[a-z0-9]+)?$`. If the query fails, fall back
   to removing the legacy fixed list. This also fixes `reset` previously not
   removing `yolobox-output`.

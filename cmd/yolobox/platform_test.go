@@ -104,13 +104,18 @@ func TestResolveContainerArchPrecedence(t *testing.T) {
 		t.Errorf("expected arm64 from runtime_args, got %q", arch)
 	}
 
-	// Explicit platform beats everything.
-	arch, err = resolveContainerArch(Config{Platform: "linux/386", RuntimeArgs: []string{"--platform", "linux/arm64"}})
+	// Explicit platform agreeing with runtime_args is fine.
+	arch, err = resolveContainerArch(Config{Platform: "amd64", RuntimeArgs: []string{"--platform", "linux/amd64"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if arch != "386" {
-		t.Errorf("expected 386 from cfg.Platform, got %q", arch)
+	if arch != "amd64" {
+		t.Errorf("expected amd64, got %q", arch)
+	}
+
+	// Conflicting explicit platform and runtime_args are rejected.
+	if _, err := resolveContainerArch(Config{Platform: "linux/386", RuntimeArgs: []string{"--platform", "linux/arm64"}}); err == nil {
+		t.Error("expected error for conflicting platform sources")
 	}
 
 	// Invalid explicit platform is an error.
@@ -309,6 +314,205 @@ func TestVolumesForPlatform(t *testing.T) {
 
 	if _, err := volumesForPlatform("linux/"); err == nil {
 		t.Error("expected error for invalid platform")
+	}
+}
+
+func TestDockerPlatform(t *testing.T) {
+	tests := []struct {
+		value string
+		want  string
+	}{
+		{"", ""},
+		{"linux/amd64", "linux/amd64"},
+		{"linux/arm64", "linux/arm64"},
+		{"linux/arm/v7", "linux/arm/v7"},
+		// A bare architecture must gain an explicit linux/ prefix: the
+		// docker CLI on macOS otherwise resolves "amd64" as darwin/amd64,
+		// which no linux image manifest matches.
+		{"amd64", "linux/amd64"},
+		{"arm64", "linux/arm64"},
+		{"x86_64", "linux/amd64"},
+		{"aarch64", "linux/arm64"},
+		{"linux/x86_64", "linux/amd64"},
+		{"LINUX/AMD64", "linux/amd64"},
+		{" amd64 ", "linux/amd64"},
+	}
+	for _, tt := range tests {
+		if got := dockerPlatform(tt.value); got != tt.want {
+			t.Errorf("dockerPlatform(%q) = %q, want %q", tt.value, got, tt.want)
+		}
+	}
+}
+
+func TestBuildRunArgsPlatformBareArchNormalized(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "")
+
+	cfg := Config{
+		Image:    "test-image",
+		Platform: "amd64",
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "--platform linux/amd64") {
+		t.Errorf("expected bare arch to be normalized to --platform linux/amd64, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, "yolobox-home-amd64:/home/yolo") {
+		t.Errorf("expected arch-suffixed home volume, got %s", argsStr)
+	}
+}
+
+func TestPullImageNormalizesBareArchPlatform(t *testing.T) {
+	binPath, logFile := installLoggingRuntimeNamed(t, "docker")
+	if err := pullImage(binPath, "ghcr.io/finbarr/yolobox:latest", "amd64"); err != nil {
+		t.Fatalf("pullImage: %v", err)
+	}
+	log := readRuntimeLog(t, logFile)
+	if !logHasLine(log, "pull --platform linux/amd64 ghcr.io/finbarr/yolobox:latest") {
+		t.Fatalf("expected pull with normalized --platform, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+func TestBuildCustomImageNormalizesBareArchPlatform(t *testing.T) {
+	binPath, logFile := installLoggingRuntimeNamed(t, "docker")
+	if err := buildCustomImage(binPath, "test-tag", "/tmp/Dockerfile", "/tmp", "amd64"); err != nil {
+		t.Fatalf("buildCustomImage: %v", err)
+	}
+	log := readRuntimeLog(t, logFile)
+	if !logHasLine(log, "build -t test-tag -f /tmp/Dockerfile --platform linux/amd64 /tmp") {
+		t.Fatalf("expected build with normalized --platform, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+func TestEffectivePlatform(t *testing.T) {
+	tests := []struct {
+		name    string
+		cfg     Config
+		want    string
+		wantErr bool
+	}{
+		{"neither", Config{}, "", false},
+		{"config only", Config{Platform: "linux/amd64"}, "linux/amd64", false},
+		{"runtime args only", Config{RuntimeArgs: []string{"--platform", "linux/amd64"}}, "linux/amd64", false},
+		{"runtime args equals form", Config{RuntimeArgs: []string{"--platform=linux/arm64"}}, "linux/arm64", false},
+		{"both agree after normalization", Config{Platform: "amd64", RuntimeArgs: []string{"--platform", "linux/amd64"}}, "amd64", false},
+		{"conflict", Config{Platform: "linux/amd64", RuntimeArgs: []string{"--platform", "linux/arm64"}}, "", true},
+	}
+	for _, tt := range tests {
+		got, err := effectivePlatform(tt.cfg)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("%s: expected error, got %q", tt.name, got)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", tt.name, err)
+			continue
+		}
+		if got != tt.want {
+			t.Errorf("%s: effectivePlatform = %q, want %q", tt.name, got, tt.want)
+		}
+	}
+}
+
+func TestStripPlatformFromRuntimeArgs(t *testing.T) {
+	got := stripPlatformFromRuntimeArgs([]string{
+		"--security-opt", "seccomp=unconfined",
+		"--platform", "linux/amd64",
+		"--platform=linux/arm64",
+		"--memory-swap", "2g",
+	})
+	want := []string{"--security-opt", "seccomp=unconfined", "--memory-swap", "2g"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("stripPlatformFromRuntimeArgs = %v, want %v", got, want)
+	}
+}
+
+func TestBuildRunArgsPlatformConflict(t *testing.T) {
+	cfg := Config{
+		Image:       "test-image",
+		Platform:    "linux/amd64",
+		RuntimeArgs: []string{"--platform", "linux/arm64"},
+	}
+	_, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err == nil {
+		t.Fatal("expected error for conflicting platform sources")
+	}
+	if !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("expected conflict error, got: %v", err)
+	}
+}
+
+func TestBuildRunArgsRuntimeArgsPlatformOnly(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "")
+
+	cfg := Config{
+		Image:       "test-image",
+		RuntimeArgs: []string{"--memory-swap", "2g", "--platform", "amd64"},
+	}
+
+	args, _, err := buildRunArgs(cfg, "/test/project", []string{"bash"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, "--platform linux/amd64") {
+		t.Errorf("expected normalized --platform from runtime_args, got %s", argsStr)
+	}
+	if strings.Count(argsStr, "--platform") != 1 {
+		t.Errorf("expected exactly one --platform (raw runtime arg stripped), got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, "--memory-swap 2g") {
+		t.Errorf("other runtime args must be preserved, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, "yolobox-home-amd64:/home/yolo") {
+		t.Errorf("expected arch-suffixed home volume, got %s", argsStr)
+	}
+}
+
+func TestEnsureLatestPullsWithRuntimeArgsPlatform(t *testing.T) {
+	overrideNativeArch(t, "arm64")
+	t.Setenv("DOCKER_DEFAULT_PLATFORM", "")
+	projectDir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	logFile := installLoggingDockerRuntime(t)
+	defer silenceStderr(t)()
+
+	if err := runCmdArgs([]string{"shell", "--ensure-latest", "--runtime-arg", "--platform=linux/amd64"}, projectDir, nil); err != nil {
+		t.Fatalf("runCmdArgs: %v", err)
+	}
+
+	log := readRuntimeLog(t, logFile)
+	if !logHasLine(log, "pull --platform linux/amd64 ghcr.io/finbarr/yolobox:latest") {
+		t.Fatalf("expected base-image pull to use the runtime-args platform, got:\n%s", strings.Join(log, "\n"))
+	}
+}
+
+func TestSaveGlobalConfigPlatform(t *testing.T) {
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	cfg := Config{Platform: "linux/amd64"}
+	if err := saveGlobalConfig(cfg); err != nil {
+		t.Fatalf("saveGlobalConfig failed: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(configHome, "yolobox", "config.toml"))
+	if err != nil {
+		t.Fatalf("failed to read config: %v", err)
+	}
+	if !strings.Contains(string(data), "platform = \"linux/amd64\"") {
+		t.Fatalf("expected saved config to persist platform, got:\n%s", string(data))
 	}
 }
 

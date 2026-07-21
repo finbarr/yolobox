@@ -49,6 +49,29 @@ func archFromPlatform(value string) (string, error) {
 	return arch, nil
 }
 
+// dockerPlatform maps a configured platform value to the form passed to the
+// container runtime. A bare architecture gains an explicit linux/ prefix: the
+// docker CLI otherwise defaults the OS component to the client's OS, so on
+// macOS "amd64" would resolve to darwin/amd64, which no linux image manifest
+// matches. Alias architectures (x86_64, aarch64) map to their Docker names.
+func dockerPlatform(value string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(value))
+	if trimmed == "" {
+		return ""
+	}
+	parts := strings.Split(trimmed, "/")
+	if len(parts) == 1 {
+		parts = []string{"linux", parts[0]}
+	}
+	switch parts[1] {
+	case "x86_64":
+		parts[1] = "amd64"
+	case "aarch64":
+		parts[1] = "arm64"
+	}
+	return strings.Join(parts, "/")
+}
+
 // platformFromRuntimeArgs returns the value of a --platform flag already
 // present in raw runtime args, or "" when there is none.
 func platformFromRuntimeArgs(args []string) string {
@@ -66,15 +89,48 @@ func platformFromRuntimeArgs(args []string) string {
 	return ""
 }
 
-// resolveContainerArch determines the architecture the container will run as.
-// First match wins: the platform option, a --platform already passed via
-// runtime_args, DOCKER_DEFAULT_PLATFORM, then the native host architecture.
-func resolveContainerArch(cfg Config) (string, error) {
-	if cfg.Platform != "" {
-		return archFromPlatform(cfg.Platform)
+// effectivePlatform returns the single platform value used for run, pull,
+// custom-image build, and volume selection. The platform option and a
+// --platform inside runtime_args must agree (after normalization); anything
+// else would pull one architecture and run another.
+func effectivePlatform(cfg Config) (string, error) {
+	fromArgs := platformFromRuntimeArgs(cfg.RuntimeArgs)
+	if cfg.Platform != "" && fromArgs != "" && dockerPlatform(cfg.Platform) != dockerPlatform(fromArgs) {
+		return "", fmt.Errorf("platform conflict: --platform %s disagrees with --platform %s in runtime args", cfg.Platform, fromArgs)
 	}
-	if value := platformFromRuntimeArgs(cfg.RuntimeArgs); value != "" {
-		return archFromPlatform(value)
+	if cfg.Platform != "" {
+		return cfg.Platform, nil
+	}
+	return fromArgs, nil
+}
+
+// stripPlatformFromRuntimeArgs removes --platform entries from raw runtime
+// args; the effective platform is emitted once, normalized, by buildRunArgs.
+func stripPlatformFromRuntimeArgs(args []string) []string {
+	var out []string
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--platform" {
+			i++ // also drop the value
+			continue
+		}
+		if strings.HasPrefix(args[i], "--platform=") {
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out
+}
+
+// resolveContainerArch determines the architecture the container will run as:
+// the effective platform if one is configured, then DOCKER_DEFAULT_PLATFORM,
+// then the native host architecture.
+func resolveContainerArch(cfg Config) (string, error) {
+	platform, err := effectivePlatform(cfg)
+	if err != nil {
+		return "", err
+	}
+	if platform != "" {
+		return archFromPlatform(platform)
 	}
 	if value := os.Getenv("DOCKER_DEFAULT_PLATFORM"); value != "" {
 		return archFromPlatform(value)

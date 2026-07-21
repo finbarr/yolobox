@@ -74,7 +74,7 @@ Use `container_name` or `--name` only when you need a stable runtime container n
 
 Set `platform` (or pass `--platform`) to run the container under emulation, e.g. `linux/amd64` on Apple Silicon. The value is passed to the runtime's `run`, `pull`, and custom-image `build` commands. Apple `container` does not support it.
 
-Persistent volumes are kept per architecture so native and emulated sessions never share `/home/yolo`, `/var/cache`, or `/output`: the native architecture uses the legacy names (`yolobox-home`, `yolobox-cache`, `yolobox-output`), while any other architecture gets suffixed volumes such as `yolobox-home-amd64`. The architecture is taken from `platform`/`--platform`, a `--platform` entry in `runtime_args`, or the `DOCKER_DEFAULT_PLATFORM` environment variable, in that order. `yolobox reset --force` removes all of them; add `--platform` to reset just one architecture.
+Persistent volumes are kept per architecture so native and emulated sessions never share `/home/yolo`, `/var/cache`, or `/output`: the native architecture uses the legacy names (`yolobox-home`, `yolobox-cache`, `yolobox-output`), while any other architecture gets suffixed volumes such as `yolobox-home-amd64`. The architecture is taken from the effective platform — `platform`/`--platform` or a `--platform` entry in `runtime_args`, which must agree if both are set — or else the `DOCKER_DEFAULT_PLATFORM` environment variable. That same effective platform is used consistently for the run, image pulls, and custom-image builds. `yolobox reset --force` removes all of them; add `--platform` to reset just one architecture.
 
 ## Default harness
 

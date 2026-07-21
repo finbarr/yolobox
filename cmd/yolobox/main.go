@@ -1350,7 +1350,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if appleContainer && (len(cfg.Exclude) > 0 || len(cfg.CopyAs) > 0) {
 		return nil, nil, fmt.Errorf("--exclude and --copy-as are not supported with Apple container runtime")
 	}
-	if appleContainer && cfg.Platform != "" {
+	platform, err := effectivePlatform(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if appleContainer && platform != "" {
 		return nil, nil, fmt.Errorf("--platform is not supported with Apple container runtime")
 	}
 
@@ -1364,7 +1368,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	args := []string{"run", "--rm"}
 	args = appendRunFlag(args, "name", cfg.ContainerName)
-	args = appendRunFlag(args, "platform", cfg.Platform)
+	args = appendRunFlag(args, "platform", dockerPlatform(platform))
 
 	// Rootless Podman: map the host user to container UID 1000 (yolo) so
 	// bind-mounted files are accessible. Without this, the host user maps to
@@ -1929,7 +1933,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	args = append(args, "-e", "YOLOBOX_CONTEXT_FILE="+yoloboxContextFile)
 
 	if len(cfg.RuntimeArgs) > 0 {
-		args = append(args, cfg.RuntimeArgs...)
+		// The effective platform is already emitted, normalized, above; a raw
+		// --platform here would override it (last flag wins).
+		args = append(args, stripPlatformFromRuntimeArgs(cfg.RuntimeArgs)...)
 	}
 
 	args = append(args, cfg.Image)

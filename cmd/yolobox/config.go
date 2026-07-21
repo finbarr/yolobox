@@ -377,6 +377,9 @@ func saveGlobalConfig(cfg Config) error {
 	if cfg.ContainerName != "" {
 		lines = append(lines, fmt.Sprintf("container_name = %q", cfg.ContainerName))
 	}
+	if cfg.Platform != "" {
+		lines = append(lines, fmt.Sprintf("platform = %q", cfg.Platform))
+	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")
 	}
