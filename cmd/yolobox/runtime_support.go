@@ -228,10 +228,14 @@ func findSSHAgentSocket() (string, error) {
 // current stdio so progress is visible. The subcommand is runtime-aware: Apple's
 // container CLI spells it `container image pull <image>`, whereas Docker/Podman
 // use `<runtime> pull <image>`.
-func pullImage(runtimePath, image string) error {
+func pullImage(runtimePath, image, platform string) error {
+	platform = dockerPlatform(platform)
 	args := []string{"pull", image}
 	if filepath.Base(runtimePath) == "container" {
+		// Apple's container CLI has no --platform flag.
 		args = []string{"image", "pull", image}
+	} else if platform != "" {
+		args = []string{"pull", "--platform", platform, image}
 	}
 	cmd := exec.Command(runtimePath, args...)
 	cmd.Stdin = os.Stdin

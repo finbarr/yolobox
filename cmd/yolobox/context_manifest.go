@@ -29,6 +29,11 @@ type contextRuntime struct {
 	Selected       string `json:"selected"`
 	AppleContainer bool   `json:"apple_container"`
 	RootlessPodman bool   `json:"rootless_podman"`
+	// Platform is the effective platform passed to the runtime, empty when the
+	// container runs natively. Arch is the architecture it resolves to and the
+	// one whose persistent volumes are mounted.
+	Platform string `json:"platform"`
+	Arch     string `json:"arch"`
 }
 
 type contextLaunch struct {
@@ -55,6 +60,7 @@ type contextFork struct {
 
 type contextConfigManifest struct {
 	Runtime               string                         `json:"runtime"`
+	Platform              string                         `json:"platform"`
 	Image                 string                         `json:"image"`
 	ContainerName         string                         `json:"container_name"`
 	DefaultHarness        string                         `json:"default_harness"`
@@ -129,6 +135,15 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		paths.Output = "/output"
 	}
 
+	// The launch path resolves and validates the platform before the manifest is
+	// built, so these cannot fail here. Report nothing rather than failing a
+	// purely descriptive payload if they somehow do.
+	platform, _ := effectivePlatform(cfg)
+	containerArch, err := resolveContainerArch(cfg)
+	if err != nil {
+		containerArch = ""
+	}
+
 	var fork *contextFork
 	if cfg.Fork.Name != "" {
 		fork = &contextFork{
@@ -149,6 +164,8 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			Selected:       selectedRuntime,
 			AppleContainer: isAppleContainer(cfg.Runtime),
 			RootlessPodman: isRootlessPodman(cfg.Runtime),
+			Platform:       dockerPlatform(platform),
+			Arch:           containerArch,
 		},
 		Launch: contextLaunch{
 			Interactive:            interactive,
@@ -162,6 +179,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 		Fork:  fork,
 		Config: contextConfigManifest{
 			Runtime:               resolvedRuntimeName(cfg.Runtime),
+			Platform:              cfg.Platform,
 			Image:                 cfg.Image,
 			ContainerName:         cfg.ContainerName,
 			DefaultHarness:        displayDefaultHarness(cfg.DefaultHarness),

@@ -25,6 +25,7 @@ type ForkConfig struct {
 type Config struct {
 	Runtime               string   `toml:"runtime"`
 	Image                 string   `toml:"image"`
+	Platform              string   `toml:"platform"`
 	ContainerName         string   `toml:"container_name"`
 	DefaultHarness        string   `toml:"default_harness"`
 	Mounts                []string `toml:"mounts"`
@@ -155,6 +156,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.Image != "" {
 		dst.Image = src.Image
 	}
+	if src.Platform != "" {
+		dst.Platform = src.Platform
+	}
 	if src.ContainerName != "" {
 		dst.ContainerName = src.ContainerName
 	}
@@ -282,6 +286,7 @@ func printConfig(cfg Config) error {
 	}
 	fmt.Printf("%sruntime:%s %s\n", colorBold, colorReset, resolvedRuntimeName(cfg.Runtime))
 	fmt.Printf("%simage:%s %s\n", colorBold, colorReset, cfg.Image)
+	printStringConfigField("platform", cfg.Platform)
 	printStringConfigField("container_name", cfg.ContainerName)
 	fmt.Printf("%sdefault_harness:%s %s\n", colorBold, colorReset, displayDefaultHarness(cfg.DefaultHarness))
 	fmt.Printf("%sproject:%s %s\n", colorBold, colorReset, projectDir)
@@ -381,6 +386,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.ContainerName != "" {
 		lines = append(lines, fmt.Sprintf("container_name = %q", cfg.ContainerName))
+	}
+	if cfg.Platform != "" {
+		lines = append(lines, fmt.Sprintf("platform = %q", cfg.Platform))
 	}
 	if cfg.GitConfig {
 		lines = append(lines, "git_config = true")

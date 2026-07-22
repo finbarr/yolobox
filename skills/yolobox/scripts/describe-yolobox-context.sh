@@ -97,6 +97,8 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             (if .fork != null then "Fork copied folder: " + .fork.copy else empty end),
             (if .fork != null then "Compose project: " + .fork.compose_project else empty end),
             "Runtime: configured=" + .runtime.configured + " selected=" + .runtime.selected,
+            (if (.runtime.arch // "") != "" then "Architecture: " + .runtime.arch else empty end),
+            (if (.runtime.platform // "") != "" then "Container platform: " + .runtime.platform + " (explicit; persistent volumes are per architecture)" else empty end),
             (if .config.container_name != null and .config.container_name != "" then "Container name: " + .config.container_name else empty end),
             "Default harness: " + ((.config.default_harness // "none") | tostring),
             "Interactive: " + (.launch.interactive | tostring),
@@ -170,6 +172,7 @@ printf 'Project: %s\n' "$project"
 printf 'Project writable now: %s\n' "$project_writable"
 printf 'Workdir: %s\n' "$workdir"
 printf 'Home: %s\n' "$home_dir"
+printf 'Architecture: %s\n' "$(uname -m)"
 if [[ -n "$output_path" ]]; then
     printf 'Output: %s\n' "$output_path"
 fi

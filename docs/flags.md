@@ -10,6 +10,7 @@ Flags go after the subcommand: `yolobox run --flag cmd` or `yolobox claude --fla
 |------|-------------|-------------------|
 | `--runtime <name>` | Use `docker`, `podman`, or `container` | |
 | `--image <name>` | Override the base image | |
+| `--platform <value>` | Container platform, e.g. `linux/amd64`; persistent volumes are kept per architecture | Apple `container` |
 | `--name <name>` | Assign a runtime container name | |
 | `--packages <list>` | Comma-separated apt packages for a derived custom image | Apple `container` |
 | `--customize-file <path>` | Dockerfile fragment for a derived custom image | Apple `container` |

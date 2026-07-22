@@ -53,7 +53,7 @@ yolobox upgrade             # Update the binary and pull the latest base image
 yolobox upgrade --check     # Show latest release notes without upgrading
 yolobox update-agents       # Update all bundled AI CLIs in persistent home
 yolobox update-agents codex # Update one AI CLI; accepts multiple targets
-yolobox reset --force       # Remove yolobox named volumes
+yolobox reset --force       # Remove yolobox named volumes (all architectures)
 yolobox uninstall --force   # Remove yolobox binary, image, and volumes
 yolobox version             # Print version and platform
 yolobox help                # Show CLI help
@@ -165,7 +165,10 @@ yolobox update-agents antigravity
 
 ```bash
 yolobox reset --force
+yolobox reset --force --platform linux/amd64
 ```
+
+Without `--platform`, reset removes the yolobox volumes for every architecture. With `--platform`, it removes only the volumes that runs with that same `--platform` value use — for example the `-amd64`-suffixed volumes of x86-emulated sessions, leaving native volumes untouched.
 
 ## Mental model
 
