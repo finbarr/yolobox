@@ -324,6 +324,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --exclude <glob>      Hide project paths from the container (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --copy-as <src:dst>   Mount a file at a project path inside the container")
 	fmt.Fprintln(os.Stderr, "  --env <KEY=val>       Set environment variable (repeatable)")
+	fmt.Fprintln(os.Stderr, "  --env-from-host <KEY=HOST_VAR>")
+	fmt.Fprintln(os.Stderr, "                        Set KEY from the host's HOST_VAR (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
@@ -430,6 +432,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		excludes              stringSliceFlag
 		copyAs                stringSliceFlag
 		envVars               stringSliceFlag
+		envFromHost           stringSliceFlag
 
 		// Resource limits & security
 		cpus          string
@@ -476,6 +479,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.Var(&excludes, "exclude", "hide matching project paths from the container")
 	fs.Var(&copyAs, "copy-as", "mount a file at another project path inside the container")
 	fs.Var(&envVars, "env", "environment variable KEY=value")
+	fs.Var(&envFromHost, "env-from-host", "set container variable KEY from host variable HOST_VAR (KEY=HOST_VAR)")
 
 	// Resource limits & security
 	fs.StringVar(&cpus, "cpus", "", "limit number of CPUs (supports fractions)")
@@ -588,6 +592,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if len(envVars) > 0 {
 		cfg.Env = append(cfg.Env, envVars...)
+	}
+	if len(envFromHost) > 0 {
+		cfg.EnvFromHost = append(cfg.EnvFromHost, envFromHost...)
 	}
 
 	if cpus != "" {
@@ -728,6 +735,12 @@ func validateRuntimeOptions(cfg Config) error {
 		if strings.TrimSpace(arg) == "" {
 			return fmt.Errorf("--runtime-arg entries cannot be blank")
 		}
+	}
+	if err := validateEnvFromHost(cfg.EnvFromHost); err != nil {
+		return err
+	}
+	if err := validateEnvFromHostConflicts(cfg.Env, cfg.EnvFromHost); err != nil {
+		return err
 	}
 	if cfg.ContainerName != "" && !containerNamePattern.MatchString(cfg.ContainerName) {
 		return fmt.Errorf("invalid --name value %q: expected letters, numbers, dots, underscores, or dashes, starting with a letter or number", cfg.ContainerName)
@@ -1253,7 +1266,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
-		"env": true, "h": true, "help": true,
+		"env": true, "env-from-host": true, "h": true, "help": true,
 		"cpus": true, "memory": true, "shm-size": true, "gpus": true,
 		"device": true, "cap-add": true, "cap-drop": true, "runtime-arg": true,
 		"packages": true, "customize-file": true, "rebuild-image": true, "ensure-latest": true,
@@ -1261,7 +1274,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 
 	flagsWithValues := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
-		"mount": true, "exclude": true, "copy-as": true, "env": true, "cpus": true, "memory": true,
+		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
 	}
@@ -1432,10 +1445,19 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 	}
 
+	// Host env aliases own their container variable outright. Suppress any
+	// competing automatic forwarding of the same key instead of relying on the
+	// runtime's duplicate "-e" precedence, so a least-privilege alias cannot be
+	// shadowed by the very variable it replaces.
+	aliasedEnvKeys := envFromHostKeySet(cfg.EnvFromHost)
+
 	// Auto-passthrough common API keys unless disabled for untrusted work.
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
 	if !cfg.NoEnvPassthrough {
 		for _, key := range autoPassthroughEnvVars {
+			if aliasedEnvKeys[key] {
+				continue
+			}
 			if val := os.Getenv(key); val != "" {
 				autoPassthroughEnvKeys = append(autoPassthroughEnvKeys, key)
 				args = append(args, "-e", key+"="+val)
@@ -1445,7 +1467,10 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Forward GitHub CLI token (extracted from keychain/credential store)
 	ghTokenForwarded := false
-	if cfg.GhToken {
+	if cfg.GhToken && aliasedEnvKeys["GH_TOKEN"] {
+		warn("Ignoring --gh-token because env_from_host sets GH_TOKEN.")
+	}
+	if cfg.GhToken && !aliasedEnvKeys["GH_TOKEN"] {
 		started = time.Now()
 		if token := getGhToken(); token != "" {
 			args = append(args, "-e", "GH_TOKEN="+token)
@@ -1458,6 +1483,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	for _, env := range cfg.Env {
 		args = append(args, "-e", env)
 	}
+
+	// Host variables aliased into the container under a different name
+	aliasArgs, err := hostEnvAliasArgs(cfg.EnvFromHost)
+	if err != nil {
+		return nil, nil, err
+	}
+	args = append(args, aliasArgs...)
 
 	if !cfg.NoProject {
 		started = time.Now()

@@ -55,7 +55,7 @@ Some flags deliberately widen the trust boundary:
 - `--open-bridge` lets `open` and `xdg-open` commands in the container ask the host to open HTTP(S) URLs
 - `--gh-token` forwards a GitHub token for `gh` and HTTPS Git authentication
 - `--rtk` initializes RTK inside the container for supported AI CLIs, which means RTK can inspect and compress command output for those sessions
-- automatic environment passthrough forwards common API/token variables when they are set; use `--no-env-passthrough` to suppress it
+- automatic environment passthrough forwards common API/token variables when they are set; use `--no-env-passthrough` to suppress it, or `--env-from-host KEY=HOST_VAR` to give the container a narrower value under the same name (see [renaming host variables](/configuration#renaming-host-variables))
 - `--mount`, `--device`, and `--runtime-arg` expose extra host paths, devices, and low-level runtime capabilities
 
 These are useful, but they are explicit trust decisions.
