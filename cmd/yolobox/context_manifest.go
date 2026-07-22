@@ -184,7 +184,7 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ContainerName:         cfg.ContainerName,
 			DefaultHarness:        displayDefaultHarness(cfg.DefaultHarness),
 			Mounts:                append([]string{}, cfg.Mounts...),
-			EnvKeys:               envKeys(cfg.Env),
+			EnvKeys:               append(envKeys(cfg.Env), envFromHostKeys(cfg.EnvFromHost)...),
 			Exclude:               append([]string{}, cfg.Exclude...),
 			CopyAs:                append([]string{}, cfg.CopyAs...),
 			SSHAgent:              cfg.SSHAgent,

@@ -182,6 +182,39 @@ Files copied if they exist on your host:
 
 This copies instruction files and skills, not full configs, credentials, settings, or history. For full tool configs, use `--claude-config`, `--codex-config`, `--gemini-config`, `--kimi-config`, `--opencode-config`, or `--pi-config`. Antigravity CLI stores its config under `~/.gemini/antigravity-cli`, so `--gemini-config` covers Antigravity too.
 
+## Explicit environment variables
+
+Pass extra environment variables with `env = [...]` in config or `--env KEY=value` on the CLI.
+
+```toml
+env = [
+  "DEBUG=1",       # literal value, passed through verbatim
+  "MY_API_KEY",    # key only: forwards MY_API_KEY from the host as-is
+]
+```
+
+Values are passed to the container runtime verbatim. Nothing in them is interpreted, so a value containing `$` (a bcrypt hash, a shell fragment, a jq filter) arrives unchanged. Key-only entries (no `=`) are passed to the runtime unchanged too, which forwards the variable from the host under the same name.
+
+## Renaming host variables
+
+`env_from_host = [...]` in config and `--env-from-host KEY=HOST_VAR` on the CLI set the container variable `KEY` from the host variable `HOST_VAR`. Use this to give the sandbox a different value than the host uses under the same name:
+
+```toml
+env_from_host = [
+  "GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN",  # container GH_TOKEN = host YOLOBOX_READONLY_GH_TOKEN
+]
+```
+
+With that config, a host shell holding a read-write `GH_TOKEN` and a read-only `YOLOBOX_READONLY_GH_TOKEN` gives the container only the read-only one, without the token ever being written into `.yolobox.toml`.
+
+Both sides are plain variable names — write `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN`, not `GH_TOKEN=$YOLOBOX_READONLY_GH_TOKEN`.
+
+An alias owns its container variable, and it fails closed:
+
+- If the host variable is not set, yolobox refuses to start the container. Skipping the entry would let the more privileged variable it replaces reach the container instead.
+- The alias suppresses every other source for that key. [Automatic passthrough](#auto-forwarded-environment-variables) and `--gh-token` are skipped for an aliased key, so `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN` cannot be shadowed by the host's read-write `GH_TOKEN`.
+- Setting the same key in both `env` and `env_from_host` is an error. Pick one.
+
 ## Auto-forwarded environment variables
 
 These are automatically passed into the container if they are set on the host:

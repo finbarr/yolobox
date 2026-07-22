@@ -95,7 +95,18 @@ yolobox run mvn --version
 
 Project-level customization can also layer a Dockerfile fragment on top of the base image. The first run builds a derived image; later runs reuse it until the base image or customization inputs change.
 
-Use container paths for env values because they are passed directly to the process inside yolobox. See [Configuration](https://yolobox.dev/configuration) for project env settings, and [Project-Level Customization](https://yolobox.dev/customizing) for package installs, Dockerfile fragments, rebuild behavior, upgrade behavior, and fully custom images.
+Use container paths for env values because they are passed directly to the process inside yolobox. `env` values are passed to the runtime verbatim; nothing in them is interpreted.
+
+To hand the sandbox a *different* value than the host uses under the same name — a read-only token instead of your real one — alias it with `env_from_host` (or `--env-from-host KEY=HOST_VAR`):
+
+```toml
+# .yolobox.toml
+env_from_host = ["GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN"]
+```
+
+The alias owns that variable: it suppresses automatic passthrough and `--gh-token` for the same key, and yolobox refuses to start if the host variable is unset, so the token it replaces can never leak in by accident.
+
+See [Configuration](https://yolobox.dev/configuration) for project env settings, and [Project-Level Customization](https://yolobox.dev/customizing) for package installs, Dockerfile fragments, rebuild behavior, upgrade behavior, and fully custom images.
 
 ## Common Workflows
 

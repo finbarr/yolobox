@@ -82,6 +82,18 @@ Set project-specific environment variables in `.yolobox.toml` when a tool needs 
 env = ["CODEX_HOME=/home/yolo/.codex-account"]
 ```
 
+`env` values are passed to the runtime verbatim; nothing in them is interpreted. To give the container a different value than the host uses under the same name, alias it from a host variable:
+
+```bash
+yolobox run --env-from-host GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN claude
+```
+
+```toml
+env_from_host = ["GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN"]
+```
+
+An alias owns that container variable: automatic passthrough and `--gh-token` are skipped for the same key, setting the key in both `env` and `env_from_host` is an error, and an unset host variable aborts the run rather than falling back to the variable the alias replaces.
+
 ## Docker and network access
 
 Allow Docker commands inside the box:

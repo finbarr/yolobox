@@ -30,6 +30,7 @@ type Config struct {
 	DefaultHarness        string   `toml:"default_harness"`
 	Mounts                []string `toml:"mounts"`
 	Env                   []string `toml:"env"`
+	EnvFromHost           []string `toml:"env_from_host"`
 	Exclude               []string `toml:"exclude"`
 	CopyAs                []string `toml:"copy_as"`
 	SSHAgent              bool     `toml:"ssh_agent"`
@@ -169,6 +170,9 @@ func mergeConfig(dst *Config, src Config) {
 	}
 	if len(src.Env) > 0 {
 		dst.Env = append([]string{}, src.Env...)
+	}
+	if len(src.EnvFromHost) > 0 {
+		dst.EnvFromHost = append([]string{}, src.EnvFromHost...)
 	}
 	if len(src.Exclude) > 0 {
 		dst.Exclude = append([]string{}, src.Exclude...)
@@ -331,6 +335,12 @@ func printConfig(cfg Config) error {
 	if len(cfg.Env) > 0 {
 		fmt.Printf("%senv:%s\n", colorBold, colorReset)
 		for _, e := range cfg.Env {
+			fmt.Printf("  - %s\n", e)
+		}
+	}
+	if len(cfg.EnvFromHost) > 0 {
+		fmt.Printf("%senv_from_host:%s\n", colorBold, colorReset)
+		for _, e := range cfg.EnvFromHost {
 			fmt.Printf("  - %s\n", e)
 		}
 	}
