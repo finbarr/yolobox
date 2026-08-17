@@ -64,6 +64,12 @@ func dirContainsSymlinks(dir string) bool {
 // dereferencing all symlinks so that every entry is a regular file or directory.
 // Returns the path to the staged copy of the directory.
 func stageDirResolvingSymlinks(src string) (string, error) {
+	return stageDirResolvingSymlinksExcluding(src, nil)
+}
+
+// stageDirResolvingSymlinksExcluding copies src to a Docker-visible temp
+// directory while dereferencing symlinks and omitting sensitive basenames.
+func stageDirResolvingSymlinksExcluding(src string, excludedNames map[string]bool) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -76,7 +82,7 @@ func stageDirResolvingSymlinks(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := copyDirDereferenced(src, dst); err != nil {
+	if err := copyDirDereferencedExcluding(src, dst, excludedNames); err != nil {
 		_ = os.RemoveAll(dst)
 		return "", err
 	}
@@ -86,6 +92,10 @@ func stageDirResolvingSymlinks(src string) (string, error) {
 // copyDirDereferenced recursively copies src into dst, following all symlinks.
 // Broken symlinks are silently skipped.
 func copyDirDereferenced(src, dst string) error {
+	return copyDirDereferencedExcluding(src, dst, nil)
+}
+
+func copyDirDereferencedExcluding(src, dst string, excludedNames map[string]bool) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
@@ -94,6 +104,9 @@ func copyDirDereferenced(src, dst string) error {
 		return err
 	}
 	for _, e := range entries {
+		if excludedNames[e.Name()] {
+			continue
+		}
 		srcPath := filepath.Join(src, e.Name())
 		dstPath := filepath.Join(dst, e.Name())
 
@@ -102,7 +115,7 @@ func copyDirDereferenced(src, dst string) error {
 			continue
 		}
 		if info.IsDir() {
-			if err := copyDirDereferenced(srcPath, dstPath); err != nil {
+			if err := copyDirDereferencedExcluding(srcPath, dstPath, excludedNames); err != nil {
 				return err
 			}
 			continue

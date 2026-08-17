@@ -42,6 +42,7 @@ type Config struct {
 	NoYolo                bool     `toml:"no_yolo"`
 	Scratch               bool     `toml:"scratch"`
 	ClaudeConfig          bool     `toml:"claude_config"`
+	NoClaudeAuth          bool     `toml:"no_claude_auth"`
 	CodexConfig           bool     `toml:"codex_config"`
 	GeminiConfig          bool     `toml:"gemini_config"`
 	KimiConfig            bool     `toml:"kimi_config"`
@@ -207,6 +208,9 @@ func mergeConfig(dst *Config, src Config) {
 	if src.ClaudeConfig {
 		dst.ClaudeConfig = true
 	}
+	if src.NoClaudeAuth {
+		dst.NoClaudeAuth = true
+	}
 	if src.CodexConfig {
 		dst.CodexConfig = true
 	}
@@ -299,6 +303,7 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
 	fmt.Printf("%sscratch:%s %t\n", colorBold, colorReset, cfg.Scratch)
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
+	fmt.Printf("%sno_claude_auth:%s %t\n", colorBold, colorReset, cfg.NoClaudeAuth)
 	fmt.Printf("%scodex_config:%s %t\n", colorBold, colorReset, cfg.CodexConfig)
 	fmt.Printf("%sgemini_config:%s %t\n", colorBold, colorReset, cfg.GeminiConfig)
 	fmt.Printf("%skimi_config:%s %t\n", colorBold, colorReset, cfg.KimiConfig)
@@ -395,6 +400,9 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.ClaudeConfig {
 		lines = append(lines, "claude_config = true")
+	}
+	if cfg.NoClaudeAuth {
+		lines = append(lines, "no_claude_auth = true")
 	}
 	if cfg.CodexConfig {
 		lines = append(lines, "codex_config = true")

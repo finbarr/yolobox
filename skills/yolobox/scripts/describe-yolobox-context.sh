@@ -107,6 +107,7 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             "No network: " + (.config.no_network | tostring),
             (if env.NPM_CONFIG_MIN_RELEASE_AGE != null and env.NPM_CONFIG_MIN_RELEASE_AGE != "" then "npm min release age: " + env.NPM_CONFIG_MIN_RELEASE_AGE + " days" else empty end),
             "No env passthrough: " + ((.config.no_env_passthrough // false) | tostring),
+            (if (.config.claude_config // false) then "Claude login copied from host: " + (((.config.no_claude_auth // false) | not) | tostring) else empty end),
             (if .config.network != "" then "Network: " + .config.network else empty end),
             (if .config.pod != "" then "Pod: " + .config.pod else empty end),
             "Docker socket: " + (.config.docker | tostring),

@@ -15,6 +15,11 @@ there is no `v0.6.0` tag in this repository.
 - Added `--platform` to `yolobox reset` to wipe a single architecture's volumes; without it, reset now discovers and removes yolobox volumes for all architectures (including `yolobox-output`, which was previously missed).
 - The context manifest now reports the effective platform and container architecture, so in-box guidance sees the same resolved launch context as the runtime.
 - Added `env_from_host = [...]` config entries and `--env-from-host KEY=HOST_VAR` to set a container environment variable from a differently named host variable, for example mapping a read-only host token into `GH_TOKEN` inside the container. `env` and `--env` values remain verbatim. An alias owns its container variable: automatic passthrough and `--gh-token` are suppressed for that key, setting the same key in both `env` and `env_from_host` is rejected, and an unset host source aborts the run instead of falling back to the variable the alias replaces.
+- Added `--no-claude-auth` / `no_claude_auth = true` for `--claude-config`, allowing host Claude settings to sync while the persistent box keeps an independent `/login` session.
+
+### Fixed
+
+- Stopped host Claude OAuth credentials, account identity, and automatic `CLAUDE_CODE_OAUTH_TOKEN` passthrough from overwriting container-local authentication when `--no-claude-auth` is enabled.
 
 ## v0.18.5 - 2026-07-19
 

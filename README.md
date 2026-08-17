@@ -114,6 +114,7 @@ See [Configuration](https://yolobox.dev/configuration) for project env settings,
 yolobox setup                         # Configure global defaults
 yolobox config                        # Show resolved config for this project
 yolobox claude --docker --gh-token    # Give the agent Docker and GitHub access
+yolobox claude --claude-config --no-claude-auth # Share config, keep the box login independent
 yolobox codex --rtk                   # Enable RTK command-output compression
 yolobox run --no-network make test    # Run one command with no network
 yolobox fork --name bruno codex       # Give an agent its own project copy

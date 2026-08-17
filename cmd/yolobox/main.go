@@ -335,6 +335,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
+	fmt.Fprintln(os.Stderr, "  --no-claude-auth      Keep Claude login container-local with --claude-config")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini/Antigravity config to container")
 	fmt.Fprintln(os.Stderr, "  --kimi-config         Sync host Kimi Code config to container")
@@ -416,6 +417,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		noYolo                bool
 		scratch               bool
 		claudeConfig          bool
+		noClaudeAuth          bool
 		codexConfig           bool
 		geminiConfig          bool
 		kimiConfig            bool
@@ -464,6 +466,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
+	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when copying host config")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini/Antigravity config to container")
 	fs.BoolVar(&kimiConfig, "kimi-config", false, "sync host Kimi Code config to container")
@@ -544,6 +547,9 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if claudeConfig {
 		cfg.ClaudeConfig = true
+	}
+	if noClaudeAuth {
+		cfg.NoClaudeAuth = true
 	}
 	if codexConfig {
 		cfg.CodexConfig = true
@@ -673,6 +679,9 @@ func validateConfigConflicts(cfg Config) error {
 	}
 	if cfg.OpenBridge && cfg.NoNetwork {
 		return fmt.Errorf("cannot use --open-bridge with --no-network")
+	}
+	if cfg.NoClaudeAuth && !cfg.ClaudeConfig {
+		return fmt.Errorf("cannot use --no-claude-auth without --claude-config")
 	}
 	if cfg.NoProject {
 		if cfg.ReadonlyProject {
@@ -983,6 +992,7 @@ func runSetup() (Config, error) {
 
 	// Form fields
 	var selectedOptions []string
+	copyClaudeAuth := !cfg.NoClaudeAuth
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	containerName := cfg.ContainerName
 	podName := cfg.Pod
@@ -1102,6 +1112,12 @@ func runSetup() (Config, error) {
 				Value(&selectedOptions),
 		),
 		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Copy your host Claude login into the box?").
+				Description("Choose No to keep the box login independent; only applies when Claude config is selected").
+				Value(&copyClaudeAuth),
+		),
+		huh.NewGroup(
 			huh.NewInput().
 				Title("Default container name (--name)").
 				Description("Optional; fixed names cannot run concurrently").
@@ -1174,6 +1190,7 @@ func runSetup() (Config, error) {
 	cfg.DefaultHarness = defaultHarness
 	cfg.GitConfig = contains(selectedOptions, "git_config")
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
+	cfg.NoClaudeAuth = cfg.ClaudeConfig && !copyClaudeAuth
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")
 	cfg.GeminiConfig = contains(selectedOptions, "gemini_config")
 	cfg.KimiConfig = contains(selectedOptions, "kimi_config")
@@ -1267,7 +1284,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
-		"no-yolo": true, "scratch": true, "claude-config": true,
+		"no-yolo": true, "scratch": true, "claude-config": true, "no-claude-auth": true,
 		"codex-config": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
@@ -1432,6 +1449,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			args = append(args, "-e", "YOLOBOX_RTK_TARGET="+target)
 		}
 	}
+	if cfg.NoClaudeAuth {
+		args = append(args, "-e", "YOLOBOX_NO_CLAUDE_AUTH=1")
+	}
 	hostBridgeRuntimeArgsAdded := false
 	if cfg.Clipboard {
 		args = append(args,
@@ -1474,6 +1494,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
 	if !cfg.NoEnvPassthrough {
 		for _, key := range autoPassthroughEnvVars {
+			if cfg.NoClaudeAuth && key == "CLAUDE_CODE_OAUTH_TOKEN" {
+				continue
+			}
 			if aliasedEnvKeys[key] {
 				continue
 			}
@@ -1561,7 +1584,17 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		claudeConfigDir := filepath.Join(home, ".claude")
 		if _, err := os.Stat(claudeConfigDir); err == nil {
 			mountSrc := claudeConfigDir
-			if dirContainsSymlinks(claudeConfigDir) {
+			if cfg.NoClaudeAuth {
+				staged, err := stageDirResolvingSymlinksExcluding(claudeConfigDir, map[string]bool{
+					".credentials.json":   true,
+					".oauth_refresh.lock": true,
+				})
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to stage Claude config without host authentication: %w", err)
+				}
+				mountSrc = staged
+				cleanupPaths = append(cleanupPaths, staged)
+			} else if dirContainsSymlinks(claudeConfigDir) {
 				staged, err := stageDirResolvingSymlinks(claudeConfigDir)
 				if err != nil {
 					warn("Failed to resolve symlinks in %s: %s", claudeConfigDir, err)
@@ -1575,7 +1608,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		claudeConfigFile := filepath.Join(home, ".claude.json")
 		if _, err := os.Stat(claudeConfigFile); err == nil {
 			// Preprocess to remove installMethod (host install method doesn't apply in container)
-			if processedPath := preprocessClaudeConfig(claudeConfigFile); processedPath != "" {
+			var processedPath string
+			if cfg.NoClaudeAuth {
+				processedPath = preprocessClaudeConfigWithoutAuth(claudeConfigFile)
+			} else {
+				processedPath = preprocessClaudeConfig(claudeConfigFile)
+			}
+			if processedPath != "" {
 				cleanupPaths = append(cleanupPaths, processedPath)
 				if appleContainer {
 					appleContainerFiles[processedPath] = "claude/.claude.json"
@@ -1587,30 +1626,32 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// On macOS, extract OAuth credentials from Keychain and mount as .credentials.json
 		// Write to unique temp file in ~/.yolobox/tmp/ (unique per invocation to
 		// avoid conflicts when multiple yolobox instances run concurrently)
-		if creds := getClaudeCredentials(); creds != "" {
-			tmpDir := filepath.Join(home, ".yolobox", "tmp")
-			if err := os.MkdirAll(tmpDir, 0700); err == nil {
-				f, err := os.CreateTemp(tmpDir, "claude-credentials-*.json")
-				if err == nil {
-					if _, writeErr := f.Write([]byte(creds)); writeErr == nil {
-						if closeErr := f.Close(); closeErr == nil {
-							if chmodErr := os.Chmod(f.Name(), 0600); chmodErr == nil {
-								credsPath := f.Name()
-								cleanupPaths = append(cleanupPaths, credsPath)
-								if appleContainer {
-									appleContainerFiles[credsPath] = "claude/.credentials.json"
+		if !cfg.NoClaudeAuth {
+			if creds := getClaudeCredentials(); creds != "" {
+				tmpDir := filepath.Join(home, ".yolobox", "tmp")
+				if err := os.MkdirAll(tmpDir, 0700); err == nil {
+					f, err := os.CreateTemp(tmpDir, "claude-credentials-*.json")
+					if err == nil {
+						if _, writeErr := f.Write([]byte(creds)); writeErr == nil {
+							if closeErr := f.Close(); closeErr == nil {
+								if chmodErr := os.Chmod(f.Name(), 0600); chmodErr == nil {
+									credsPath := f.Name()
+									cleanupPaths = append(cleanupPaths, credsPath)
+									if appleContainer {
+										appleContainerFiles[credsPath] = "claude/.credentials.json"
+									} else {
+										args = append(args, "-v", credsPath+":/host-claude/.credentials.json:ro")
+									}
 								} else {
-									args = append(args, "-v", credsPath+":/host-claude/.credentials.json:ro")
+									_ = os.Remove(f.Name())
 								}
 							} else {
 								_ = os.Remove(f.Name())
 							}
 						} else {
+							_ = f.Close()
 							_ = os.Remove(f.Name())
 						}
-					} else {
-						_ = f.Close()
-						_ = os.Remove(f.Name())
 					}
 				}
 			}
@@ -2104,6 +2145,14 @@ func getClaudeCredentials() string {
 // host-specific and causes issues in the container), and writes to a temp file.
 // Returns the temp file path, or empty string on error.
 func preprocessClaudeConfig(srcPath string) string {
+	return preprocessClaudeConfigForContainer(srcPath, false)
+}
+
+func preprocessClaudeConfigWithoutAuth(srcPath string) string {
+	return preprocessClaudeConfigForContainer(srcPath, true)
+}
+
+func preprocessClaudeConfigForContainer(srcPath string, stripAuth bool) string {
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
 		return ""
@@ -2117,6 +2166,10 @@ func preprocessClaudeConfig(srcPath string) string {
 	// Remove installMethod - let Claude detect it fresh in the container
 	// The host's installMethod (e.g., "native") doesn't apply inside the container
 	delete(config, "installMethod")
+	if stripAuth {
+		delete(config, "oauthAccount")
+		delete(config, "userID")
+	}
 
 	processed, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {

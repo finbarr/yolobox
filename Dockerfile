@@ -443,6 +443,32 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-ki
     '    /usr/local/bin/yolobox-upsert-block "$target" "$source_file" "$start_marker" "$end_marker"' \
     '    sudo chown yolo:yolo "$target"' \
     '}' \
+    'copy_claude_json() {' \
+    '    local source="$1"' \
+    '    local target="/home/yolo/.claude.json"' \
+    '    if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" != "1" ]; then' \
+    '        sudo rm -f "$target"' \
+    '        sudo cp -a "$source" "$target"' \
+    '        sudo chown yolo:yolo "$target"' \
+    '        return 0' \
+    '    fi' \
+    '    local tmp' \
+    '    tmp="$(mktemp)"' \
+    '    if [ -f "$target" ] && jq -e '"'"'type == "object"'"'"' "$target" >/dev/null 2>&1; then' \
+    '        if ! jq -s '"'"'.[0] as $host | .[1] as $container | $host | if ($container | has("oauthAccount")) then .oauthAccount = $container.oauthAccount else del(.oauthAccount) end | if ($container | has("userID")) then .userID = $container.userID else del(.userID) end'"'"' "$source" "$target" > "$tmp"; then' \
+    '            echo -e "\033[33m→ Failed to merge host Claude config; keeping container config\033[0m" >&2' \
+    '            rm -f "$tmp"' \
+    '            return 0' \
+    '        fi' \
+    '    elif ! jq '"'"'del(.oauthAccount, .userID)'"'"' "$source" > "$tmp"; then' \
+    '        echo -e "\033[33m→ Failed to sanitize host Claude config; keeping container config\033[0m" >&2' \
+    '        rm -f "$tmp"' \
+    '        return 0' \
+    '    fi' \
+    '    sudo cp "$tmp" "$target"' \
+    '    sudo chown yolo:yolo "$target"' \
+    '    rm -f "$tmp"' \
+    '}' \
     'warn_low_space() {' \
     '    local path="$1"' \
     '    local label="$2"' \
@@ -510,23 +536,29 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-ki
     '    echo -e "\033[33m→ Copying host Claude config to container\033[0m" >&2' \
     'fi' \
     'if [ -d /host-claude/.claude ]; then' \
-    '    sudo rm -rf /home/yolo/.claude' \
-    '    sudo cp -a /host-claude/.claude /home/yolo/.claude' \
-    '    sudo chown -R yolo:yolo /home/yolo/.claude' \
+    '    if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" = "1" ]; then' \
+    '        sudo mkdir -p /home/yolo/.claude' \
+    '        sudo rsync -a --delete --chown=yolo:yolo --exclude=.credentials.json --exclude=.oauth_refresh.lock /host-claude/.claude/ /home/yolo/.claude/' \
+    '        sudo chown yolo:yolo /home/yolo/.claude' \
+    '        if [ -f /home/yolo/.claude/.credentials.json ]; then' \
+    '            sudo chown yolo:yolo /home/yolo/.claude/.credentials.json' \
+    '            sudo chmod 600 /home/yolo/.claude/.credentials.json' \
+    '        fi' \
+    '    else' \
+    '        sudo rm -rf /home/yolo/.claude' \
+    '        sudo cp -a /host-claude/.claude /home/yolo/.claude' \
+    '        sudo chown -R yolo:yolo /home/yolo/.claude' \
+    '    fi' \
     'fi' \
     'if [ -f /host-claude/.claude.json ]; then' \
-    '    sudo rm -f /home/yolo/.claude.json' \
-    '    sudo cp -a /host-claude/.claude.json /home/yolo/.claude.json' \
-    '    sudo chown yolo:yolo /home/yolo/.claude.json' \
+    '    copy_claude_json /host-claude/.claude.json' \
     'elif [ -f "$HF/claude/.claude.json" ]; then' \
-    '    sudo rm -f /home/yolo/.claude.json' \
-    '    sudo cp -a "$HF/claude/.claude.json" /home/yolo/.claude.json' \
-    '    sudo chown yolo:yolo /home/yolo/.claude.json' \
+    '    copy_claude_json "$HF/claude/.claude.json"' \
     'fi' \
     '# Copy Claude credentials from macOS Keychain (extracted by yolobox)' \
     'CREDS_FILE="/host-claude/.credentials.json"' \
     '[ ! -f "$CREDS_FILE" ] && [ -f "$HF/claude/.credentials.json" ] && CREDS_FILE="$HF/claude/.credentials.json"' \
-    'if [ -f "$CREDS_FILE" ]; then' \
+    'if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" != "1" ] && [ -f "$CREDS_FILE" ]; then' \
     '    mkdir -p /home/yolo/.claude' \
     '    sudo cp -a "$CREDS_FILE" /home/yolo/.claude/.credentials.json' \
     '    sudo chown yolo:yolo /home/yolo/.claude/.credentials.json' \

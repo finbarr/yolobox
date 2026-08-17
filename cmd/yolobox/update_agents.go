@@ -61,6 +61,7 @@ func updateAgentsDefaults(cfg Config) Config {
 	cfg.Exclude = nil
 	cfg.CopyAs = nil
 	cfg.ClaudeConfig = false
+	cfg.NoClaudeAuth = false
 	cfg.CodexConfig = false
 	cfg.GeminiConfig = false
 	cfg.KimiConfig = false

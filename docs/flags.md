@@ -51,6 +51,7 @@ These target different layers:
 | `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
 | `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Copy host `~/.claude` config into the container | |
+| `--no-claude-auth` | With `--claude-config`, keep Claude authentication container-local instead of copying the host login | Without `--claude-config` |
 | `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` Gemini/Antigravity config into the container | |
 | `--kimi-config` | Sync host `~/.kimi-code` config, credentials, skills, and sessions into the container | |
@@ -124,6 +125,18 @@ yolobox run --env-from-host GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN claude
 ```
 
 Both sides are plain variable names, with no `$`. An alias fails closed: yolobox refuses to start if the host variable is unset, and it suppresses automatic passthrough and `--gh-token` for that key so the value it replaces cannot leak in. See [renaming host variables](/configuration#renaming-host-variables) for details.
+
+## Independent Claude login
+
+By default, `--claude-config` remains backwards-compatible: it copies the host Claude login together with `~/.claude` and `~/.claude.json`.
+
+Add `--no-claude-auth` to copy non-auth configuration while keeping the box's Claude login independent:
+
+```bash
+yolobox claude --claude-config --no-claude-auth
+```
+
+The box retains its own `~/.claude/.credentials.json`, `oauthAccount`, and `userID` in the persistent `yolobox-home` volume. Host credentials from macOS Keychain or `~/.claude/.credentials.json` are not imported, and automatic `CLAUDE_CODE_OAUTH_TOKEN` passthrough is suppressed. Run `/login` once inside the box. Explicit `--env` entries are still honored.
 
 ## RTK command compression
 

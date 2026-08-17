@@ -123,6 +123,8 @@ func TestMergeConfig(t *testing.T) {
 		NoNetwork:        true,
 		NoEnvPassthrough: true,
 		Scratch:          true,
+		ClaudeConfig:     true,
+		NoClaudeAuth:     true,
 		CodexConfig:      true,
 		KimiConfig:       true,
 		OpencodeConfig:   true,
@@ -157,6 +159,12 @@ func TestMergeConfig(t *testing.T) {
 	}
 	if !dst.Scratch {
 		t.Error("expected Scratch to be true")
+	}
+	if !dst.ClaudeConfig {
+		t.Error("expected ClaudeConfig to be true")
+	}
+	if !dst.NoClaudeAuth {
+		t.Error("expected NoClaudeAuth to be true")
 	}
 	if !dst.CodexConfig {
 		t.Error("expected CodexConfig to be true")
@@ -277,6 +285,30 @@ func TestLoadConfigCodexConfig(t *testing.T) {
 	}
 	if !cfg.CodexConfig {
 		t.Fatal("expected codex_config to load from config file")
+	}
+}
+
+func TestLoadConfigNoClaudeAuth(t *testing.T) {
+	projectDir := t.TempDir()
+	configHome := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", configHome)
+	t.Setenv("HOME", t.TempDir())
+
+	globalConfigDir := filepath.Join(configHome, "yolobox")
+	if err := os.MkdirAll(globalConfigDir, 0755); err != nil {
+		t.Fatalf("failed to create global config dir: %v", err)
+	}
+	globalConfigPath := filepath.Join(globalConfigDir, "config.toml")
+	if err := os.WriteFile(globalConfigPath, []byte("claude_config = true\nno_claude_auth = true\n"), 0644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+
+	cfg, err := loadConfig(projectDir)
+	if err != nil {
+		t.Fatalf("loadConfig failed: %v", err)
+	}
+	if !cfg.ClaudeConfig || !cfg.NoClaudeAuth {
+		t.Fatalf("expected separate Claude auth config to load, got %#v", cfg)
 	}
 }
 
@@ -436,6 +468,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 
 	cfg := Config{
 		ClaudeConfig:   true,
+		NoClaudeAuth:   true,
 		CodexConfig:    true,
 		GeminiConfig:   true,
 		KimiConfig:     true,
@@ -456,6 +489,7 @@ func TestSaveGlobalConfigToolConfigs(t *testing.T) {
 	content := string(data)
 	for _, want := range []string{
 		"claude_config = true",
+		"no_claude_auth = true",
 		"codex_config = true",
 		"gemini_config = true",
 		"kimi_config = true",
@@ -964,6 +998,7 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 		ReadonlyProject:    true,
 		NoYolo:             true,
 		ClaudeConfig:       true,
+		NoClaudeAuth:       true,
 		CodexConfig:        true,
 		GeminiConfig:       true,
 		KimiConfig:         true,
@@ -1065,6 +1100,9 @@ func TestBuildRunArgsContextManifestContents(t *testing.T) {
 	if !manifest.Config.ClaudeConfig {
 		t.Fatal("expected claude_config in manifest config")
 	}
+	if !manifest.Config.NoClaudeAuth {
+		t.Fatal("expected no_claude_auth in manifest config")
+	}
 	if !manifest.Config.CodexConfig {
 		t.Fatal("expected codex_config in manifest config")
 	}
@@ -1150,6 +1188,102 @@ func TestBuildRunArgsNoEnvPassthrough(t *testing.T) {
 	}
 }
 
+func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "host-oauth-token")
+
+	claudeDir := filepath.Join(homeDir, ".claude")
+	if err := os.MkdirAll(claudeDir, 0755); err != nil {
+		t.Fatalf("failed to create Claude config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("failed to write Claude settings: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, ".credentials.json"), []byte("host-refresh-token\n"), 0600); err != nil {
+		t.Fatalf("failed to write host Claude credentials: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, ".oauth_refresh.lock"), []byte("host-lock\n"), 0600); err != nil {
+		t.Fatalf("failed to write host Claude refresh lock: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(homeDir, ".claude.json"), []byte("{\"oauthAccount\":{\"accountUuid\":\"host\"}}\n"), 0644); err != nil {
+		t.Fatalf("failed to write Claude config: %v", err)
+	}
+
+	cfg := Config{
+		Image:        "test-image",
+		ClaudeConfig: true,
+		NoClaudeAuth: true,
+	}
+	args, cleanupPaths, err := buildRunArgs(cfg, projectDir, []string{"claude", "--version"}, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	argsStr := strings.Join(args, " ")
+	if value, ok := argEnvValue(args, "YOLOBOX_NO_CLAUDE_AUTH"); !ok || value != "1" {
+		t.Fatalf("expected Claude auth isolation env, got value=%q ok=%t args=%s", value, ok, argsStr)
+	}
+	if _, ok := argEnvValue(args, "CLAUDE_CODE_OAUTH_TOKEN"); ok {
+		t.Fatalf("did not expect host Claude OAuth token passthrough: %s", argsStr)
+	}
+	var stagedClaudeDir string
+	for _, arg := range args {
+		if strings.HasSuffix(arg, ":/host-claude/.claude:ro") {
+			stagedClaudeDir = strings.TrimSuffix(arg, ":/host-claude/.claude:ro")
+			break
+		}
+	}
+	if stagedClaudeDir == "" || stagedClaudeDir == claudeDir {
+		t.Fatalf("expected sanitized staged Claude config mount, got %s", argsStr)
+	}
+	if _, err := os.Stat(filepath.Join(stagedClaudeDir, "settings.json")); err != nil {
+		t.Fatalf("expected staged non-auth settings: %v", err)
+	}
+	for _, name := range []string{".credentials.json", ".oauth_refresh.lock"} {
+		if _, err := os.Stat(filepath.Join(stagedClaudeDir, name)); !os.IsNotExist(err) {
+			t.Fatalf("did not expect %s in staged Claude config, err=%v", name, err)
+		}
+	}
+	if strings.Contains(argsStr, ":/host-claude/.credentials.json:ro") {
+		t.Fatalf("did not expect extracted host credentials mount: %s", argsStr)
+	}
+	for _, path := range cleanupPaths {
+		if strings.Contains(filepath.Base(path), "claude-credentials-") {
+			t.Fatalf("did not expect extracted host credentials temp file: %v", cleanupPaths)
+		}
+		if strings.HasPrefix(filepath.Base(path), "claude-config-") {
+			processed, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatalf("failed to read processed Claude config: %v", err)
+			}
+			if strings.Contains(string(processed), "oauthAccount") || strings.Contains(string(processed), "userID") {
+				t.Fatalf("did not expect host account identity in staged Claude config: %s", processed)
+			}
+		}
+	}
+
+	payload, ok := argEnvValue(args, yoloboxContextPayloadEnv)
+	if !ok {
+		t.Fatalf("expected %s env var, got %s", yoloboxContextPayloadEnv, argsStr)
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		t.Fatalf("failed to decode context manifest payload: %v", err)
+	}
+	var manifest contextManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatalf("failed to decode context manifest: %v", err)
+	}
+	if !manifest.Config.NoClaudeAuth {
+		t.Fatal("expected no_claude_auth in context manifest")
+	}
+	if contains(manifest.Launch.AutoPassthroughEnvKeys, "CLAUDE_CODE_OAUTH_TOKEN") {
+		t.Fatalf("did not expect host OAuth token in manifest passthrough keys: %v", manifest.Launch.AutoPassthroughEnvKeys)
+	}
+}
+
 func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 	if _, err := exec.LookPath("bash"); err != nil {
 		t.Skip("bash not available")
@@ -1160,7 +1294,14 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 
 	projectDir := t.TempDir()
 	contextDir := t.TempDir()
-	manifest := buildContextManifest(Config{Image: "test-image", ContainerName: "dev-box"}, projectDir, []string{"codex"}, false, nil, false)
+	manifest := buildContextManifest(
+		Config{Image: "test-image", ContainerName: "dev-box", ClaudeConfig: true, NoClaudeAuth: true},
+		projectDir,
+		[]string{"codex"},
+		false,
+		nil,
+		false,
+	)
 	data, err := json.Marshal(manifest)
 	if err != nil {
 		t.Fatalf("failed to encode manifest: %v", err)
@@ -1185,6 +1326,7 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 		"Container name: dev-box",
 		"Readonly project mode: false",
 		"Project writable now: true",
+		"Claude login copied from host: false",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output:\n%s", want, output)
@@ -1699,6 +1841,38 @@ func TestDockerfileCodexConfigImportPreservesAuth(t *testing.T) {
 	}
 	if strings.Contains(dockerfile, "restore_codex_session_mtimes") {
 		t.Fatal("Codex sessions are live-mounted; entrypoint must not scan and touch session mtimes")
+	}
+}
+
+func TestDockerfileClaudeConfigCanPreserveContainerAuth(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
+	if err != nil {
+		t.Fatalf("failed to read Dockerfile: %v", err)
+	}
+	dockerfile := string(data)
+	start := strings.Index(dockerfile, "'copy_claude_json() {'")
+	if start < 0 {
+		t.Fatal("failed to find Claude config helper")
+	}
+	rest := dockerfile[start:]
+	end := strings.Index(rest, "'# Copy Gemini/Antigravity config from host staging area if present'")
+	if end < 0 {
+		t.Fatal("failed to find end of Claude config import block")
+	}
+	block := rest[:end]
+
+	for _, want := range []string{
+		"YOLOBOX_NO_CLAUDE_AUTH",
+		"sudo rsync -a --delete --chown=yolo:yolo --exclude=.credentials.json --exclude=.oauth_refresh.lock",
+		"if ($container | has(\"oauthAccount\")) then .oauthAccount = $container.oauthAccount else del(.oauthAccount) end",
+		"if ($container | has(\"userID\")) then .userID = $container.userID else del(.userID) end",
+		"if [ \"${YOLOBOX_NO_CLAUDE_AUTH:-}\" != \"1\" ] && [ -f \"$CREDS_FILE\" ]; then",
+		"sudo rm -rf /home/yolo/.claude",
+		"sudo cp -a /host-claude/.claude /home/yolo/.claude",
+	} {
+		if !strings.Contains(block, want) {
+			t.Fatalf("expected Claude config import block to contain %q", want)
+		}
 	}
 }
 
@@ -3306,6 +3480,12 @@ func TestSplitToolArgs(t *testing.T) {
 			wantTool:    []string{"--resume"},
 		},
 		{
+			name:        "Claude auth isolation flags stay with yolobox",
+			args:        []string{"--claude-config", "--no-claude-auth", "--resume"},
+			wantYolobox: []string{"--claude-config", "--no-claude-auth"},
+			wantTool:    []string{"--resume"},
+		},
+		{
 			name:        "explicit separator",
 			args:        []string{"--no-network", "--", "--help"},
 			wantYolobox: []string{"--no-network"},
@@ -3415,6 +3595,22 @@ func TestParseFlagsKimiConfig(t *testing.T) {
 	expectSliceEqual(t, rest, []string{"kimi", "--version"})
 }
 
+func TestParseFlagsNoClaudeAuth(t *testing.T) {
+	cfg, rest, err := parseBaseFlagsWithConfig(
+		"run",
+		[]string{"--claude-config", "--no-claude-auth", "claude", "--version"},
+		t.TempDir(),
+		defaultConfig(),
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !cfg.ClaudeConfig || !cfg.NoClaudeAuth {
+		t.Fatalf("expected Claude config with container-local auth, got %#v", cfg)
+	}
+	expectSliceEqual(t, rest, []string{"claude", "--version"})
+}
+
 func TestParseFlagsPiConfig(t *testing.T) {
 	cfg, rest, err := parseBaseFlags("run", []string{"--pi-config", "pi", "--version"}, t.TempDir())
 	if err != nil {
@@ -3487,6 +3683,16 @@ func TestValidateOpenBridgeNoNetworkConflict(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "--open-bridge") {
 		t.Fatalf("expected open-bridge error, got %v", err)
+	}
+}
+
+func TestValidateNoClaudeAuthRequiresClaudeConfig(t *testing.T) {
+	err := validateConfigConflicts(Config{NoClaudeAuth: true})
+	if err == nil {
+		t.Fatal("expected no-claude-auth/claude-config conflict")
+	}
+	if !strings.Contains(err.Error(), "--no-claude-auth") {
+		t.Fatalf("expected no-claude-auth error, got %v", err)
 	}
 }
 
@@ -3608,6 +3814,42 @@ func TestPreprocessClaudeConfig(t *testing.T) {
 	}
 	if !strings.Contains(resultStr, "autoUpdates") {
 		t.Errorf("result should contain autoUpdates, got: %s", resultStr)
+	}
+}
+
+func TestPreprocessClaudeConfigWithoutAuth(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+	srcPath := filepath.Join(tmpDir, ".claude.json")
+	srcContent := `{
+  "installMethod": "native",
+  "oauthAccount": {"accountUuid": "host-account"},
+  "userID": "host-user",
+  "mcpServers": {"demo": {"command": "demo"}},
+  "theme": "dark"
+}`
+	if err := os.WriteFile(srcPath, []byte(srcContent), 0644); err != nil {
+		t.Fatalf("failed to write Claude config: %v", err)
+	}
+
+	resultPath := preprocessClaudeConfigWithoutAuth(srcPath)
+	if resultPath == "" {
+		t.Fatal("preprocessClaudeConfigWithoutAuth returned empty path")
+	}
+	result, err := os.ReadFile(resultPath)
+	if err != nil {
+		t.Fatalf("failed to read processed Claude config: %v", err)
+	}
+	resultStr := string(result)
+	for _, unwanted := range []string{"installMethod", "oauthAccount", "userID", "host-account", "host-user"} {
+		if strings.Contains(resultStr, unwanted) {
+			t.Fatalf("did not expect %q in processed config: %s", unwanted, resultStr)
+		}
+	}
+	for _, want := range []string{"mcpServers", "demo", "theme", "dark"} {
+		if !strings.Contains(resultStr, want) {
+			t.Fatalf("expected %q in processed config: %s", want, resultStr)
+		}
 	}
 }
 
