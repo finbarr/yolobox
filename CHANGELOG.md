@@ -8,6 +8,8 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.0 - 2026-08-17
+
 ### Added
 
 - Added `--platform` flag and `platform` config key to run the container under emulation (e.g. `linux/amd64` on Apple Silicon), passed through to runtime `run`, `pull`, and custom-image `build`.
