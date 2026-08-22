@@ -97,10 +97,10 @@ Project-level customization can also layer a Dockerfile fragment on top of the b
 
 Use container paths for env values because they are passed directly to the process inside yolobox. `env` values are passed to the runtime verbatim; nothing in them is interpreted.
 
-To hand the sandbox a *different* value than the host uses under the same name — a read-only token instead of your real one — alias it with `env_from_host` (or `--env-from-host KEY=HOST_VAR`):
+To hand the sandbox a *different* value than the host uses under the same name — a read-only token instead of your real one — alias it with `env_from_host` (or `--env-from-host KEY=HOST_VAR`). This one goes in **your** config, not the project's, because it reads host environment variables and a project config ships inside the repository:
 
 ```toml
-# .yolobox.toml
+# ~/.config/yolobox/config.toml
 env_from_host = ["GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN"]
 ```
 

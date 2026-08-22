@@ -46,19 +46,36 @@ Place in your project root for project-specific settings:
 
 ```toml
 default_harness = "none"
-mounts = ["../shared-libs:/libs:ro"]
 env = ["DEBUG=1"]
 readonly_project = true
 container_name = "project-yolobox"
 exclude = [".env*", "secrets/**"]
-copy_as = [".env.sandbox:.env"]
 no_network = true
-no_env_passthrough = true
 shm_size = "2g"
 
 [customize]
 packages = ["default-jdk", "maven"]
 ```
+
+#### A project config cannot grant host access
+
+`.yolobox.toml` ships inside the repository, so it is part of the content the sandbox
+exists to contain. A cloned repository must not be able to choose its own privileges.
+
+These keys are **ignored** in a project config, and yolobox prints a notice naming each one
+it dropped:
+
+`ssh_agent`, `gh_token`, `git_config`, `claude_config`, `codex_config`, `gemini_config`,
+`kimi_config`, `opencode_config`, `pi_config`, `docker`, `clipboard`, `open_bridge`,
+`env_from_host`, `mounts`, `copy_as`, `devices`, `cap_add`, `runtime_args`, `network`,
+`pod`, `no_env_passthrough`, `no_project`.
+
+Everything that only affects what happens *inside* the box still works per project —
+`image`, `env`, `exclude`, `cpus`, `memory`, `shm_size`, `default_harness`,
+`readonly_project`, `no_network`, `customize.*` and the rest.
+
+Set the ignored ones in your own config (`~/.config/yolobox/config.toml`) or as flags, where
+you are the one deciding.
 
 Use `env = ["KEY=value"]` for per-project environment variables that should be passed directly to the process inside yolobox. Values are not shell-expanded by yolobox, so use container paths such as `/home/yolo/.codex-account` rather than `~/.codex-account` when configuring tool homes:
 
@@ -227,7 +244,7 @@ env_from_host = [
 ]
 ```
 
-With that config, a host shell holding a read-write `GH_TOKEN` and a read-only `YOLOBOX_READONLY_GH_TOKEN` gives the container only the read-only one, without the token ever being written into `.yolobox.toml`.
+With that config, a host shell holding a read-write `GH_TOKEN` and a read-only `YOLOBOX_READONLY_GH_TOKEN` gives the container only the read-only one, without the token ever being written into a config file.
 
 Both sides are plain variable names — write `GH_TOKEN=YOLOBOX_READONLY_GH_TOKEN`, not `GH_TOKEN=$YOLOBOX_READONLY_GH_TOKEN`.
 

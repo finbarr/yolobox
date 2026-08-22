@@ -114,6 +114,10 @@ For project-specific variables, put the same values in `.yolobox.toml`:
 env = ["CODEX_HOME=/home/yolo/.codex-account"]
 ```
 
+`env_from_host` is **not** settable per project — it reads host environment variables, and a
+project config ships inside the repository. Put it in your own config instead. See
+[Configuration](configuration.md#a-project-config-cannot-grant-host-access).
+
 Use container paths rather than host-only paths or shell shortcuts such as `~`.
 
 `--env` and `env = [...]` values are passed through verbatim; nothing in them is interpreted. Key-only entries such as `--env MY_API_KEY` forward that variable from the host unchanged.

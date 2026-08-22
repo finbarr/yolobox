@@ -101,11 +101,90 @@ func loadConfig(projectDir string) (Config, error) {
 	}
 
 	projectPath := filepath.Join(projectDir, ".yolobox.toml")
-	if err := mergeConfigFile(projectPath, &cfg); err != nil {
+	if err := mergeProjectConfigFile(projectPath, &cfg); err != nil {
 		return Config{}, err
 	}
 
 	return cfg, nil
+}
+
+// grantingKeys are the settings a project-level .yolobox.toml is NOT allowed to set.
+//
+// A project config ships inside the repository, so it is part of the untrusted content
+// the sandbox exists to contain. Everything here widens the sandbox's access to the
+// host, which means a cloned repository could otherwise choose its own privileges:
+// ssh_agent forwards a live signing agent, env_from_host reads named host variables,
+// the *_config flags copy host credential files in, and docker mounts a root-equivalent
+// socket. Settings that only affect what happens *inside* the box -- image, packages,
+// env, cpus, memory, exclude, harness -- are deliberately still allowed, so per-project
+// customization keeps working.
+//
+// mergeConfig only ever widens (booleans OR in, non-empty values override), so clearing
+// these is purely restrictive: a project can never use them to make itself safer.
+var grantingKeys = []struct {
+	name  string
+	clear func(*Config)
+	set   func(*Config) bool
+}{
+	{"mounts", func(c *Config) { c.Mounts = nil }, func(c *Config) bool { return len(c.Mounts) > 0 }},
+	{"env_from_host", func(c *Config) { c.EnvFromHost = nil }, func(c *Config) bool { return len(c.EnvFromHost) > 0 }},
+	{"copy_as", func(c *Config) { c.CopyAs = nil }, func(c *Config) bool { return len(c.CopyAs) > 0 }},
+	{"devices", func(c *Config) { c.Devices = nil }, func(c *Config) bool { return len(c.Devices) > 0 }},
+	{"cap_add", func(c *Config) { c.CapAdd = nil }, func(c *Config) bool { return len(c.CapAdd) > 0 }},
+	{"runtime_args", func(c *Config) { c.RuntimeArgs = nil }, func(c *Config) bool { return len(c.RuntimeArgs) > 0 }},
+	{"network", func(c *Config) { c.Network = "" }, func(c *Config) bool { return c.Network != "" }},
+	{"pod", func(c *Config) { c.Pod = "" }, func(c *Config) bool { return c.Pod != "" }},
+	{"ssh_agent", func(c *Config) { c.SSHAgent = false }, func(c *Config) bool { return c.SSHAgent }},
+	{"gh_token", func(c *Config) { c.GhToken = false }, func(c *Config) bool { return c.GhToken }},
+	{"git_config", func(c *Config) { c.GitConfig = false }, func(c *Config) bool { return c.GitConfig }},
+	{"claude_config", func(c *Config) { c.ClaudeConfig = false }, func(c *Config) bool { return c.ClaudeConfig }},
+	{"codex_config", func(c *Config) { c.CodexConfig = false }, func(c *Config) bool { return c.CodexConfig }},
+	{"gemini_config", func(c *Config) { c.GeminiConfig = false }, func(c *Config) bool { return c.GeminiConfig }},
+	{"kimi_config", func(c *Config) { c.KimiConfig = false }, func(c *Config) bool { return c.KimiConfig }},
+	{"opencode_config", func(c *Config) { c.OpencodeConfig = false }, func(c *Config) bool { return c.OpencodeConfig }},
+	{"pi_config", func(c *Config) { c.PiConfig = false }, func(c *Config) bool { return c.PiConfig }},
+	{"docker", func(c *Config) { c.Docker = false }, func(c *Config) bool { return c.Docker }},
+	{"clipboard", func(c *Config) { c.Clipboard = false }, func(c *Config) bool { return c.Clipboard }},
+	{"open_bridge", func(c *Config) { c.OpenBridge = false }, func(c *Config) bool { return c.OpenBridge }},
+	{"no_env_passthrough", func(c *Config) { c.NoEnvPassthrough = false }, func(c *Config) bool { return c.NoEnvPassthrough }},
+	{"no_project", func(c *Config) { c.NoProject = false }, func(c *Config) bool { return c.NoProject }},
+}
+
+// sanitizeProjectConfig clears every granting key and reports which ones were present,
+// so the user is told rather than silently overruled.
+func sanitizeProjectConfig(cfg *Config) []string {
+	var found []string
+	for _, k := range grantingKeys {
+		if k.set(cfg) {
+			found = append(found, k.name)
+			k.clear(cfg)
+		}
+	}
+	return found
+}
+
+func mergeProjectConfigFile(path string, cfg *Config) error {
+	fileCfg, ok, err := decodeConfigFile(path)
+	if err != nil || !ok {
+		return err
+	}
+
+	if ignored := sanitizeProjectConfig(&fileCfg); len(ignored) > 0 {
+		fmt.Fprintf(os.Stderr,
+			"yolobox: ignoring %s from .yolobox.toml -- a project cannot grant itself host access.\n"+
+				"         Set these in your own config (%s) if you intend to allow them.\n",
+			strings.Join(ignored, ", "), displayGlobalConfigPath())
+	}
+
+	mergeConfig(cfg, fileCfg)
+	return nil
+}
+
+func displayGlobalConfigPath() string {
+	if p, err := globalConfigPath(); err == nil {
+		return p
+	}
+	return "~/.config/yolobox/config.toml"
 }
 
 func loadSetupDefaults() (Config, error) {
@@ -133,16 +212,24 @@ func globalConfigPath() (string, error) {
 	return filepath.Join(home, ".config", "yolobox", "config.toml"), nil
 }
 
-func mergeConfigFile(path string, cfg *Config) error {
+func decodeConfigFile(path string) (Config, bool, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil
+			return Config{}, false, nil
 		}
-		return err
+		return Config{}, false, err
 	}
 
 	var fileCfg Config
 	if _, err := toml.DecodeFile(path, &fileCfg); err != nil {
+		return Config{}, false, err
+	}
+	return fileCfg, true, nil
+}
+
+func mergeConfigFile(path string, cfg *Config) error {
+	fileCfg, ok, err := decodeConfigFile(path)
+	if err != nil || !ok {
 		return err
 	}
 

@@ -211,20 +211,31 @@ func TestContextManifestIncludesEnvFromHostKeys(t *testing.T) {
 	}
 }
 
+// writeGlobalConfig puts config where GRANTS belong. env_from_host reads host
+// environment variables, so it is not settable from a project .yolobox.toml -- a project
+// config ships inside untrusted repository content. These tests exercise the aliasing
+// mechanism itself, which is unchanged; only the file it is declared in has moved.
+func writeGlobalConfig(t *testing.T, body string) {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "yolobox"), 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "yolobox", "config.toml"), []byte(body), 0o644); err != nil {
+		t.Fatalf("failed to write global config: %v", err)
+	}
+}
+
 func TestRunCmdArgsEnvFromHostEndToEnd(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("YOLOBOX_TEST_RO_TOKEN", "read-only-token")
 	// The privileged host token the alias is meant to replace.
 	t.Setenv("GH_TOKEN", "write-token")
+	writeGlobalConfig(t, "env = [\"HASH=$2b$12$example\"]\nenv_from_host = [\"GH_TOKEN=YOLOBOX_TEST_RO_TOKEN\"]\n")
 	argsFile := installFakeDockerRuntime(t)
 	defer silenceStderr(t)()
-
-	config := "env = [\"HASH=$2b$12$example\"]\nenv_from_host = [\"GH_TOKEN=YOLOBOX_TEST_RO_TOKEN\"]\n"
-	if err := os.WriteFile(filepath.Join(projectDir, ".yolobox.toml"), []byte(config), 0644); err != nil {
-		t.Fatalf("failed to write project config: %v", err)
-	}
 
 	if err := runCmdArgs([]string{"run", "--env-from-host", "EXTRA=YOLOBOX_TEST_RO_TOKEN", "bash"}, projectDir, nil); err != nil {
 		t.Fatalf("runCmdArgs failed: %v", err)
@@ -243,17 +254,12 @@ func TestRunCmdArgsEnvFromHostEndToEnd(t *testing.T) {
 
 func TestRunCmdArgsEnvFromHostMissingSourceFailsClosed(t *testing.T) {
 	projectDir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("GH_TOKEN", "write-token")
 	mustUnsetenv(t, "YOLOBOX_TEST_RO_TOKEN")
+	writeGlobalConfig(t, "env_from_host = [\"GH_TOKEN=YOLOBOX_TEST_RO_TOKEN\"]\n")
 	argsFile := installFakeDockerRuntime(t)
 	defer silenceStderr(t)()
-
-	config := "env_from_host = [\"GH_TOKEN=YOLOBOX_TEST_RO_TOKEN\"]\n"
-	if err := os.WriteFile(filepath.Join(projectDir, ".yolobox.toml"), []byte(config), 0644); err != nil {
-		t.Fatalf("failed to write project config: %v", err)
-	}
 
 	err := runCmdArgs([]string{"run", "bash"}, projectDir, nil)
 	if err == nil {

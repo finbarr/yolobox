@@ -8,6 +8,16 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Security
+
+- A project `.yolobox.toml` can no longer grant the sandbox access to the host. A project
+  config ships inside the repository, so a cloned repo could previously set `ssh_agent`,
+  `env_from_host`, `gh_token`, the `*_config` credential-copy flags, `docker`, `mounts`,
+  `copy_as`, `cap_add`, `devices`, `runtime_args`, `network`, `pod`, `no_env_passthrough`
+  and `no_project` for itself — silently. These keys are now ignored in project config, with
+  a notice naming each one dropped. Settings that only affect the inside of the box (`image`,
+  `env`, `exclude`, `cpus`, `memory`, `customize.*`, …) still work per project.
+
 ## v0.19.0 - 2026-08-17
 
 ### Added
