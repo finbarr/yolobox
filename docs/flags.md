@@ -140,7 +140,7 @@ The box retains its own `~/.claude/.credentials.json`, `oauthAccount`, and `user
 
 ## RTK command compression
 
-The `--rtk` flag enables RTK command-output compression for supported AI shortcuts. yolobox runs RTK init inside the container for Claude, Codex, Gemini, or OpenCode after any host config sync, so copied host config does not overwrite the RTK hooks.
+The `--rtk` flag enables RTK command-output compression for supported AI shortcuts. yolobox runs RTK init inside the container for Claude, Codex, Gemini, or OpenCode after any host config sync, so copied host config does not overwrite the RTK hooks. Automatic init suppresses RTK's interactive telemetry question and leaves telemetry disabled unless you opt in from inside the box with `rtk telemetry enable`.
 
 RTK is installed in the base image at image build time using the latest available RTK release. yolobox does not auto-update RTK during container startup; pull or rebuild the yolobox image to pick up newer RTK releases.
 

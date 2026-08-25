@@ -2080,8 +2080,10 @@ func TestDockerfileConfiguresRTK(t *testing.T) {
 		"RTK_INSTALL_DIR=/usr/local/bin",
 		"enable_rtk()",
 		"YOLOBOX_RTK_TARGET",
-		"rtk init -g --codex",
-		"rtk init -g --opencode",
+		"RTK_TELEMETRY_DISABLED=1 rtk init -g --auto-patch",
+		"RTK_TELEMETRY_DISABLED=1 rtk init -g --codex",
+		"RTK_TELEMETRY_DISABLED=1 rtk init -g --gemini --auto-patch",
+		"RTK_TELEMETRY_DISABLED=1 rtk init -g --opencode",
 		"enable_rtk",
 	} {
 		if !strings.Contains(dockerfile, want) {

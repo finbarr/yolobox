@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.1 - 2026-08-25
+
+### Fixed
+
+- Prevented first-time RTK setup from hanging agent startup on a hidden telemetry consent prompt; telemetry remains disabled unless the user opts in interactively inside the box.
+
 ## v0.19.0 - 2026-08-17
 
 ### Added

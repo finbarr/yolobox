@@ -54,7 +54,7 @@ Some flags deliberately widen the trust boundary:
 - `--claude-config`, `--codex-config`, `--gemini-config`, `--kimi-config`, `--opencode-config`, `--pi-config`, and `--git-config` copy or sync selected host config into the container; add `--no-claude-auth` to Claude config sync when the box should keep an independent login, `--gemini-config` covers Gemini and Antigravity config under `~/.gemini`, `--kimi-config` includes Kimi Code credentials and sessions under `~/.kimi-code`, and `--codex-config` also live-mounts host Codex sessions read/write for resume continuity
 - `--open-bridge` lets `open` and `xdg-open` commands in the container ask the host to open HTTP(S) URLs
 - `--gh-token` forwards a GitHub token for `gh` and HTTPS Git authentication
-- `--rtk` initializes RTK inside the container for supported AI CLIs, which means RTK can inspect and compress command output for those sessions
+- `--rtk` initializes RTK inside the container for supported AI CLIs, which means RTK can inspect and compress command output for those sessions; its telemetry remains disabled unless you opt in interactively inside the box
 - automatic environment passthrough forwards common API/token variables when they are set; use `--no-env-passthrough` to suppress it, or `--env-from-host KEY=HOST_VAR` to give the container a narrower value under the same name (see [renaming host variables](/configuration#renaming-host-variables))
 - `--mount`, `--device`, and `--runtime-arg` expose extra host paths, devices, and low-level runtime capabilities
 

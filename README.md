@@ -122,6 +122,8 @@ yolobox upgrade                       # Update binary and pull the latest image
 yolobox update-agents                 # Update AI CLIs in the persistent box
 ```
 
+Automatic RTK setup leaves telemetry disabled unless you opt in interactively from inside the box with `rtk telemetry enable`.
+
 The detailed references are intentionally in the docs site:
 
 - [Commands](https://yolobox.dev/commands): shortcuts, maintenance commands, `fork`, and examples

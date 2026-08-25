@@ -17,7 +17,7 @@ The base image is meant to be useful immediately without turning into a giant ki
 
 Claude, Codex, and Kimi Code sessions also get a built-in `yolobox` skill that helps the agent orient itself to the trusted sandbox it is running in, then reads `/run/yolobox/context.json` and describes the active environment. yolobox also injects managed guidance into their user instruction files so they know when to use that skill. The host-side `yolobox-orchestrator` skill lives in the repo's `skills/` directory but is not auto-installed inside the container because it is meant for agents running outside yolobox.
 
-RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or set `rtk = true` to initialize it for Claude, Codex, Gemini, or OpenCode inside the container.
+RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or set `rtk = true` to initialize it for Claude, Codex, Gemini, or OpenCode inside the container. Automatic initialization leaves RTK telemetry disabled; run `rtk telemetry enable` interactively inside the box if you want to opt in.
 
 ### Runtimes
 

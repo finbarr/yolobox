@@ -159,7 +159,7 @@ The bridge only accepts `http://` and `https://` URLs and asks the host OS to op
 
 ## RTK command compression
 
-Set `rtk = true` or pass `--rtk` to enable RTK command-output compression for supported AI shortcuts. yolobox installs the latest RTK release available when the base image is built, then runs RTK init inside the container for Claude, Codex, Gemini, or OpenCode after any host config sync.
+Set `rtk = true` or pass `--rtk` to enable RTK command-output compression for supported AI shortcuts. yolobox installs the latest RTK release available when the base image is built, then runs RTK init inside the container for Claude, Codex, Gemini, or OpenCode after any host config sync. Automatic init suppresses RTK's interactive telemetry question and leaves telemetry disabled unless you opt in from inside the box with `rtk telemetry enable`.
 
 yolobox does not auto-update RTK at startup. To get a newer RTK release, rebuild or pull a newer yolobox image. Copilot and Pi are not auto-initialized because RTK does not currently provide a matching non-project config hook for them.
 

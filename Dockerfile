@@ -493,16 +493,16 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-ki
     '    local output status=0' \
     '    case "$target" in' \
     '        claude)' \
-    '            output="$(rtk init -g --auto-patch 2>&1)" || status=$?' \
+    '            output="$(RTK_TELEMETRY_DISABLED=1 rtk init -g --auto-patch 2>&1)" || status=$?' \
     '            ;;' \
     '        codex)' \
-    '            output="$(rtk init -g --codex 2>&1)" || status=$?' \
+    '            output="$(RTK_TELEMETRY_DISABLED=1 rtk init -g --codex 2>&1)" || status=$?' \
     '            ;;' \
     '        gemini)' \
-    '            output="$(rtk init -g --gemini --auto-patch 2>&1)" || status=$?' \
+    '            output="$(RTK_TELEMETRY_DISABLED=1 rtk init -g --gemini --auto-patch 2>&1)" || status=$?' \
     '            ;;' \
     '        opencode)' \
-    '            output="$(rtk init -g --opencode 2>&1)" || status=$?' \
+    '            output="$(RTK_TELEMETRY_DISABLED=1 rtk init -g --opencode 2>&1)" || status=$?' \
     '            ;;' \
     '        *)' \
     '            echo -e "\033[33m→ RTK enabled, but $target is not supported by yolobox auto-init\033[0m" >&2' \
