@@ -76,13 +76,13 @@ Disable automatic host environment passthrough for untrusted work:
 yolobox run --no-env-passthrough env
 ```
 
-Copy host Claude settings while keeping the box login independent:
+Sync host Claude settings while keeping the box login independent:
 
 ```bash
 yolobox claude --claude-config --no-claude-auth
 ```
 
-Run `/login` once inside the persistent box. This mode does not extract the macOS Keychain credential, import host `.credentials.json`, or auto-forward `CLAUDE_CODE_OAUTH_TOKEN`.
+Run `/login` once inside the persistent box. This mode does not extract the macOS Keychain credential, import host `.credentials.json`, or auto-forward `CLAUDE_CODE_OAUTH_TOKEN`. It still live-mounts host `~/.claude/projects` read/write so resume history stays current.
 
 Set project-specific environment variables in `.yolobox.toml` when a tool needs a per-project home or account:
 

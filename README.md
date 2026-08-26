@@ -122,6 +122,8 @@ yolobox upgrade                       # Update binary and pull the latest image
 yolobox update-agents                 # Update AI CLIs in the persistent box
 ```
 
+`--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only.
+
 Automatic RTK setup leaves telemetry disabled unless you opt in interactively from inside the box with `rtk telemetry enable`.
 
 The detailed references are intentionally in the docs site:

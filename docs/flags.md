@@ -50,7 +50,7 @@ These target different layers:
 | `--ssh-agent` | Forward SSH agent socket | |
 | `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
 | `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
-| `--claude-config` | Copy host `~/.claude` config into the container | |
+| `--claude-config` | Incrementally sync host `~/.claude` config and live-mount `projects/` read/write | |
 | `--no-claude-auth` | With `--claude-config`, keep Claude authentication container-local instead of copying the host login | Without `--claude-config` |
 | `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` Gemini/Antigravity config into the container | |
@@ -128,15 +128,17 @@ Both sides are plain variable names, with no `$`. An alias fails closed: yolobox
 
 ## Independent Claude login
 
-By default, `--claude-config` remains backwards-compatible: it copies the host Claude login together with `~/.claude` and `~/.claude.json`.
+By default, `--claude-config` remains backwards-compatible: it syncs the host Claude login together with `~/.claude` and `~/.claude.json`. Durable config is mirrored incrementally, volatile `debug/` data is skipped, and host `~/.claude/projects` is live-mounted read/write so resume history stays current without being recopied.
 
-Add `--no-claude-auth` to copy non-auth configuration while keeping the box's Claude login independent:
+Add `--no-claude-auth` to sync non-auth configuration while keeping the box's Claude login independent:
 
 ```bash
 yolobox claude --claude-config --no-claude-auth
 ```
 
 The box retains its own `~/.claude/.credentials.json`, `oauthAccount`, and `userID` in the persistent `yolobox-home` volume. Host credentials from macOS Keychain or `~/.claude/.credentials.json` are not imported, and automatic `CLAUDE_CODE_OAUTH_TOKEN` passthrough is suppressed. Run `/login` once inside the box. Explicit `--env` entries are still honored.
+
+Authentication isolation does not isolate session history: `~/.claude/projects` remains a read/write host mount in both modes.
 
 ## RTK command compression
 

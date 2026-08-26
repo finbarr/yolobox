@@ -186,7 +186,7 @@ This copies instruction files and skills, not full configs, credentials, setting
 
 ## Independent Claude login
 
-`claude_config = true` copies host Claude configuration on every start. Its backwards-compatible default also copies the host OAuth login, including credentials extracted from macOS Keychain.
+`claude_config = true` incrementally syncs durable host Claude configuration on every start. It skips volatile `debug/` data and live-mounts host `~/.claude/projects` read/write so Claude session history can be resumed from either side without recopying the transcript tree. Its backwards-compatible default also syncs the host OAuth login, including credentials extracted from macOS Keychain.
 
 Set `no_claude_auth = true` or pass `--no-claude-auth` to share non-auth configuration without cloning that login into the box:
 
@@ -202,7 +202,7 @@ In this mode, yolobox:
 - preserves the box's `oauthAccount` and `userID` when updating `~/.claude.json`
 - suppresses automatic host `CLAUDE_CODE_OAUTH_TOKEN` passthrough
 
-Run `/login` once inside the box. Its login persists in the architecture-specific `yolobox-home` volume and is reused across later starts. Explicit `env` or `--env` values remain explicit overrides. `no_claude_auth` requires `claude_config`.
+Run `/login` once inside the box. Its login persists in the architecture-specific `yolobox-home` volume and is reused across later starts. Explicit `env` or `--env` values remain explicit overrides. `no_claude_auth` requires `claude_config`. It isolates authentication, not history: the host `projects/` directory remains live-mounted read/write.
 
 ## Explicit environment variables
 
@@ -281,7 +281,7 @@ yolobox also injects a managed guidance block into `~/.claude/CLAUDE.md`, `~/.co
 ## Config sync warning
 
 ::: warning
-Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `kimi_config = true`, `opencode_config = true`, or `pi_config = true` in config syncs your host config on every container start. Claude config replaces the matching in-container directory by default; with `no_claude_auth = true`, it instead preserves the container credential and account identity while replacing other config. Gemini/Antigravity, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Antigravity CLI stores its settings under `~/.gemini/antigravity-cli`, so `gemini_config = true` covers it. Kimi Code config sync incrementally merges host config, credentials, skills, and sessions into `~/.kimi-code` while leaving the container's `bin/`, `logs/`, and `updates/` paths alone. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer the config flags for ongoing syncs, or pass them only on the run that needs a one-time import.
+Setting `claude_config = true`, `codex_config = true`, `gemini_config = true`, `kimi_config = true`, `opencode_config = true`, or `pi_config = true` in config syncs your host config on every container start. Claude config sync incrementally mirrors durable files, skips volatile `debug/`, preserves a valid in-container credential when the host has no usable credential, and live-mounts host `projects/` read/write; with `no_claude_auth = true`, it also preserves the container account identity and excludes host credentials. Gemini/Antigravity, OpenCode, and Pi config sync replaces the matching in-container config directory, overwriting changes made inside the container. Antigravity CLI stores its settings under `~/.gemini/antigravity-cli`, so `gemini_config = true` covers it. Kimi Code config sync incrementally merges host config, credentials, skills, and sessions into `~/.kimi-code` while leaving the container's `bin/`, `logs/`, and `updates/` paths alone. Codex config sync incrementally merges durable host files into `~/.codex`, skips volatile Codex log, state, cache, and temp files, preserves a valid in-container `auth.json` when the host copy has no usable auth file, and live-mounts host Codex sessions so resume history stays current without copying it. Prefer the config flags for ongoing syncs. A one-time run imports durable config, but live Claude project history and Codex sessions require the matching flag on each run.
 :::
 
 ## Startup timing diagnostics

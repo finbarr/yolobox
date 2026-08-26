@@ -334,7 +334,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
-	fmt.Fprintln(os.Stderr, "  --claude-config       Copy host Claude config to container")
+	fmt.Fprintln(os.Stderr, "  --claude-config       Sync host Claude config; live-mount projects")
 	fmt.Fprintln(os.Stderr, "  --no-claude-auth      Keep Claude login container-local with --claude-config")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini/Antigravity config to container")
@@ -465,8 +465,8 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
-	fs.BoolVar(&claudeConfig, "claude-config", false, "copy host Claude config to container")
-	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when copying host config")
+	fs.BoolVar(&claudeConfig, "claude-config", false, "sync host Claude config and live-mount projects")
+	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when syncing host config")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini/Antigravity config to container")
 	fs.BoolVar(&kimiConfig, "kimi-config", false, "sync host Kimi Code config to container")
@@ -1092,7 +1092,7 @@ func runSetup() (Config, error) {
 				Title("What do you want inside the box?").
 				Options(
 					huh.NewOption("Git identity (copy ~/.gitconfig)", "git_config"),
-					huh.NewOption("Claude config (copy ~/.claude and ~/.claude.json)", "claude_config"),
+					huh.NewOption("Claude config (sync ~/.claude; live projects)", "claude_config"),
 					huh.NewOption("Codex config (sync ~/.codex; live sessions)", "codex_config"),
 					huh.NewOption("Gemini/Antigravity config (copy ~/.gemini)", "gemini_config"),
 					huh.NewOption("Kimi Code config (sync ~/.kimi-code)", "kimi_config"),
@@ -1574,7 +1574,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		appleContainerFiles = make(map[string]string)
 	}
 
-	// Mount Claude config from host to staging area (copied to /home/yolo by entrypoint)
+	// Mount Claude config from host to the entrypoint import area. Project
+	// history is mounted live so resume state stays current without copying the
+	// hottest part of ~/.claude on every start.
 	if cfg.ClaudeConfig {
 		started = time.Now()
 		home, err := os.UserHomeDir()
@@ -1583,19 +1585,30 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		}
 		claudeConfigDir := filepath.Join(home, ".claude")
 		if _, err := os.Stat(claudeConfigDir); err == nil {
+			stagingRootExclusions := map[string]bool{"debug": true}
+			claudeProjectsDir := filepath.Join(claudeConfigDir, "projects")
+			if info, err := os.Stat(claudeProjectsDir); err == nil && info.IsDir() {
+				projectsMountSrc := claudeProjectsDir
+				if resolved, err := filepath.EvalSymlinks(claudeProjectsDir); err == nil {
+					projectsMountSrc = resolved
+				}
+				args = append(args, "-v", projectsMountSrc+":/host-claude-projects:rw")
+				args = append(args, "-e", "YOLOBOX_CLAUDE_PROJECTS=1")
+				stagingRootExclusions["projects"] = true
+			}
 			mountSrc := claudeConfigDir
 			if cfg.NoClaudeAuth {
-				staged, err := stageDirResolvingSymlinksExcluding(claudeConfigDir, map[string]bool{
+				staged, err := stageDirResolvingSymlinksExcludingRoot(claudeConfigDir, map[string]bool{
 					".credentials.json":   true,
 					".oauth_refresh.lock": true,
-				})
+				}, stagingRootExclusions)
 				if err != nil {
 					return nil, nil, fmt.Errorf("failed to stage Claude config without host authentication: %w", err)
 				}
 				mountSrc = staged
 				cleanupPaths = append(cleanupPaths, staged)
-			} else if dirContainsSymlinks(claudeConfigDir) {
-				staged, err := stageDirResolvingSymlinks(claudeConfigDir)
+			} else if dirContainsSymlinksExcludingRoot(claudeConfigDir, stagingRootExclusions) {
+				staged, err := stageDirResolvingSymlinksExcludingRoot(claudeConfigDir, nil, stagingRootExclusions)
 				if err != nil {
 					warn("Failed to resolve symlinks in %s: %s", claudeConfigDir, err)
 				} else {

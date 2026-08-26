@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.2 - 2026-08-26
+
+### Fixed
+
+- Made `--claude-config` startup incremental instead of deleting, recopying, and recursively rechowning the full host config tree. Claude project history is now live-mounted for resume continuity, volatile debug data is skipped, valid container credentials survive when the host has none, and `--no-claude-auth` isolation remains intact.
+
 ## v0.19.1 - 2026-08-25
 
 ### Fixed

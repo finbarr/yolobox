@@ -45,11 +45,20 @@ func persistentVolumeMount(name, target string, rootlessPodman bool) string {
 
 // dirContainsSymlinks reports whether dir contains any symbolic links.
 func dirContainsSymlinks(dir string) bool {
+	return dirContainsSymlinksExcludingRoot(dir, nil)
+}
+
+// dirContainsSymlinksExcludingRoot reports whether dir contains symbolic links
+// outside root-level subtrees that will not be copied into the container.
+func dirContainsSymlinksExcludingRoot(dir string, excludedRootNames map[string]bool) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return false
 	}
 	for _, e := range entries {
+		if excludedRootNames[e.Name()] {
+			continue
+		}
 		if e.Type()&os.ModeSymlink != 0 {
 			return true
 		}
@@ -70,6 +79,12 @@ func stageDirResolvingSymlinks(src string) (string, error) {
 // stageDirResolvingSymlinksExcluding copies src to a Docker-visible temp
 // directory while dereferencing symlinks and omitting sensitive basenames.
 func stageDirResolvingSymlinksExcluding(src string, excludedNames map[string]bool) (string, error) {
+	return stageDirResolvingSymlinksExcludingRoot(src, excludedNames, nil)
+}
+
+// stageDirResolvingSymlinksExcludingRoot also omits selected root-level paths,
+// without accidentally excluding same-named directories inside plugins.
+func stageDirResolvingSymlinksExcludingRoot(src string, excludedNames, excludedRootNames map[string]bool) (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
@@ -82,7 +97,7 @@ func stageDirResolvingSymlinksExcluding(src string, excludedNames map[string]boo
 	if err != nil {
 		return "", err
 	}
-	if err := copyDirDereferencedExcluding(src, dst, excludedNames); err != nil {
+	if err := copyDirDereferencedExcludingRoot(src, dst, excludedNames, excludedRootNames, true); err != nil {
 		_ = os.RemoveAll(dst)
 		return "", err
 	}
@@ -96,6 +111,10 @@ func copyDirDereferenced(src, dst string) error {
 }
 
 func copyDirDereferencedExcluding(src, dst string, excludedNames map[string]bool) error {
+	return copyDirDereferencedExcludingRoot(src, dst, excludedNames, nil, true)
+}
+
+func copyDirDereferencedExcludingRoot(src, dst string, excludedNames, excludedRootNames map[string]bool, root bool) error {
 	if err := os.MkdirAll(dst, 0755); err != nil {
 		return err
 	}
@@ -104,7 +123,7 @@ func copyDirDereferencedExcluding(src, dst string, excludedNames map[string]bool
 		return err
 	}
 	for _, e := range entries {
-		if excludedNames[e.Name()] {
+		if excludedNames[e.Name()] || (root && excludedRootNames[e.Name()]) {
 			continue
 		}
 		srcPath := filepath.Join(src, e.Name())
@@ -115,7 +134,7 @@ func copyDirDereferencedExcluding(src, dst string, excludedNames map[string]bool
 			continue
 		}
 		if info.IsDir() {
-			if err := copyDirDereferencedExcluding(srcPath, dstPath, excludedNames); err != nil {
+			if err := copyDirDereferencedExcludingRoot(srcPath, dstPath, excludedNames, excludedRootNames, false); err != nil {
 				return err
 			}
 			continue

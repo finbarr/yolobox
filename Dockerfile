@@ -401,7 +401,7 @@ RUN printf '%s\n' \
     chmod +x /usr/local/bin/yolobox-uid-fix.sh
 
 # Create entrypoint script
-RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-kimi /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions /host-gemini /host-kimi /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -531,24 +531,42 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-ki
     '    unset YOLOBOX_CONTEXT_JSON_B64' \
     'fi' \
     '' \
-    '# Copy Claude config from host staging area if present' \
+    '# Sync Claude config from host staging area if present' \
     'if [ -d /host-claude/.claude ] || [ -f /host-claude/.claude.json ] || [ -f "$HF/claude/.claude.json" ]; then' \
-    '    echo -e "\033[33m→ Copying host Claude config to container\033[0m" >&2' \
+    '    echo -e "\033[33m→ Syncing host Claude config to container\033[0m" >&2' \
     'fi' \
+    'CREDS_FILE="/host-claude/.credentials.json"' \
+    '[ ! -f "$CREDS_FILE" ] && [ -f "$HF/claude/.credentials.json" ] && CREDS_FILE="$HF/claude/.credentials.json"' \
     'if [ -d /host-claude/.claude ]; then' \
-    '    if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" = "1" ]; then' \
-    '        sudo mkdir -p /home/yolo/.claude' \
-    '        sudo rsync -a --delete --chown=yolo:yolo --exclude=.credentials.json --exclude=.oauth_refresh.lock /host-claude/.claude/ /home/yolo/.claude/' \
-    '        sudo chown yolo:yolo /home/yolo/.claude' \
-    '        if [ -f /home/yolo/.claude/.credentials.json ]; then' \
-    '            sudo chown yolo:yolo /home/yolo/.claude/.credentials.json' \
-    '            sudo chmod 600 /home/yolo/.claude/.credentials.json' \
-    '        fi' \
-    '    else' \
-    '        sudo rm -rf /home/yolo/.claude' \
-    '        sudo cp -a /host-claude/.claude /home/yolo/.claude' \
-    '        sudo chown -R yolo:yolo /home/yolo/.claude' \
+    '    yolobox_timing_mark "claude config sync start"' \
+    '    CLAUDE_AUTH_BACKUP=""' \
+    '    if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" != "1" ] && [ -s /home/yolo/.claude/.credentials.json ] && [ ! -s /host-claude/.claude/.credentials.json ] && [ ! -s "$CREDS_FILE" ]; then' \
+    '        CLAUDE_AUTH_BACKUP="/tmp/claude-credentials.json.yolobox-backup.$$"' \
+    '        sudo cp -a /home/yolo/.claude/.credentials.json "$CLAUDE_AUTH_BACKUP"' \
     '    fi' \
+    '    sudo mkdir -p /home/yolo/.claude' \
+    '    sudo rm -rf /home/yolo/.claude/debug' \
+    '    CLAUDE_RSYNC_ARGS=(-a --delete --chown=yolo:yolo --exclude=/projects/ --exclude=/debug/)' \
+    '    if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" = "1" ]; then' \
+    '        CLAUDE_RSYNC_ARGS+=(--exclude=.credentials.json --exclude=.oauth_refresh.lock)' \
+    '    fi' \
+    '    sudo rsync "${CLAUDE_RSYNC_ARGS[@]}" /host-claude/.claude/ /home/yolo/.claude/' \
+    '    sudo chown yolo:yolo /home/yolo/.claude' \
+    '    if [ -n "$CLAUDE_AUTH_BACKUP" ] && [ -s "$CLAUDE_AUTH_BACKUP" ]; then' \
+    '        sudo mv -f "$CLAUDE_AUTH_BACKUP" /home/yolo/.claude/.credentials.json' \
+    '    fi' \
+    '    if [ -f /home/yolo/.claude/.credentials.json ]; then' \
+    '        sudo chown yolo:yolo /home/yolo/.claude/.credentials.json' \
+    '        sudo chmod 600 /home/yolo/.claude/.credentials.json' \
+    '    fi' \
+    '    if [ "${YOLOBOX_CLAUDE_PROJECTS:-}" = "1" ]; then' \
+    '        sudo rm -rf /home/yolo/.claude/projects' \
+    '        ln -s /host-claude-projects /home/yolo/.claude/projects' \
+    '    elif [ "$(readlink /home/yolo/.claude/projects 2>/dev/null || true)" = "/host-claude-projects" ]; then' \
+    '        rm -f /home/yolo/.claude/projects' \
+    '        mkdir -p /home/yolo/.claude/projects' \
+    '    fi' \
+    '    yolobox_timing_mark "claude config sync done"' \
     'fi' \
     'if [ -f /host-claude/.claude.json ]; then' \
     '    copy_claude_json /host-claude/.claude.json' \
@@ -556,8 +574,6 @@ RUN mkdir -p /host-claude /host-codex /host-codex-sessions /host-gemini /host-ki
     '    copy_claude_json "$HF/claude/.claude.json"' \
     'fi' \
     '# Copy Claude credentials from macOS Keychain (extracted by yolobox)' \
-    'CREDS_FILE="/host-claude/.credentials.json"' \
-    '[ ! -f "$CREDS_FILE" ] && [ -f "$HF/claude/.credentials.json" ] && CREDS_FILE="$HF/claude/.credentials.json"' \
     'if [ "${YOLOBOX_NO_CLAUDE_AUTH:-}" != "1" ] && [ -f "$CREDS_FILE" ]; then' \
     '    mkdir -p /home/yolo/.claude' \
     '    sudo cp -a "$CREDS_FILE" /home/yolo/.claude/.credentials.json' \

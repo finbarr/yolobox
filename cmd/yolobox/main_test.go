@@ -1207,6 +1207,13 @@ func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(claudeDir, ".oauth_refresh.lock"), []byte("host-lock\n"), 0600); err != nil {
 		t.Fatalf("failed to write host Claude refresh lock: %v", err)
 	}
+	claudeProjectsDir := filepath.Join(claudeDir, "projects")
+	if err := os.MkdirAll(claudeProjectsDir, 0755); err != nil {
+		t.Fatalf("failed to create Claude projects dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeProjectsDir, "session.jsonl"), []byte("host session\n"), 0644); err != nil {
+		t.Fatalf("failed to write Claude session: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(homeDir, ".claude.json"), []byte("{\"oauthAccount\":{\"accountUuid\":\"host\"}}\n"), 0644); err != nil {
 		t.Fatalf("failed to write Claude config: %v", err)
 	}
@@ -1220,6 +1227,11 @@ func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
+	defer func() {
+		for _, path := range cleanupPaths {
+			_ = os.RemoveAll(path)
+		}
+	}()
 
 	argsStr := strings.Join(args, " ")
 	if value, ok := argEnvValue(args, "YOLOBOX_NO_CLAUDE_AUTH"); !ok || value != "1" {
@@ -1227,6 +1239,12 @@ func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
 	}
 	if _, ok := argEnvValue(args, "CLAUDE_CODE_OAUTH_TOKEN"); ok {
 		t.Fatalf("did not expect host Claude OAuth token passthrough: %s", argsStr)
+	}
+	if value, ok := argEnvValue(args, "YOLOBOX_CLAUDE_PROJECTS"); !ok || value != "1" {
+		t.Fatalf("expected Claude projects live-mount marker, got value=%q ok=%t args=%s", value, ok, argsStr)
+	}
+	if !strings.Contains(argsStr, claudeProjectsDir+":/host-claude-projects:rw") {
+		t.Fatalf("expected Claude projects live mount, got %s", argsStr)
 	}
 	var stagedClaudeDir string
 	for _, arg := range args {
@@ -1245,6 +1263,9 @@ func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(stagedClaudeDir, name)); !os.IsNotExist(err) {
 			t.Fatalf("did not expect %s in staged Claude config, err=%v", name, err)
 		}
+	}
+	if _, err := os.Stat(filepath.Join(stagedClaudeDir, "projects")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect live-mounted projects in staged Claude config, err=%v", err)
 	}
 	if strings.Contains(argsStr, ":/host-claude/.credentials.json:ro") {
 		t.Fatalf("did not expect extracted host credentials mount: %s", argsStr)
@@ -1281,6 +1302,57 @@ func TestBuildRunArgsNoClaudeAuthKeepsOAuthContainerLocal(t *testing.T) {
 	}
 	if contains(manifest.Launch.AutoPassthroughEnvKeys, "CLAUDE_CODE_OAUTH_TOKEN") {
 		t.Fatalf("did not expect host OAuth token in manifest passthrough keys: %v", manifest.Launch.AutoPassthroughEnvKeys)
+	}
+}
+
+func TestBuildRunArgsClaudeConfigSyncsDirectlyAndLiveMountsProjects(t *testing.T) {
+	projectDir := t.TempDir()
+	homeDir := t.TempDir()
+	t.Setenv("HOME", homeDir)
+
+	claudeDir := filepath.Join(homeDir, ".claude")
+	claudeProjectsDir := filepath.Join(claudeDir, "projects")
+	debugDir := filepath.Join(claudeDir, "debug")
+	if err := os.MkdirAll(claudeProjectsDir, 0755); err != nil {
+		t.Fatalf("failed to create Claude projects dir: %v", err)
+	}
+	if err := os.MkdirAll(debugDir, 0755); err != nil {
+		t.Fatalf("failed to create Claude debug dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte("{}\n"), 0644); err != nil {
+		t.Fatalf("failed to write Claude settings: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(projectDir, "missing-session.jsonl"), filepath.Join(claudeProjectsDir, "latest")); err != nil {
+		t.Fatalf("failed to create Claude project symlink: %v", err)
+	}
+	if err := os.Symlink(filepath.Join(projectDir, "missing-debug.txt"), filepath.Join(debugDir, "latest")); err != nil {
+		t.Fatalf("failed to create Claude debug symlink: %v", err)
+	}
+
+	args, cleanupPaths, err := buildRunArgs(
+		Config{Image: "test-image", ClaudeConfig: true},
+		projectDir,
+		[]string{"claude", "--version"},
+		false,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer func() {
+		for _, path := range cleanupPaths {
+			_ = os.RemoveAll(path)
+		}
+	}()
+
+	argsStr := strings.Join(args, " ")
+	if !strings.Contains(argsStr, claudeDir+":/host-claude/.claude:ro") {
+		t.Fatalf("expected direct Claude config mount instead of full staging, got %s", argsStr)
+	}
+	if !strings.Contains(argsStr, claudeProjectsDir+":/host-claude-projects:rw") {
+		t.Fatalf("expected Claude projects live mount, got %s", argsStr)
+	}
+	if value, ok := argEnvValue(args, "YOLOBOX_CLAUDE_PROJECTS"); !ok || value != "1" {
+		t.Fatalf("expected Claude projects live-mount marker, got value=%q ok=%t args=%s", value, ok, argsStr)
 	}
 }
 
@@ -1326,7 +1398,8 @@ func TestDescribeYoloboxContextReportsManifestProjectAccess(t *testing.T) {
 		"Container name: dev-box",
 		"Readonly project mode: false",
 		"Project writable now: true",
-		"Claude login copied from host: false",
+		"Claude login synced from host: false",
+		"Claude project history live mount: true",
 	} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected %q in output:\n%s", want, output)
@@ -1844,7 +1917,7 @@ func TestDockerfileCodexConfigImportPreservesAuth(t *testing.T) {
 	}
 }
 
-func TestDockerfileClaudeConfigCanPreserveContainerAuth(t *testing.T) {
+func TestDockerfileClaudeConfigSyncIsIncrementalAndPreservesContainerAuth(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("failed to read Dockerfile: %v", err)
@@ -1863,15 +1936,27 @@ func TestDockerfileClaudeConfigCanPreserveContainerAuth(t *testing.T) {
 
 	for _, want := range []string{
 		"YOLOBOX_NO_CLAUDE_AUTH",
-		"sudo rsync -a --delete --chown=yolo:yolo --exclude=.credentials.json --exclude=.oauth_refresh.lock",
+		"CLAUDE_AUTH_BACKUP",
+		"CLAUDE_RSYNC_ARGS=(-a --delete --chown=yolo:yolo --exclude=/projects/ --exclude=/debug/)",
+		"CLAUDE_RSYNC_ARGS+=(--exclude=.credentials.json --exclude=.oauth_refresh.lock)",
+		"sudo rsync \"${CLAUDE_RSYNC_ARGS[@]}\" /host-claude/.claude/ /home/yolo/.claude/",
+		"sudo mv -f \"$CLAUDE_AUTH_BACKUP\" /home/yolo/.claude/.credentials.json",
+		"ln -s /host-claude-projects /home/yolo/.claude/projects",
 		"if ($container | has(\"oauthAccount\")) then .oauthAccount = $container.oauthAccount else del(.oauthAccount) end",
 		"if ($container | has(\"userID\")) then .userID = $container.userID else del(.userID) end",
 		"if [ \"${YOLOBOX_NO_CLAUDE_AUTH:-}\" != \"1\" ] && [ -f \"$CREDS_FILE\" ]; then",
-		"sudo rm -rf /home/yolo/.claude",
-		"sudo cp -a /host-claude/.claude /home/yolo/.claude",
 	} {
 		if !strings.Contains(block, want) {
 			t.Fatalf("expected Claude config import block to contain %q", want)
+		}
+	}
+	for _, unwanted := range []string{
+		"sudo rm -rf /home/yolo/.claude'",
+		"sudo cp -a /host-claude/.claude /home/yolo/.claude",
+		"sudo chown -R yolo:yolo /home/yolo/.claude",
+	} {
+		if strings.Contains(block, unwanted) {
+			t.Fatalf("Claude config import must be incremental; found %q", unwanted)
 		}
 	}
 }
@@ -3937,6 +4022,59 @@ func TestDirContainsSymlinksNested(t *testing.T) {
 
 	if !dirContainsSymlinks(dir) {
 		t.Error("expected nested symlink to be detected")
+	}
+}
+
+func TestDirContainsSymlinksExcludingRoot(t *testing.T) {
+	dir := t.TempDir()
+	excluded := filepath.Join(dir, "projects")
+	included := filepath.Join(dir, "plugins", "example", "projects")
+	if err := os.MkdirAll(excluded, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(included, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/missing", filepath.Join(excluded, "latest")); err != nil {
+		t.Fatal(err)
+	}
+	if dirContainsSymlinksExcludingRoot(dir, map[string]bool{"projects": true}) {
+		t.Error("expected a symlink under the excluded root directory to be ignored")
+	}
+	if err := os.Symlink("/missing", filepath.Join(included, "latest")); err != nil {
+		t.Fatal(err)
+	}
+	if !dirContainsSymlinksExcludingRoot(dir, map[string]bool{"projects": true}) {
+		t.Error("expected same-named nested directory to remain in the scan")
+	}
+}
+
+func TestStageDirResolvingSymlinksExcludingRoot(t *testing.T) {
+	src := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(src, "projects"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(src, "plugins", "example", "projects"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "projects", "session.jsonl"), []byte("session\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "plugins", "example", "projects", "fixture.txt"), []byte("fixture\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	staged, err := stageDirResolvingSymlinksExcludingRoot(src, nil, map[string]bool{"projects": true})
+	if err != nil {
+		t.Fatalf("stageDirResolvingSymlinksExcludingRoot failed: %v", err)
+	}
+	defer func() { _ = os.RemoveAll(staged) }()
+
+	if _, err := os.Stat(filepath.Join(staged, "projects")); !os.IsNotExist(err) {
+		t.Fatalf("did not expect excluded root projects dir, err=%v", err)
+	}
+	if _, err := os.Stat(filepath.Join(staged, "plugins", "example", "projects", "fixture.txt")); err != nil {
+		t.Fatalf("expected same-named nested directory to be copied: %v", err)
 	}
 }
 
