@@ -802,10 +802,10 @@ RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions
     '# Ensure npm-global prefix dir exists (named volume may shadow /home/yolo)' \
     'mkdir -p /home/yolo/.npm-global' \
     '' \
-    '# Seed Claude launcher only when missing or broken; user upgrades live in /home/yolo' \
+    '# Remove the legacy image-owned Claude launcher so the native installer can manage it' \
     'mkdir -p /home/yolo/.local/bin' \
-    'if [ ! -x /home/yolo/.local/bin/claude ]; then' \
-    '    ln -sf /usr/local/bin/claude /home/yolo/.local/bin/claude' \
+    'if [ -L /home/yolo/.local/bin/claude ] && [ "$(readlink /home/yolo/.local/bin/claude)" = "/usr/local/bin/claude" ]; then' \
+    '    rm /home/yolo/.local/bin/claude' \
     'fi' \
     '# Seed Kimi Code launcher only when missing or broken; user upgrades live in /home/yolo' \
     'if [ ! -x /home/yolo/.local/bin/kimi ]; then' \
@@ -902,11 +902,11 @@ USER root
 COPY --from=claude-installer /root/.local/bin/claude /usr/local/bin/claude
 USER yolo
 
-# Create symlink for Claude at ~/.local/bin (host config expects it there)
-# Then run `claude install` to register installation metadata so `claude update` works
+# Let Claude's native installer own ~/.local/bin/claude so later updates can
+# activate new versions and clean up old ones. The baked binary remains the
+# fallback when installation metadata cannot be initialized during the build.
 RUN mkdir -p /home/yolo/.local/bin && \
-    ln -s /usr/local/bin/claude /home/yolo/.local/bin/claude && \
-    claude install || true
+    /usr/local/bin/claude install || true
 
 WORKDIR /home/yolo
 

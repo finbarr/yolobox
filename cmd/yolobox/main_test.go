@@ -2112,7 +2112,7 @@ func TestDockerfileRefreshesAntigravityInstallerOnReleaseBuilds(t *testing.T) {
 	}
 }
 
-func TestDockerfilePreservesUserClaudeLauncher(t *testing.T) {
+func TestDockerfileUsesNativeClaudeLauncherLayout(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "Dockerfile"))
 	if err != nil {
 		t.Fatalf("failed to read Dockerfile: %v", err)
@@ -2120,17 +2120,23 @@ func TestDockerfilePreservesUserClaudeLauncher(t *testing.T) {
 	dockerfile := string(data)
 
 	for _, want := range []string{
-		"Seed Claude launcher only when missing or broken; user upgrades live in /home/yolo",
-		"if [ ! -x /home/yolo/.local/bin/claude ]; then",
-		"ln -sf /usr/local/bin/claude /home/yolo/.local/bin/claude",
+		"Remove the legacy image-owned Claude launcher so the native installer can manage it",
+		"if [ -L /home/yolo/.local/bin/claude ] && [ \"$(readlink /home/yolo/.local/bin/claude)\" = \"/usr/local/bin/claude\" ]; then",
+		"rm /home/yolo/.local/bin/claude",
+		"/usr/local/bin/claude install || true",
 		"fi",
 	} {
 		if !strings.Contains(dockerfile, want) {
 			t.Fatalf("expected Dockerfile to contain %q", want)
 		}
 	}
-	if strings.Contains(dockerfile, "Pin Claude to image version") {
-		t.Fatal("entrypoint must not pin Claude to the image version on every startup")
+	for _, unwanted := range []string{
+		"ln -s /usr/local/bin/claude /home/yolo/.local/bin/claude",
+		"ln -sf /usr/local/bin/claude /home/yolo/.local/bin/claude",
+	} {
+		if strings.Contains(dockerfile, unwanted) {
+			t.Fatalf("Dockerfile must not seed the Claude launcher with %q", unwanted)
+		}
 	}
 }
 

@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.3 - 2026-08-27
+
+### Fixed
+
+- Let Claude Code's native installer own its persistent launcher so `claude update` and `yolobox update-agents claude` activate the installed version and can clean up superseded downloads. Existing image-owned launchers are migrated without replacing other user-managed launchers.
+
 ## v0.19.2 - 2026-08-26
 
 ### Fixed
