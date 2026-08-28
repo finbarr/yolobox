@@ -509,11 +509,11 @@ func TestPullImageNormalizesBareArchPlatform(t *testing.T) {
 
 func TestBuildCustomImageNormalizesBareArchPlatform(t *testing.T) {
 	binPath, logFile := installLoggingRuntimeNamed(t, "docker")
-	if err := buildCustomImage(binPath, "test-tag", "/tmp/Dockerfile", "/tmp", "amd64"); err != nil {
+	if err := buildCustomImage(binPath, "test-tag", "/tmp/Dockerfile", "/tmp", "amd64", "/tmp/project"); err != nil {
 		t.Fatalf("buildCustomImage: %v", err)
 	}
 	log := readRuntimeLog(t, logFile)
-	if !logHasLine(log, "build -t test-tag -f /tmp/Dockerfile --platform linux/amd64 /tmp") {
+	if !logHasLine(log, "build -t test-tag -f /tmp/Dockerfile --platform linux/amd64 --label io.yolobox.project=/tmp/project /tmp") {
 		t.Fatalf("expected build with normalized --platform, got:\n%s", strings.Join(log, "\n"))
 	}
 }

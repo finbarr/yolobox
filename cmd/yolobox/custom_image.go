@@ -11,6 +11,12 @@ import (
 	"strings"
 )
 
+// customImageProjectLabel records which project directory a derived image was
+// built for. Derived images are tagged by content hash, so without this label
+// there is no way to attribute an image to a project or tell which images a
+// later build superseded.
+const customImageProjectLabel = "io.yolobox.project"
+
 func hasCustomization(cfg Config) bool {
 	return len(cfg.Customize.Packages) > 0 || strings.TrimSpace(cfg.Customize.Dockerfile) != ""
 }
@@ -129,11 +135,18 @@ func customImageExists(runtimePath, tag string) bool {
 	return exec.Command(runtimePath, "image", "inspect", tag).Run() == nil
 }
 
-func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform string) error {
+func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform, projectDir string) error {
 	platform = dockerPlatform(platform)
 	buildArgs := []string{"build", "-t", tag, "-f", dockerfilePath}
 	if platform != "" {
 		buildArgs = append(buildArgs, "--platform", platform)
+	}
+	// The label value is constant for a project, so repeat builds of unchanged
+	// content stay byte-identical and resolve to the same image ID. A varying
+	// value (a build timestamp, say) would orphan the previous image on every
+	// build.
+	if projectDir != "" {
+		buildArgs = append(buildArgs, "--label", customImageProjectLabel+"="+projectDir)
 	}
 	buildArgs = append(buildArgs, contextDir)
 	cmd := exec.Command(runtimePath, buildArgs...)
@@ -219,7 +232,7 @@ func prepareCustomImage(cfg *Config, projectDir string) (string, error) {
 	}
 
 	info("Building custom image %s...", tag)
-	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform); err != nil {
+	if err := buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform, projectDir); err != nil {
 		return "", fmt.Errorf("failed to build custom image: %w", err)
 	}
 	return tag, nil

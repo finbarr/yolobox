@@ -220,6 +220,8 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 			return err
 		}
 		return printConfig(cfg)
+	case "prune-images":
+		return pruneCustomImages(args[1:])
 	case "reset":
 		return resetVolumes(args[1:])
 	case "uninstall":
@@ -304,6 +306,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
 	fmt.Fprintln(os.Stderr, "  yolobox update-agents [name...]  Update bundled AI CLIs in persistent home")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
+	fmt.Fprintln(os.Stderr, "  yolobox prune-images        List superseded custom images (add --force to delete them)")
 	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes, all architectures (add --platform to target one)")
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
 	fmt.Fprintln(os.Stderr, "  yolobox version             Show version info")

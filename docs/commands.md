@@ -53,6 +53,8 @@ yolobox upgrade             # Update the binary and pull the latest base image
 yolobox upgrade --check     # Show latest release notes without upgrading
 yolobox update-agents       # Update all bundled AI CLIs in persistent home
 yolobox update-agents codex # Update one AI CLI; accepts multiple targets
+yolobox prune-images        # List superseded custom images without deleting
+yolobox prune-images --force # Delete the superseded custom images
 yolobox reset --force       # Remove yolobox named volumes (all architectures)
 yolobox uninstall --force   # Remove yolobox binary, image, and volumes
 yolobox version             # Print version and platform
@@ -160,6 +162,31 @@ yolobox update-agents antigravity
 ```
 
 `update-agents` runs inside the persistent yolobox home volume and refreshes Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi. It uses global/default runtime settings, ignores `.yolobox.toml`, skips the project mount, and rejects `--scratch`, because updates made in scratch mode would disappear when the container exits.
+
+### Prune superseded custom images
+
+```bash
+yolobox prune-images
+yolobox prune-images --force
+```
+
+Projects that set `[customize]` get a derived image tagged by content hash, such as
+`yolobox-custom:2b5c736fbf8f`. Editing a project's packages or Dockerfile produces a new
+hash, and the previous image stays behind under its old tag. Since the tags are opaque
+hashes, there is no way to tell by eye which ones are still current.
+
+`prune-images` groups these images by the project that built them and reports which are
+superseded. It deletes nothing without `--force`, so the plain form is a safe inventory.
+
+For each project it keeps the most recently built image and marks the rest for deletion.
+Images whose project directory no longer exists are deleted entirely. Images referenced by
+any container, running or stopped, are always kept.
+
+Images built before yolobox began labelling them carry no project, so they cannot be
+attributed or judged superseded. They are listed separately, along with the `docker image
+rm` command to remove them, and are never deleted automatically.
+
+Deleting an image that is still current only costs a rebuild on the project's next run.
 
 ### Reset persistent state
 
