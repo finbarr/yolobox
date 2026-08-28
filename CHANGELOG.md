@@ -8,6 +8,8 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.4 - 2026-08-28
+
 ### Fixed
 
 - Made `--ssh-agent` runtime-aware on macOS: Podman machine now fails with actionable guidance instead of mounting a Docker Desktop or Colima VM socket, forwarding setup failures no longer silently launch without the requested agent, and `--no-ssh-agent` can override a configured default for Podman runs.
