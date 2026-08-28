@@ -3579,6 +3579,12 @@ func TestSplitToolArgs(t *testing.T) {
 			wantTool:    []string{"--resume"},
 		},
 		{
+			name:        "SSH agent override stays with yolobox",
+			args:        []string{"--no-ssh-agent", "--resume"},
+			wantYolobox: []string{"--no-ssh-agent"},
+			wantTool:    []string{"--resume"},
+		},
+		{
 			name:        "explicit separator",
 			args:        []string{"--no-network", "--", "--help"},
 			wantYolobox: []string{"--no-network"},
@@ -3702,6 +3708,34 @@ func TestParseFlagsNoClaudeAuth(t *testing.T) {
 		t.Fatalf("expected Claude config with container-local auth, got %#v", cfg)
 	}
 	expectSliceEqual(t, rest, []string{"claude", "--version"})
+}
+
+func TestParseFlagsNoSSHAgentOverridesConfig(t *testing.T) {
+	cfg, rest, err := parseBaseFlagsWithConfig(
+		"run",
+		[]string{"--no-ssh-agent", "echo", "hello"},
+		t.TempDir(),
+		Config{SSHAgent: true},
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.SSHAgent {
+		t.Fatal("expected --no-ssh-agent to disable configured SSH agent forwarding")
+	}
+	expectSliceEqual(t, rest, []string{"echo", "hello"})
+}
+
+func TestParseFlagsSSHAgentConflict(t *testing.T) {
+	_, _, err := parseBaseFlagsWithConfig(
+		"run",
+		[]string{"--ssh-agent", "--no-ssh-agent", "echo"},
+		t.TempDir(),
+		defaultConfig(),
+	)
+	if err == nil || !strings.Contains(err.Error(), "cannot use --ssh-agent with --no-ssh-agent") {
+		t.Fatalf("expected SSH agent flag conflict, got %v", err)
+	}
 }
 
 func TestParseFlagsPiConfig(t *testing.T) {
@@ -4214,7 +4248,7 @@ func TestFindSSHAgentSocketLinux(t *testing.T) {
 
 	// With SSH_AUTH_SOCK set, should return it directly
 	t.Setenv("SSH_AUTH_SOCK", "/tmp/ssh-test/agent.123")
-	sock, err := findSSHAgentSocket()
+	sock, err := findSSHAgentSocket("/usr/bin/docker")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -4224,7 +4258,7 @@ func TestFindSSHAgentSocketLinux(t *testing.T) {
 
 	// Without SSH_AUTH_SOCK, should error
 	t.Setenv("SSH_AUTH_SOCK", "")
-	_, err = findSSHAgentSocket()
+	_, err = findSSHAgentSocket("/usr/bin/docker")
 	if err == nil {
 		t.Error("expected error when SSH_AUTH_SOCK is empty")
 	}
@@ -4239,7 +4273,7 @@ func TestFindSSHAgentSocketMacOSNoSSHAuthSock(t *testing.T) {
 	// detect the Docker runtime and return the VM-internal path or error.
 	// Without Docker running, it may error — that's the expected behavior.
 	t.Setenv("SSH_AUTH_SOCK", "")
-	sock, err := findSSHAgentSocket()
+	sock, err := findSSHAgentSocket("/usr/local/bin/docker")
 	if err != nil {
 		// Expected when Docker/Colima isn't configured
 		return
@@ -4247,5 +4281,39 @@ func TestFindSSHAgentSocketMacOSNoSSHAuthSock(t *testing.T) {
 	// If it succeeds, the socket path should be non-empty
 	if sock == "" {
 		t.Error("expected non-empty socket path")
+	}
+}
+
+func TestValidateSSHAgentRuntimeRejectsPodmanMachineOnMacOS(t *testing.T) {
+	err := validateSSHAgentRuntime("/opt/homebrew/bin/podman", "darwin")
+	if err == nil {
+		t.Fatal("expected Podman machine SSH agent error on macOS")
+	}
+	if !strings.Contains(err.Error(), "Podman machine on macOS") || !strings.Contains(err.Error(), "--no-ssh-agent") {
+		t.Fatalf("expected actionable Podman machine error, got %v", err)
+	}
+}
+
+func TestValidateSSHAgentRuntimeAllowsPodmanOnLinux(t *testing.T) {
+	if err := validateSSHAgentRuntime("/usr/bin/podman", "linux"); err != nil {
+		t.Fatalf("expected Podman SSH agent forwarding to remain supported on Linux, got %v", err)
+	}
+}
+
+func TestBuildRunArgsFailsWhenSSHAgentUnavailable(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("Linux-only test; macOS socket discovery depends on installed runtimes")
+	}
+	installFakeDockerRuntime(t)
+	t.Setenv("SSH_AUTH_SOCK", "")
+
+	_, _, err := buildRunArgs(
+		Config{Image: "test-image", Runtime: "docker", SSHAgent: true},
+		t.TempDir(),
+		[]string{"echo", "hello"},
+		false,
+	)
+	if err == nil {
+		t.Fatal("expected unavailable requested SSH agent to fail argument construction")
 	}
 }

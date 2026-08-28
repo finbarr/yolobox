@@ -328,6 +328,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --env-from-host <KEY=HOST_VAR>")
 	fmt.Fprintln(os.Stderr, "                        Set KEY from the host's HOST_VAR (repeatable)")
 	fmt.Fprintln(os.Stderr, "  --ssh-agent           Forward SSH agent socket")
+	fmt.Fprintln(os.Stderr, "  --no-ssh-agent        Disable SSH agent forwarding from config")
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
@@ -411,6 +412,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		podFlag               string
 		networkFlag           string
 		sshAgent              bool
+		noSSHAgent            bool
 		readonlyProject       bool
 		noNetwork             bool
 		noEnvPassthrough      bool
@@ -460,6 +462,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.StringVar(&podFlag, "pod", "", "join existing podman pod")
 	fs.StringVar(&networkFlag, "network", "", "container network to join")
 	fs.BoolVar(&sshAgent, "ssh-agent", false, "mount SSH agent socket")
+	fs.BoolVar(&noSSHAgent, "no-ssh-agent", false, "disable SSH agent forwarding from config")
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
 	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
@@ -524,8 +527,14 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	if podFlag != "" {
 		cfg.Pod = podFlag
 	}
+	if sshAgent && noSSHAgent {
+		return Config{}, nil, fmt.Errorf("cannot use --ssh-agent with --no-ssh-agent")
+	}
 	if sshAgent {
 		cfg.SSHAgent = true
+	}
+	if noSSHAgent {
+		cfg.SSHAgent = false
 	}
 	if readonlyProject {
 		cfg.ReadonlyProject = true
@@ -709,7 +718,7 @@ func validateConfigConflicts(cfg Config) error {
 }
 
 func validateRuntimeConstraints(cfg Config) error {
-	if cfg.Pod == "" {
+	if cfg.Pod == "" && !cfg.SSHAgent {
 		return nil
 	}
 
@@ -717,8 +726,13 @@ func validateRuntimeConstraints(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	if filepath.Base(runtimePath) != "podman" {
+	if cfg.Pod != "" && filepath.Base(runtimePath) != "podman" {
 		return fmt.Errorf("--pod requires the podman runtime (set --runtime podman)")
+	}
+	if cfg.SSHAgent {
+		if err := validateSSHAgentRuntime(runtimePath, runtime.GOOS); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -1100,7 +1114,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Pi config (copy ~/.pi/agent)", "pi_config"),
 					huh.NewOption("GitHub token (gh + HTTPS git auth)", "gh_token"),
 					huh.NewOption("RTK compression (supported AI CLIs)", "rtk"),
-					huh.NewOption("SSH agent (for git over SSH)", "ssh_agent"),
+					huh.NewOption("SSH agent (Docker Desktop/Colima on macOS; not Podman machine)", "ssh_agent"),
 					huh.NewOption("Docker socket (run containers from sandbox)", "docker"),
 					huh.NewOption("Host clipboard (text copy/paste bridge; requires network)", "clipboard"),
 					huh.NewOption("Host open bridge (open URLs in host browser; requires network)", "open_bridge"),
@@ -1283,7 +1297,7 @@ func isToolShortcut(cmd string) bool {
 func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
-		"ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
+		"ssh-agent": true, "no-ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true, "no-claude-auth": true,
 		"codex-config": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
@@ -1971,13 +1985,16 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			// Apple container uses --ssh flag instead of socket mounts
 			args = append(args, "--ssh")
 		} else {
-			sock, err := findSSHAgentSocket()
+			runtimePath, err := resolveRuntime(cfg.Runtime)
 			if err != nil {
-				warn("%s", err)
-			} else {
-				args = append(args, "-v", sock+":/ssh-agent")
-				args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
+				return nil, nil, err
 			}
+			sock, err := findSSHAgentSocket(runtimePath)
+			if err != nil {
+				return nil, nil, err
+			}
+			args = append(args, "-v", sock+":/ssh-agent")
+			args = append(args, "-e", "SSH_AUTH_SOCK=/ssh-agent")
 		}
 		traceDuration("host: configure SSH agent", started)
 	}

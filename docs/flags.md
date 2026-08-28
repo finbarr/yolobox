@@ -48,6 +48,7 @@ These target different layers:
 | `--no-env-passthrough` | Disable automatic host environment passthrough | |
 | `--setup` | Run interactive setup before starting | |
 | `--ssh-agent` | Forward SSH agent socket | |
+| `--no-ssh-agent` | Disable SSH agent forwarding enabled by global or project config | `--ssh-agent` |
 | `--readonly-project` | Mount the project read-only and write outputs to `/output` | `--no-project` |
 | `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Incrementally sync host `~/.claude` config and live-mount `projects/` read/write | |
@@ -94,6 +95,16 @@ On macOS, `--ssh-agent` depends on the VM forwarding the agent:
 
 - Docker Desktop forwards it automatically
 - Colima needs `forwardAgent: true` in `~/.colima/default/colima.yaml`, then a restart
+- Podman machine does not expose the host SSH agent inside its VM. yolobox stops
+  with an actionable error instead of mounting a socket path from an unrelated
+  Docker Desktop or Colima VM. Use `--no-ssh-agent` when a global
+  `ssh_agent = true` setting should be disabled for a Podman run.
+
+Advanced Podman users can establish a VM-local agent socket themselves and pass
+it explicitly with `--mount`, `--env SSH_AUTH_SOCK=...`, and any required
+security options. yolobox does not create or supervise that tunnel because doing
+so widens the container trust boundary and requires lifecycle management outside
+the container.
 
 ## Networking
 

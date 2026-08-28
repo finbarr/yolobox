@@ -88,6 +88,7 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Named volumes shadow image contents. Anything baked into `/home/yolo` disappears behind `yolobox-home` for existing users.
 - On macOS, Docker socket source paths are resolved inside the Docker VM. Use `/var/run/docker.sock` as the mount source, not host-side paths like `~/.colima/default/docker.sock`.
 - On macOS, `SSH_AUTH_SOCK` from the host is not directly mountable into Docker. Docker Desktop uses `/run/host-services/ssh-auth.sock`; Colima requires `forwardAgent: true` and a VM-side socket path from `colima ssh -- printenv SSH_AUTH_SOCK`.
+- On macOS, resolve VM-local socket mounts against the selected container runtime. Docker Desktop, Colima, and Podman machine use different VMs; never choose an agent socket by probing an unrelated installed runtime.
 - Claude config is split across `~/.claude/` and `~/.claude.json`, and the config directory must be writable inside the container.
 - Claude OAuth creds on macOS live in Keychain, not just on disk.
 - `gh` tokens on macOS may also live in Keychain; `gh auth token` is the reliable extraction path.

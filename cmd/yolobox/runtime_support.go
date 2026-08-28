@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -214,10 +215,23 @@ func findDockerSocket() (string, error) {
 	return "", fmt.Errorf("docker socket not found. is Docker running?")
 }
 
+const podmanMachineSSHAgentError = "ssh agent forwarding is not supported with Podman machine on macOS because Podman does not expose the host agent inside its VM; " +
+	"use --no-ssh-agent, Docker Desktop, or Colima with forwardAgent: true (see https://yolobox.dev/flags#ssh-agent-on-macos)"
+
+func validateSSHAgentRuntime(runtimePath, goos string) error {
+	if goos == "darwin" && filepath.Base(runtimePath) == "podman" {
+		return errors.New(podmanMachineSSHAgentError)
+	}
+	return nil
+}
+
 // findSSHAgentSocket returns the SSH agent socket path to use as a volume mount source.
-// On Linux, SSH_AUTH_SOCK works directly. On macOS, the host's SSH_AUTH_SOCK path
-// doesn't exist inside the Docker VM, so we need the VM-internal path instead.
-func findSSHAgentSocket() (string, error) {
+// On Linux, SSH_AUTH_SOCK works directly. On macOS, Docker runs inside a VM, so
+// the selected runtime determines which VM-internal socket path is meaningful.
+func findSSHAgentSocket(runtimePath string) (string, error) {
+	if err := validateSSHAgentRuntime(runtimePath, runtime.GOOS); err != nil {
+		return "", err
+	}
 	if runtime.GOOS != "darwin" {
 		sock := os.Getenv("SSH_AUTH_SOCK")
 		if sock == "" {
