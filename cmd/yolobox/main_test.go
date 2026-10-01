@@ -2920,6 +2920,8 @@ func TestRunCmdArgsUpdateAgentsUsesPersistentNoProjectContainer(t *testing.T) {
 		"targets=(\"codex\" \"kimi\" \"agy\")",
 		"npm install -g --no-audit --no-fund \"$package@latest\"",
 		"@openai/codex",
+		"@agentclientprotocol/claude-agent-acp",
+		"@agentclientprotocol/codex-acp",
 		"https://code.kimi.com/kimi-code/install.sh",
 		"CURL_HOME=\"$curl_home\"",
 		"'retry-all-errors'",

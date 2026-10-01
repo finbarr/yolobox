@@ -249,9 +249,11 @@ for target in "${targets[@]}"; do
     case "$target" in
         claude)
             update_claude
+            npm_update "Claude ACP adapter" claude-agent-acp "@agentclientprotocol/claude-agent-acp"
             ;;
         codex)
             npm_update "OpenAI Codex" codex "@openai/codex"
+            npm_update "Codex ACP adapter" codex-acp "@agentclientprotocol/codex-acp"
             ;;
         gemini)
             npm_update "Gemini CLI" gemini "@google/gemini-cli"
