@@ -38,9 +38,32 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
+## ACP clients
+
+Configure an ACP client or editor to spawn `yolobox` from the project directory, using one of these stdio agent commands:
+
+```bash
+yolobox run codex-acp
+yolobox run claude-agent-acp
+```
+
+The client must pipe ACP protocol messages into stdin and read responses from stdout. These are protocol servers, not interactive CLI shortcuts.
+
+Existing persistent-box authentication and config sync options apply:
+
+```bash
+yolobox run --codex-config codex-acp
+yolobox run --claude-config claude-agent-acp
+yolobox run --claude-config --no-claude-auth claude-agent-acp
+```
+
+Use `--no-claude-auth` to preserve the box's independent login while syncing Claude settings. API keys use the normal environment passthrough controls; add `--env` or `--env-from-host` when needed.
+
+Each adapter bundles a compatible engine and bypasses yolobox's `codex` / `claude` wrappers, so its engine version may differ from the interactive CLI. Select permissions through the ACP client. `--no-yolo` and `NO_YOLO` do not control adapter permissions.
+
 ## Updating agent CLIs
 
-Update all bundled AI CLIs in the persistent yolobox home:
+Update all bundled AI CLIs and ACP adapters in the persistent yolobox home:
 
 ```bash
 yolobox update-agents
@@ -53,6 +76,8 @@ yolobox update-agents codex
 yolobox update-agents kimi
 yolobox update-agents claude antigravity
 ```
+
+The `codex` target updates Codex and `codex-acp`; the `claude` target updates Claude Code and `claude-agent-acp`. Adapter command names are not separate update targets.
 
 This is a global maintenance command: it ignores `.yolobox.toml` and does not mount the current project. Do not add `--scratch`; agent updates need the persistent `yolobox-home` volume.
 

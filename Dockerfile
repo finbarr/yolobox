@@ -864,6 +864,8 @@ USER root
 RUN NPM_CONFIG_PREFIX="" NPM_CONFIG_MIN_RELEASE_AGE="${NPM_MIN_RELEASE_AGE_DAYS}" npm install -g --no-audit --no-fund \
     @google/gemini-cli \
     @openai/codex \
+    @agentclientprotocol/codex-acp \
+    @agentclientprotocol/claude-agent-acp \
     opencode-ai \
     @github/copilot \
     @earendil-works/pi-coding-agent \

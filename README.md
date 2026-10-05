@@ -67,11 +67,13 @@ Full install and runtime details live in [Installation & Setup](https://yolobox.
 
 ## What's in the Box?
 
-The base image comes with AI CLIs, Node.js, Python, Go, Bun, build tools, Git, GitHub CLI, ripgrep, fd, fzf, jq, vim, RTK, and the usual practical bits.
+The base image comes with AI CLIs, Codex and Claude ACP adapters, Node.js, Python, Go, Bun, build tools, Git, GitHub CLI, ripgrep, fd, fzf, jq, vim, RTK, and the usual practical bits.
 
 Need something else? The agent has sudo.
 
 Inside yolobox, supported AI CLIs are wrapped to skip permission prompts. No confirmations, no guardrails. Just pure unfiltered AI, the way nature intended.
+
+For an ACP client or editor, use `yolobox run codex-acp` or `yolobox run claude-agent-acp` as its stdio agent command. The adapters bundle compatible engines and use the client's permission modes; yolobox's CLI YOLO wrappers and `--no-yolo` do not control them. Existing config sync and authentication options apply. See [ACP clients](https://yolobox.dev/commands#acp-clients) for launch examples.
 
 For the full tool list, YOLO-mode wrapper table, RTK notes, npm package freshness policy, and bundled CLI upgrade behavior, see [What's in the Box](https://yolobox.dev/whats-in-the-box).
 
@@ -119,7 +121,7 @@ yolobox codex --rtk                   # Enable RTK command-output compression
 yolobox run --no-network make test    # Run one command with no network
 yolobox fork --name bruno codex       # Give an agent its own project copy
 yolobox upgrade                       # Update binary and pull the latest image
-yolobox update-agents                 # Update AI CLIs in the persistent box
+yolobox update-agents                 # Update AI CLIs and ACP adapters in the persistent box
 ```
 
 `--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only.

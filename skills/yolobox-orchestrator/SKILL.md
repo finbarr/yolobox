@@ -12,6 +12,7 @@ Use this skill for host-side orchestration of yolobox sessions.
 Do not use it for questions about the current environment from inside a running box. Inside the container, use `yolobox` instead.
 
 1. Start from the user's intent, then choose the smallest `yolobox` command or flag set that accomplishes it.
+   - For an ACP client, use `yolobox run codex-acp` or `yolobox run claude-agent-acp` with piped stdin/stdout. The adapters bundle compatible engines and use ACP permission modes; `--no-yolo` does not control them. See [references/commands.md](references/commands.md) for config, authentication, and updates.
 2. Check `yolobox config` when defaults, merged config, or flag precedence matter.
    - If `default_harness` is set, bare `yolobox` launches that shortcut; use `yolobox shell` for an explicit shell.
 3. Prefer explicit isolation and safety flags:

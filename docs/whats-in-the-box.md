@@ -19,6 +19,15 @@ Claude, Codex, and Kimi Code sessions also get a built-in `yolobox` skill that h
 
 RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or set `rtk = true` to initialize it for Claude, Codex, Gemini, or OpenCode inside the container. Automatic initialization leaves RTK telemetry disabled; run `rtk telemetry enable` interactively inside the box if you want to opt in.
 
+### ACP adapters
+
+- `codex-acp` (`@agentclientprotocol/codex-acp`)
+- `claude-agent-acp` (`@agentclientprotocol/claude-agent-acp`)
+
+These adapters expose Codex and Claude over the Agent Client Protocol for compatible clients and editors. Configure the client to launch `yolobox run codex-acp` or `yolobox run claude-agent-acp` from the project directory, with stdin and stdout connected to the client's protocol transport. See [ACP clients](/commands#acp-clients) for config and authentication examples.
+
+Each adapter bundles a compatible engine: Codex ACP uses its Codex dependency, and Claude ACP uses the Claude Agent SDK. Their engine versions can differ from the interactive `codex` and `claude` commands. ACP clients select permission modes; the adapters do not use yolobox's CLI YOLO wrappers, and `--no-yolo` / `NO_YOLO` do not control their permissions.
+
 ### Runtimes
 
 - Node.js 22
@@ -29,6 +38,8 @@ RTK is also preinstalled for opt-in command-output compression. Pass `--rtk` or 
 npm is upgraded during the image build using npm's date-based `--before` filter. yolobox's own later npm/npx installs in that image build run with `NPM_CONFIG_MIN_RELEASE_AGE=7`, but the finished box does not keep the release-age setting at runtime.
 
 Bundled AI CLI versions are captured when the base image is built, but they are only a starting point. User-level installs and self-upgrades live in the persistent home volume and are not reset at startup. Use `yolobox update-agents` to refresh Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi inside that persistent home volume. `yolobox upgrade` refreshes the bundled image defaults; it is not required just to upgrade a tool yourself.
+
+`yolobox update-agents claude` also updates `claude-agent-acp`, and `yolobox update-agents codex` also updates `codex-acp`. The full `update-agents` command includes both adapters.
 
 ### Build tools
 

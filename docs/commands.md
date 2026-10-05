@@ -38,6 +38,29 @@ yolobox pi
 
 These launch the matching tool inside yolobox and apply the tool-specific YOLO-mode wrapper when one exists.
 
+### ACP clients
+
+The base image includes Codex and Claude adapters for Agent Client Protocol clients and editors. Set the client's stdio agent command to `yolobox`, with arguments for one of these launches:
+
+```bash
+yolobox run codex-acp
+yolobox run claude-agent-acp
+```
+
+Launch from the project directory. The ACP client pipes protocol messages into stdin and reads responses from stdout; diagnostic output stays on stderr. These commands serve ACP sessions rather than opening an interactive agent prompt.
+
+Reuse the login stored in the persistent box, or opt into host config and login sync with the existing options:
+
+```bash
+yolobox run --codex-config codex-acp
+yolobox run --claude-config claude-agent-acp
+yolobox run --claude-config --no-claude-auth claude-agent-acp
+```
+
+`--no-claude-auth` syncs Claude settings while preserving the box's independent login. API keys follow the usual [environment passthrough settings](/configuration#auto-forwarded-environment-variables); use `--env` or `--env-from-host` for variables that are not automatically forwarded.
+
+The adapters bundle compatible engines and bypass the interactive CLI wrappers. Their engine versions may differ from `yolobox codex` or `yolobox claude`. Select permissions in the ACP client; `--no-yolo` and `NO_YOLO` do not control adapter permissions.
+
 ### General commands
 
 ```bash
@@ -51,8 +74,8 @@ yolobox setup               # Write global defaults to ~/.config/yolobox/config.
 yolobox config              # Print the resolved config for the current project
 yolobox upgrade             # Update the binary and pull the latest base image
 yolobox upgrade --check     # Show latest release notes without upgrading
-yolobox update-agents       # Update all bundled AI CLIs in persistent home
-yolobox update-agents codex # Update one AI CLI; accepts multiple targets
+yolobox update-agents       # Update AI CLIs and ACP adapters in persistent home
+yolobox update-agents codex # Update Codex and its ACP adapter; accepts multiple targets
 yolobox reset --force       # Remove yolobox named volumes (all architectures)
 yolobox uninstall --force   # Remove yolobox binary, image, and volumes
 yolobox version             # Print version and platform
@@ -160,6 +183,8 @@ yolobox update-agents antigravity
 ```
 
 `update-agents` runs inside the persistent yolobox home volume and refreshes Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi. It uses global/default runtime settings, ignores `.yolobox.toml`, skips the project mount, and rejects `--scratch`, because updates made in scratch mode would disappear when the container exits.
+
+The `claude` target also updates `claude-agent-acp`, and the `codex` target also updates `codex-acp`. Updating all agents includes both adapters. Use the existing `claude` and `codex` targets; adapter command names are not separate update targets.
 
 ### Reset persistent state
 
