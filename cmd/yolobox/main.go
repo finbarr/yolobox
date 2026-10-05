@@ -338,6 +338,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --claude-config       Sync host Claude config; live-mount projects")
 	fmt.Fprintln(os.Stderr, "  --no-claude-auth      Keep Claude login container-local with --claude-config")
 	fmt.Fprintln(os.Stderr, "  --codex-config        Sync host Codex config; live-mount sessions")
+	fmt.Fprintln(os.Stderr, "  --copilot-config      Sync host Copilot config and login; live-mount sessions")
+	fmt.Fprintln(os.Stderr, "  --no-copilot-auth     Keep Copilot login container-local with --copilot-config")
 	fmt.Fprintln(os.Stderr, "  --gemini-config       Copy host Gemini/Antigravity config to container")
 	fmt.Fprintln(os.Stderr, "  --kimi-config         Sync host Kimi Code config to container")
 	fmt.Fprintln(os.Stderr, "  --opencode-config     Copy host OpenCode config to container")
@@ -423,6 +425,8 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		claudeConfig          bool
 		noClaudeAuth          bool
 		codexConfig           bool
+		copilotConfig         bool
+		noCopilotAuth         bool
 		geminiConfig          bool
 		kimiConfig            bool
 		opencodeConfig        bool
@@ -473,6 +477,8 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&claudeConfig, "claude-config", false, "sync host Claude config and live-mount projects")
 	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when syncing host config")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
+	fs.BoolVar(&copilotConfig, "copilot-config", false, "sync host Copilot config and login; live-mount sessions")
+	fs.BoolVar(&noCopilotAuth, "no-copilot-auth", false, "keep Copilot login container-local when syncing host config")
 	fs.BoolVar(&geminiConfig, "gemini-config", false, "copy host Gemini/Antigravity config to container")
 	fs.BoolVar(&kimiConfig, "kimi-config", false, "sync host Kimi Code config to container")
 	fs.BoolVar(&opencodeConfig, "opencode-config", false, "copy host OpenCode config to container")
@@ -564,6 +570,12 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	}
 	if codexConfig {
 		cfg.CodexConfig = true
+	}
+	if copilotConfig {
+		cfg.CopilotConfig = true
+	}
+	if noCopilotAuth {
+		cfg.NoCopilotAuth = true
 	}
 	if geminiConfig {
 		cfg.GeminiConfig = true
@@ -693,6 +705,9 @@ func validateConfigConflicts(cfg Config) error {
 	}
 	if cfg.NoClaudeAuth && !cfg.ClaudeConfig {
 		return fmt.Errorf("cannot use --no-claude-auth without --claude-config")
+	}
+	if cfg.NoCopilotAuth && !cfg.CopilotConfig {
+		return fmt.Errorf("cannot use --no-copilot-auth without --copilot-config")
 	}
 	if cfg.NoProject {
 		if cfg.ReadonlyProject {
@@ -1009,6 +1024,7 @@ func runSetup() (Config, error) {
 	// Form fields
 	var selectedOptions []string
 	copyClaudeAuth := !cfg.NoClaudeAuth
+	copyCopilotAuth := !cfg.NoCopilotAuth
 	defaultHarness := displayDefaultHarness(cfg.DefaultHarness)
 	containerName := cfg.ContainerName
 	podName := cfg.Pod
@@ -1030,6 +1046,9 @@ func runSetup() (Config, error) {
 	}
 	if cfg.CodexConfig {
 		selectedOptions = append(selectedOptions, "codex_config")
+	}
+	if cfg.CopilotConfig {
+		selectedOptions = append(selectedOptions, "copilot_config")
 	}
 	if cfg.GeminiConfig {
 		selectedOptions = append(selectedOptions, "gemini_config")
@@ -1110,6 +1129,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Git identity (copy ~/.gitconfig)", "git_config"),
 					huh.NewOption("Claude config (sync ~/.claude; live projects)", "claude_config"),
 					huh.NewOption("Codex config (sync ~/.codex; live sessions)", "codex_config"),
+					huh.NewOption("Copilot config (sync ~/.copilot; live sessions)", "copilot_config"),
 					huh.NewOption("Gemini/Antigravity config (copy ~/.gemini)", "gemini_config"),
 					huh.NewOption("Kimi Code config (sync ~/.kimi-code)", "kimi_config"),
 					huh.NewOption("OpenCode config (copy ~/.config/opencode)", "opencode_config"),
@@ -1132,6 +1152,12 @@ func runSetup() (Config, error) {
 				Title("Copy your host Claude login into the box?").
 				Description("Choose No to keep the box login independent; only applies when Claude config is selected").
 				Value(&copyClaudeAuth),
+		),
+		huh.NewGroup(
+			huh.NewConfirm().
+				Title("Copy your host Copilot login into the box?").
+				Description("Choose No to keep the box login independent; only applies when Copilot config is selected").
+				Value(&copyCopilotAuth),
 		),
 		huh.NewGroup(
 			huh.NewInput().
@@ -1208,6 +1234,8 @@ func runSetup() (Config, error) {
 	cfg.ClaudeConfig = contains(selectedOptions, "claude_config")
 	cfg.NoClaudeAuth = cfg.ClaudeConfig && !copyClaudeAuth
 	cfg.CodexConfig = contains(selectedOptions, "codex_config")
+	cfg.CopilotConfig = contains(selectedOptions, "copilot_config")
+	cfg.NoCopilotAuth = cfg.CopilotConfig && !copyCopilotAuth
 	cfg.GeminiConfig = contains(selectedOptions, "gemini_config")
 	cfg.KimiConfig = contains(selectedOptions, "kimi_config")
 	cfg.OpencodeConfig = contains(selectedOptions, "opencode_config")
@@ -1301,7 +1329,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"ssh-agent": true, "no-ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true, "no-claude-auth": true,
-		"codex-config": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
+		"codex-config": true, "copilot-config": true, "no-copilot-auth": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
 		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
@@ -1468,6 +1496,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	if cfg.NoClaudeAuth {
 		args = append(args, "-e", "YOLOBOX_NO_CLAUDE_AUTH=1")
 	}
+	if cfg.NoCopilotAuth {
+		args = append(args, "-e", "YOLOBOX_NO_COPILOT_AUTH=1")
+	}
 	hostBridgeRuntimeArgsAdded := false
 	if cfg.Clipboard {
 		args = append(args,
@@ -1513,6 +1544,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			if cfg.NoClaudeAuth && key == "CLAUDE_CODE_OAUTH_TOKEN" {
 				continue
 			}
+			if cfg.NoCopilotAuth && key == "COPILOT_GITHUB_TOKEN" {
+				continue
+			}
 			if aliasedEnvKeys[key] {
 				continue
 			}
@@ -1548,6 +1582,20 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		return nil, nil, err
 	}
 	args = append(args, aliasArgs...)
+
+	// Forward the host Copilot login. Copilot stores OAuth tokens in the OS
+	// keychain, which the container cannot reach, so hand the token over via
+	// COPILOT_GITHUB_TOKEN unless the caller already supplied one.
+	if cfg.CopilotConfig && !cfg.NoCopilotAuth && !copilotTokenEnvProvided(cfg, aliasedEnvKeys, autoPassthroughEnvKeys) {
+		started = time.Now()
+		token, found := getCopilotToken()
+		if token != "" {
+			args = append(args, "-e", "COPILOT_GITHUB_TOKEN="+token)
+		} else if !found {
+			warn("No host Copilot login found to sync; run /login inside the box or set COPILOT_GITHUB_TOKEN.")
+		}
+		traceDuration("host: get Copilot token", started)
+	}
 
 	if !cfg.NoProject {
 		started = time.Now()
@@ -1793,6 +1841,23 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 			}
 		}
 		traceDuration("host: mount Codex config", started)
+	}
+
+	// Mount Copilot config from host to the entrypoint import area. Session
+	// state is mounted live so resume history stays current, and config.json
+	// is preprocessed separately so auth can be stripped or merged.
+	if cfg.CopilotConfig {
+		started = time.Now()
+		copilotArgs, copilotCleanup, copilotFiles, err := copilotConfigMounts(cfg.NoCopilotAuth, appleContainer)
+		if err != nil {
+			return nil, nil, err
+		}
+		cleanupPaths = append(cleanupPaths, copilotCleanup...)
+		args = append(args, copilotArgs...)
+		for src, dst := range copilotFiles {
+			appleContainerFiles[src] = dst
+		}
+		traceDuration("host: mount Copilot config", started)
 	}
 
 	// Mount git config from host to staging area (copied to /home/yolo by entrypoint)

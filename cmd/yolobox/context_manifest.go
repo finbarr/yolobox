@@ -80,6 +80,8 @@ type contextConfigManifest struct {
 	ClaudeConfig          bool                           `json:"claude_config"`
 	NoClaudeAuth          bool                           `json:"no_claude_auth"`
 	CodexConfig           bool                           `json:"codex_config"`
+	CopilotConfig         bool                           `json:"copilot_config"`
+	NoCopilotAuth         bool                           `json:"no_copilot_auth"`
 	GeminiConfig          bool                           `json:"gemini_config"`
 	KimiConfig            bool                           `json:"kimi_config"`
 	OpencodeConfig        bool                           `json:"opencode_config"`
@@ -200,6 +202,8 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			ClaudeConfig:          cfg.ClaudeConfig,
 			NoClaudeAuth:          cfg.NoClaudeAuth,
 			CodexConfig:           cfg.CodexConfig,
+			CopilotConfig:         cfg.CopilotConfig,
+			NoCopilotAuth:         cfg.NoCopilotAuth,
 			GeminiConfig:          cfg.GeminiConfig,
 			KimiConfig:            cfg.KimiConfig,
 			OpencodeConfig:        cfg.OpencodeConfig,

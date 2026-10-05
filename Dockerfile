@@ -401,7 +401,7 @@ RUN printf '%s\n' \
     chmod +x /usr/local/bin/yolobox-uid-fix.sh
 
 # Create entrypoint script
-RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions /host-gemini /host-kimi /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
+RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions /host-copilot /host-copilot-session-state /host-gemini /host-kimi /host-opencode /host-pi /host-git /host-agent-instructions /host-files && \
     printf '%s\n' \
     '#!/bin/bash' \
     '' \
@@ -467,6 +467,27 @@ RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions
     '    fi' \
     '    sudo cp "$tmp" "$target"' \
     '    sudo chown yolo:yolo "$target"' \
+    '    rm -f "$tmp"' \
+    '}' \
+    'copy_copilot_config() {' \
+    '    local source="$1"' \
+    '    local target="/home/yolo/.copilot/config.json"' \
+    '    local tmp' \
+    '    tmp="$(mktemp)"' \
+    '    if [ -f "$target" ] && sed "/^[[:space:]]*\/\//d" "$target" | jq -e '"'"'type == "object"'"'"' >/dev/null 2>&1; then' \
+    '        if ! sed "/^[[:space:]]*\/\//d" "$target" | jq -s --slurpfile host "$source" '"'"'$host[0] as $h | .[0] as $c | reduce ("copilotTokens", "copilot_tokens", "authTokens", "loggedInUsers", "logged_in_users", "lastLoggedInUser", "last_logged_in_user") as $k ($h; if (has($k) | not) and ($c | has($k)) then .[$k] = $c[$k] else . end)'"'"' > "$tmp"; then' \
+    '            echo -e "\033[33m→ Failed to merge host Copilot config; keeping container config\033[0m" >&2' \
+    '            rm -f "$tmp"' \
+    '            return 0' \
+    '        fi' \
+    '    elif ! jq . "$source" > "$tmp"; then' \
+    '        echo -e "\033[33m→ Failed to read host Copilot config; keeping container config\033[0m" >&2' \
+    '        rm -f "$tmp"' \
+    '        return 0' \
+    '    fi' \
+    '    sudo cp "$tmp" "$target"' \
+    '    sudo chown yolo:yolo "$target"' \
+    '    sudo chmod 600 "$target"' \
     '    rm -f "$tmp"' \
     '}' \
     'warn_low_space() {' \
@@ -645,6 +666,40 @@ RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions
     'if [ -f /home/yolo/.codex/auth.json ] && [ ! -s /home/yolo/.codex/auth.json ]; then' \
     '    echo -e "\033[33m→ Removing empty Codex auth file\033[0m" >&2' \
     '    rm -f /home/yolo/.codex/auth.json' \
+    'fi' \
+    '' \
+    '# Sync Copilot config from host staging area if present. Host-platform' \
+    '# binaries, caches, logs, and databases stay local to the box; session' \
+    '# state is live-mounted so resume history is shared with the host.' \
+    'COPILOT_CONFIG_SRC=""' \
+    '[ -f /host-copilot/config.json ] && COPILOT_CONFIG_SRC=/host-copilot/config.json' \
+    '[ -z "$COPILOT_CONFIG_SRC" ] && [ -n "$HF" ] && [ -f "$HF/copilot/config.json" ] && COPILOT_CONFIG_SRC="$HF/copilot/config.json"' \
+    'if [ -d /host-copilot/.copilot ] || [ -n "$COPILOT_CONFIG_SRC" ]; then' \
+    '    echo -e "\033[33m→ Syncing host Copilot config to container\033[0m" >&2' \
+    '    yolobox_timing_mark "copilot config sync start"' \
+    '    sudo mkdir -p /home/yolo/.copilot' \
+    '    sudo chown yolo:yolo /home/yolo/.copilot' \
+    '    if [ -d /host-copilot/.copilot ]; then' \
+    '        sudo rsync -a --chown=yolo:yolo --exclude=/config.json --exclude=/session-state --exclude=/session-state.container --exclude=/pkg/ --exclude=/Library/ --exclude=/logs/ --exclude=/run/ --exclude=/ide/ --exclude=/computer-use/ --exclude=/media-cache/ --exclude=/canvas-catalog-probe/ --exclude=/sidebar-sessions-state/ --exclude=/open-sessions-state.json --exclude="/*.db" --exclude="/*.db-*" --exclude="/*.db.*" --exclude="/*.lock" /host-copilot/.copilot/ /home/yolo/.copilot/' \
+    '    fi' \
+    '    if [ -n "$COPILOT_CONFIG_SRC" ]; then' \
+    '        copy_copilot_config "$COPILOT_CONFIG_SRC"' \
+    '    fi' \
+    '    yolobox_timing_mark "copilot config sync done"' \
+    'fi' \
+    'COPILOT_SESSIONS=/home/yolo/.copilot/session-state' \
+    'if [ "${YOLOBOX_COPILOT_SESSIONS:-}" = "1" ]; then' \
+    '    mkdir -p /home/yolo/.copilot' \
+    '    if [ -d "$COPILOT_SESSIONS" ] && [ ! -L "$COPILOT_SESSIONS" ] && [ ! -e "$COPILOT_SESSIONS.container" ]; then' \
+    '        mv "$COPILOT_SESSIONS" "$COPILOT_SESSIONS.container"' \
+    '    fi' \
+    '    rm -rf "$COPILOT_SESSIONS"' \
+    '    ln -s /host-copilot-session-state "$COPILOT_SESSIONS"' \
+    'elif [ "$(readlink "$COPILOT_SESSIONS" 2>/dev/null || true)" = "/host-copilot-session-state" ]; then' \
+    '    rm -f "$COPILOT_SESSIONS"' \
+    '    if [ -d "$COPILOT_SESSIONS.container" ]; then' \
+    '        mv "$COPILOT_SESSIONS.container" "$COPILOT_SESSIONS"' \
+    '    fi' \
     'fi' \
     '' \
     '# Copy git config from host staging area if present' \

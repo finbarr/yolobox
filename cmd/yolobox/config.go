@@ -44,6 +44,8 @@ type Config struct {
 	ClaudeConfig          bool     `toml:"claude_config"`
 	NoClaudeAuth          bool     `toml:"no_claude_auth"`
 	CodexConfig           bool     `toml:"codex_config"`
+	CopilotConfig         bool     `toml:"copilot_config"`
+	NoCopilotAuth         bool     `toml:"no_copilot_auth"`
 	GeminiConfig          bool     `toml:"gemini_config"`
 	KimiConfig            bool     `toml:"kimi_config"`
 	OpencodeConfig        bool     `toml:"opencode_config"`
@@ -214,6 +216,12 @@ func mergeConfig(dst *Config, src Config) {
 	if src.CodexConfig {
 		dst.CodexConfig = true
 	}
+	if src.CopilotConfig {
+		dst.CopilotConfig = true
+	}
+	if src.NoCopilotAuth {
+		dst.NoCopilotAuth = true
+	}
 	if src.GeminiConfig {
 		dst.GeminiConfig = true
 	}
@@ -305,6 +313,8 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
 	fmt.Printf("%sno_claude_auth:%s %t\n", colorBold, colorReset, cfg.NoClaudeAuth)
 	fmt.Printf("%scodex_config:%s %t\n", colorBold, colorReset, cfg.CodexConfig)
+	fmt.Printf("%scopilot_config:%s %t\n", colorBold, colorReset, cfg.CopilotConfig)
+	fmt.Printf("%sno_copilot_auth:%s %t\n", colorBold, colorReset, cfg.NoCopilotAuth)
 	fmt.Printf("%sgemini_config:%s %t\n", colorBold, colorReset, cfg.GeminiConfig)
 	fmt.Printf("%skimi_config:%s %t\n", colorBold, colorReset, cfg.KimiConfig)
 	fmt.Printf("%sopencode_config:%s %t\n", colorBold, colorReset, cfg.OpencodeConfig)
@@ -406,6 +416,12 @@ func saveGlobalConfig(cfg Config) error {
 	}
 	if cfg.CodexConfig {
 		lines = append(lines, "codex_config = true")
+	}
+	if cfg.CopilotConfig {
+		lines = append(lines, "copilot_config = true")
+	}
+	if cfg.NoCopilotAuth {
+		lines = append(lines, "no_copilot_auth = true")
 	}
 	if cfg.GeminiConfig {
 		lines = append(lines, "gemini_config = true")

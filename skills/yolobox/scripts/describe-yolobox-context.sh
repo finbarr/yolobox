@@ -109,6 +109,8 @@ if [[ -f "$context_file" ]] && command -v jq >/dev/null 2>&1; then
             "No env passthrough: " + ((.config.no_env_passthrough // false) | tostring),
             (if (.config.claude_config // false) then "Claude login synced from host: " + (((.config.no_claude_auth // false) | not) | tostring) else empty end),
             (if (.config.claude_config // false) then "Claude project history live mount: true" else empty end),
+            (if (.config.copilot_config // false) then "Copilot login synced from host: " + (((.config.no_copilot_auth // false) | not) | tostring) else empty end),
+            (if (.config.copilot_config // false) then "Copilot session history live mount: true" else empty end),
             (if .config.network != "" then "Network: " + .config.network else empty end),
             (if .config.pod != "" then "Pod: " + .config.pod else empty end),
             "Docker socket: " + (.config.docker | tostring),

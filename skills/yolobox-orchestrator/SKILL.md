@@ -20,6 +20,7 @@ Do not use it for questions about the current environment from inside a running 
    - `--readonly-project` when the agent only needs read access to the project tree.
    - `--no-env-passthrough` when host API/token environment variables should not enter the box automatically.
    - `--claude-config --no-claude-auth` when host Claude settings should be synced but the persistent box must keep its own `/login` credentials. This still live-mounts host Claude project history read/write.
+   - `--copilot-config` to share host Copilot CLI settings, login, and session history; add `--no-copilot-auth` when the box must keep its own Copilot `/login`.
    - `--open-bridge` only when the agent needs to open HTTP(S) URLs in the host browser.
    - `--docker` only when the agent needs Docker access or sibling containers.
 4. When you need exact command patterns or edge-case reminders, read [references/commands.md](references/commands.md).
