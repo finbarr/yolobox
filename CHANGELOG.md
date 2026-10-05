@@ -8,6 +8,8 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.5 - 2026-10-05
+
 ### Added
 
 - Bundled the Claude and Codex Agent Client Protocol (ACP) adapters for external ACP clients. Run them with `yolobox run claude-agent-acp` or `yolobox run codex-acp`; the corresponding `update-agents claude` and `update-agents codex` targets also refresh their adapters in the persistent home volume. ACP clients control permission modes independently of yolobox's normal CLI YOLO wrappers.
