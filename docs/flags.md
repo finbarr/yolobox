@@ -72,7 +72,7 @@ These target different layers:
 | `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard`, `--open-bridge` |
 | `--network <name>` | Join a specific network | `--no-network`, `--pod` |
 | `--pod <name>` | Join an existing Podman pod | `--no-network`, `--network`, `--docker` |
-| `--no-yolo` | Disable auto-confirmations | |
+| `--no-yolo` | Disable auto-confirmations in wrapped AI CLIs; ACP uses client permission modes | |
 | `--scratch` | Start with a fresh home and cache | |
 | `--docker` | Mount the Docker socket and join the shared `yolobox-net` network | `--no-network`, `--pod` |
 

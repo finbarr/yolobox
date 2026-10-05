@@ -29,8 +29,12 @@ make build
 make test
 make lint
 make image
+make smoke-test
+make smoke-acp
 make install
 ```
+
+After image changes, build and test the same image, for example `make image IMAGE=yolobox:dev` followed by `make smoke-test IMAGE=yolobox:dev`. The full smoke test includes both ACP adapters. For a focused check, `make smoke-acp IMAGE=yolobox:dev` checks adapter versions and ACP protocol initialization through piped yolobox stdio without credentials or network access. Use `SMOKE_ARGS` to pass runtime options, for example `SMOKE_ARGS="--runtime podman --image yolobox:dev"` when that image is available in Podman.
 
 For docs site work:
 

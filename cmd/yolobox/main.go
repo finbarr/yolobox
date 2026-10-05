@@ -302,7 +302,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name <env> <cmd>  Run in a named copied folder with Compose namespace")
 	fmt.Fprintln(os.Stderr, "  yolobox setup               Configure yolobox settings")
 	fmt.Fprintln(os.Stderr, "  yolobox upgrade [--check]   Upgrade binary/image, or inspect latest release")
-	fmt.Fprintln(os.Stderr, "  yolobox update-agents [name...]  Update bundled AI CLIs in persistent home")
+	fmt.Fprintln(os.Stderr, "  yolobox update-agents [name...]  Update AI CLIs and ACP adapters in persistent home")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
 	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes, all architectures (add --platform to target one)")
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
@@ -332,7 +332,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --no-network          Disable network access (default: network enabled)")
 	fmt.Fprintln(os.Stderr, "  --no-env-passthrough  Disable automatic host environment passthrough")
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
-	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable AI CLIs YOLO mode")
+	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable wrapped AI CLIs YOLO mode (ACP uses client modes)")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Sync host Claude config; live-mount projects")
@@ -379,7 +379,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox shell               # Always drop into a shell")
 	fmt.Fprintln(os.Stderr, "  yolobox run make build      # Run make inside sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox fork --name bruno codex  # Developer env + Compose namespace")
-	fmt.Fprintln(os.Stderr, "  yolobox update-agents codex # Update one AI CLI in persistent home")
+	fmt.Fprintln(os.Stderr, "  yolobox update-agents codex # Update Codex and its ACP adapter")
+	fmt.Fprintln(os.Stderr, "  yolobox run codex-acp       # Serve Codex to an ACP client over stdio")
+	fmt.Fprintln(os.Stderr, "  yolobox run claude-agent-acp # Serve Claude to an ACP client over stdio")
 	fmt.Fprintln(os.Stderr, "  yolobox run claude          # Run Claude Code in sandbox")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-network        # Paranoid mode: no internet")
 	fmt.Fprintln(os.Stderr, "  yolobox --no-env-passthrough # No automatic host env vars")
@@ -466,7 +468,7 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&readonlyProject, "readonly-project", false, "mount project read-only")
 	fs.BoolVar(&noNetwork, "no-network", false, "disable network")
 	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
-	fs.BoolVar(&noYolo, "no-yolo", false, "disable AI CLIs YOLO mode")
+	fs.BoolVar(&noYolo, "no-yolo", false, "disable wrapped AI CLIs YOLO mode (ACP uses client modes)")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
 	fs.BoolVar(&claudeConfig, "claude-config", false, "sync host Claude config and live-mount projects")
 	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when syncing host config")
@@ -1121,7 +1123,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("No automatic project mount (advanced; provide mounts/workdir)", "no_project"),
 					huh.NewOption("No network (disables network, pod, Docker, clipboard, and open bridge)", "no_network"),
 					huh.NewOption("No env passthrough (disable automatic host env vars)", "no_env_passthrough"),
-					huh.NewOption("No YOLO (disable auto-confirm in AI CLIs)", "no_yolo"),
+					huh.NewOption("No YOLO (wrapped AI CLIs only; ACP uses client modes)", "no_yolo"),
 				).
 				Value(&selectedOptions),
 		),

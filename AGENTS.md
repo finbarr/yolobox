@@ -31,6 +31,7 @@ make test           # Run unit tests
 make lint           # Run go vet (and golangci-lint if installed)
 make image          # Build the Docker base image
 make smoke-test     # Run smoke tests on container tools
+make smoke-acp      # Check both ACP adapters' versions and protocol startup
 make install        # Build and install to ~/.local/bin
 make clean          # Remove built binary
 ```
@@ -138,3 +139,5 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Claude OAuth refresh credentials must not be cloned into independent host and container stores unless the user explicitly accepts the shared-login behavior. `--no-claude-auth` config sync must skip Keychain extraction, exclude `.credentials.json` and refresh locks, preserve the box's account identity, and suppress automatic host OAuth-token passthrough.
 - Host Claude config can be large enough that full-tree copies and recursive ownership walks make every startup painfully slow. Keep Claude config sync incremental, live-mount `~/.claude/projects` for resume continuity, skip volatile debug data, and keep ownership fixes targeted. Preserve `--no-claude-auth` credential isolation when optimizing the host-side staging path.
 - Startup helpers inherit the agent session's TTY even when their output is captured. Any first-run tool setup must explicitly suppress interactive prompts rather than assuming command substitution makes it non-interactive; keep consent choices available later from the interactive tool itself.
+- ACP adapters launch bundled engines rather than the wrapped `claude`/`codex` commands. Their permissions are controlled through ACP client modes, not yolobox's YOLO wrappers. Verify protocol initialization through piped yolobox stdio, not just package installation or `--version`; `make smoke-acp IMAGE=<image>` performs this check without credentials or network access.
+- A linter failure must fail `make lint`. Keep the missing-tool check separate from running `golangci-lint`, or a failing installed linter can be mislabeled as missing and silently pass.
