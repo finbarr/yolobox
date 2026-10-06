@@ -227,15 +227,21 @@ func copilotConfigMounts(noAuth, appleContainer bool) ([]string, []string, map[s
 var copilotAuthEnvKeys = []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"}
 
 // copilotAuthEnvProvided reports whether the caller already supplies a Copilot
-// login through explicit env values, env_from_host aliases, or automatic
-// passthrough. Injecting a host login on top would silently override the
-// caller's account, since COPILOT_GITHUB_TOKEN has the highest precedence.
-func copilotAuthEnvProvided(cfg Config, autoPassthroughEnvKeys []string) bool {
+// login through automatic passthrough, the GH_TOKEN forwarded by --gh-token,
+// explicit env values, or env_from_host aliases. Sources are applied in the
+// same order as the container args, so later values win. Injecting a host
+// login on top would silently override the caller's account, since
+// COPILOT_GITHUB_TOKEN has the highest precedence.
+func copilotAuthEnvProvided(cfg Config, autoPassthroughEnvKeys []string, forwardedGhToken string) bool {
 	values := map[string]string{}
 	present := map[string]bool{}
 	for _, key := range autoPassthroughEnvKeys {
 		values[key] = os.Getenv(key)
 		present[key] = true
+	}
+	if forwardedGhToken != "" {
+		values["GH_TOKEN"] = forwardedGhToken
+		present["GH_TOKEN"] = true
 	}
 	for _, env := range cfg.Env {
 		name, value, hasValue := strings.Cut(env, "=")

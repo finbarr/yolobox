@@ -116,7 +116,7 @@ yolobox copilot --copilot-config
 yolobox copilot --copilot-config --no-copilot-auth
 ```
 
-Without `--no-copilot-auth`, the host Copilot login is forwarded as `COPILOT_GITHUB_TOKEN` unless `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is already supplied. With it, host login keys are stripped and token passthrough is suppressed; run `/login` once inside the box.
+Without `--no-copilot-auth`, the host Copilot login is forwarded as `COPILOT_GITHUB_TOKEN` unless `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` is already supplied (including via `--gh-token`). With it, host login keys are stripped and token passthrough is suppressed; run `/login` once inside the box.
 
 Set project-specific environment variables in `.yolobox.toml` when a tool needs a per-project home or account:
 

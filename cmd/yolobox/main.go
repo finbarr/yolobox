@@ -1559,6 +1559,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Forward GitHub CLI token (extracted from keychain/credential store)
 	ghTokenForwarded := false
+	forwardedGhToken := ""
 	if cfg.GhToken && aliasedEnvKeys["GH_TOKEN"] {
 		warn("Ignoring --gh-token because env_from_host sets GH_TOKEN.")
 	}
@@ -1567,6 +1568,7 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		if token := getGhToken(); token != "" {
 			args = append(args, "-e", "GH_TOKEN="+token)
 			ghTokenForwarded = true
+			forwardedGhToken = token
 		}
 		traceDuration("host: get GitHub token", started)
 	}
@@ -1586,8 +1588,8 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// Forward the host Copilot login. Copilot stores OAuth tokens in the OS
 	// keychain, which the container cannot reach, so hand the token over via
 	// COPILOT_GITHUB_TOKEN unless the caller already supplied a login through
-	// COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN.
-	if cfg.CopilotConfig && !cfg.NoCopilotAuth && !copilotAuthEnvProvided(cfg, autoPassthroughEnvKeys) {
+	// COPILOT_GITHUB_TOKEN, GH_TOKEN (including --gh-token), or GITHUB_TOKEN.
+	if cfg.CopilotConfig && !cfg.NoCopilotAuth && !copilotAuthEnvProvided(cfg, autoPassthroughEnvKeys, forwardedGhToken) {
 		started = time.Now()
 		token, found := getCopilotToken()
 		if token != "" {

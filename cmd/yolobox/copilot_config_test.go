@@ -201,10 +201,15 @@ func TestCopilotAuthEnvProvided(t *testing.T) {
 		name        string
 		cfg         Config
 		passthrough []string
+		ghToken     string
 		hostEnv     map[string]string
 		want        bool
 	}{
 		{name: "none", want: false},
+		{name: "--gh-token GH_TOKEN", ghToken: "gho_b", want: true},
+		{name: "--gh-token classic token is unsupported", ghToken: "ghp_b", want: false},
+		{name: "explicit GH_TOKEN after --gh-token wins", cfg: Config{Env: []string{"GH_TOKEN="}}, ghToken: "gho_b", want: false},
+		{name: "explicit usable GH_TOKEN overrides classic --gh-token", cfg: Config{Env: []string{"GH_TOKEN=gho_b"}}, ghToken: "ghp_b", want: true},
 		{name: "explicit copilot token", cfg: Config{Env: []string{"COPILOT_GITHUB_TOKEN=x"}}, want: true},
 		{name: "explicit empty copilot token still owns the key", cfg: Config{Env: []string{"COPILOT_GITHUB_TOKEN="}}, want: true},
 		{name: "passthrough copilot token", passthrough: []string{"COPILOT_GITHUB_TOKEN"}, hostEnv: map[string]string{"COPILOT_GITHUB_TOKEN": "gho_x"}, want: true},
@@ -226,7 +231,7 @@ func TestCopilotAuthEnvProvided(t *testing.T) {
 			for k, v := range tc.hostEnv {
 				t.Setenv(k, v)
 			}
-			if got := copilotAuthEnvProvided(tc.cfg, tc.passthrough); got != tc.want {
+			if got := copilotAuthEnvProvided(tc.cfg, tc.passthrough, tc.ghToken); got != tc.want {
 				t.Fatalf("copilotAuthEnvProvided = %t, want %t", got, tc.want)
 			}
 		})
@@ -326,6 +331,8 @@ func TestBuildRunArgsCopilotConfigPreservesSuppliedGitHubTokens(t *testing.T) {
 		{name: "GH_TOKEN passthrough", hostEnv: map[string]string{"GH_TOKEN": "gho_b"}},
 		{name: "GITHUB_TOKEN passthrough", hostEnv: map[string]string{"GITHUB_TOKEN": "gho_b"}},
 		{name: "classic GH_TOKEN passthrough is unsupported", hostEnv: map[string]string{"GH_TOKEN": "ghp_b"}, inject: true},
+		{name: "--gh-token GH_TOKEN", cfg: Config{GhToken: true, NoEnvPassthrough: true}},
+		{name: "--gh-token cleared by explicit GH_TOKEN", cfg: Config{GhToken: true, NoEnvPassthrough: true, Env: []string{"GH_TOKEN="}}, inject: true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -351,6 +358,9 @@ func TestBuildRunArgsCopilotConfigPreservesSuppliedGitHubTokens(t *testing.T) {
 			injected := strings.Contains(argsStr, "COPILOT_GITHUB_TOKEN=gho_alice_keychain")
 			if injected != tc.inject {
 				t.Fatalf("host Copilot login injected = %t, want %t: %s", injected, tc.inject, argsStr)
+			}
+			if tc.cfg.GhToken && !strings.Contains(argsStr, "GH_TOKEN=gho_alice_gh") {
+				t.Fatalf("expected --gh-token to forward GH_TOKEN: %s", argsStr)
 			}
 		})
 	}
