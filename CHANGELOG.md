@@ -8,9 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.6 - 2026-10-06
+
 ### Added
 
-- Added `--copilot-config` / `copilot_config = true` to incrementally sync host GitHub Copilot CLI config, forward the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mount `~/.copilot/session-state` for resume continuity, plus `--no-copilot-auth` / `no_copilot_auth = true` to keep the box's Copilot login independent.
+- Added `--copilot-config` / `copilot_config = true` to incrementally sync host GitHub Copilot CLI config, forward the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mount `~/.copilot/session-state` for resume continuity. Explicit credentials and supported tokens forwarded through `--gh-token` take precedence, and concurrent runs keep their selected session storage.
+- Added `--no-copilot-auth` / `no_copilot_auth = true` to sync Copilot settings while keeping the box's Copilot login independent.
 
 ## v0.19.5 - 2026-10-05
 
