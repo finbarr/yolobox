@@ -117,6 +117,7 @@ yolobox setup                         # Configure global defaults
 yolobox config                        # Show resolved config for this project
 yolobox claude --docker --gh-token    # Give the agent Docker and GitHub access
 yolobox claude --claude-config --no-claude-auth # Share config, keep the box login independent
+yolobox copilot --copilot-config        # Share Copilot settings, login, and session history
 yolobox codex --rtk                   # Enable RTK command-output compression
 yolobox run --no-network make test    # Run one command with no network
 yolobox fork --name bruno codex       # Give an agent its own project copy
@@ -124,7 +125,7 @@ yolobox upgrade                       # Update binary and pull the latest image
 yolobox update-agents                 # Update AI CLIs and ACP adapters in the persistent box
 ```
 
-`--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only.
+`--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only. `--copilot-config` does the same for GitHub Copilot CLI: it syncs durable `~/.copilot` settings, agents, skills, and MCP config, forwards the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mounts `~/.copilot/session-state` read/write; add `--no-copilot-auth` to keep the box's Copilot login independent.
 
 Automatic RTK setup leaves telemetry disabled unless you opt in interactively from inside the box with `rtk telemetry enable`.
 

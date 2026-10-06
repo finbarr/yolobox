@@ -53,6 +53,8 @@ These target different layers:
 | `--no-project` | Skip the automatic project mount; caller provides `--mount` and `--runtime-arg=--workdir` | `--readonly-project`, `--exclude`, `--copy-as` |
 | `--claude-config` | Incrementally sync host `~/.claude` config and live-mount `projects/` read/write | |
 | `--no-claude-auth` | With `--claude-config`, keep Claude authentication container-local instead of copying the host login | Without `--claude-config` |
+| `--copilot-config` | Incrementally sync host `~/.copilot` config, forward the host Copilot login, and live-mount `session-state/` read/write | |
+| `--no-copilot-auth` | With `--copilot-config`, keep Copilot authentication container-local instead of forwarding the host login | Without `--copilot-config` |
 | `--codex-config` | Sync host `~/.codex` config and live-mount sessions | |
 | `--gemini-config` | Copy host `~/.gemini` Gemini/Antigravity config into the container | |
 | `--kimi-config` | Sync host `~/.kimi-code` config, credentials, skills, and sessions into the container | |
@@ -150,6 +152,17 @@ yolobox claude --claude-config --no-claude-auth
 The box retains its own `~/.claude/.credentials.json`, `oauthAccount`, and `userID` in the persistent `yolobox-home` volume. Host credentials from macOS Keychain or `~/.claude/.credentials.json` are not imported, and automatic `CLAUDE_CODE_OAUTH_TOKEN` passthrough is suppressed. Run `/login` once inside the box. Explicit `--env` entries are still honored.
 
 Authentication isolation does not isolate session history: `~/.claude/projects` remains a read/write host mount in both modes.
+
+## Copilot config and login
+
+`--copilot-config` syncs durable GitHub Copilot CLI config from `~/.copilot` (settings, MCP config, agents, skills, hooks, extensions, plugins) without deleting container-local files, skips host binaries, logs, caches, and databases, and live-mounts `~/.copilot/session-state` read/write. The host login is resolved from the `copilot-cli` keychain entry, a plaintext `config.json` token, or `gh auth token`, and forwarded as `COPILOT_GITHUB_TOKEN`, scoped to the account selected in `config.json`. It is skipped when you already supply `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` via passthrough, `--gh-token`, `--env`, or `--env-from-host`.
+
+```bash
+yolobox copilot --copilot-config
+yolobox copilot --copilot-config --no-copilot-auth
+```
+
+With `--no-copilot-auth`, host login keys are stripped from the synced `config.json`, no token is extracted, and `COPILOT_GITHUB_TOKEN` passthrough is suppressed. Run `/login` once inside the box. `GH_TOKEN`/`GITHUB_TOKEN` passthrough still applies and takes precedence in Copilot CLI. `~/.copilot/session-state` remains a read/write host mount in both modes.
 
 ## RTK command compression
 

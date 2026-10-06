@@ -63,6 +63,8 @@ func updateAgentsDefaults(cfg Config) Config {
 	cfg.ClaudeConfig = false
 	cfg.NoClaudeAuth = false
 	cfg.CodexConfig = false
+	cfg.CopilotConfig = false
+	cfg.NoCopilotAuth = false
 	cfg.GeminiConfig = false
 	cfg.KimiConfig = false
 	cfg.OpencodeConfig = false
