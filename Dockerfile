@@ -687,18 +687,32 @@ RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions
     '    fi' \
     '    yolobox_timing_mark "copilot config sync done"' \
     'fi' \
+    '# Copilot session-state lives in the shared yolobox-home volume, so never' \
+    '# toggle it per run: concurrent containers would redirect each other. The' \
+    '# shared path is a stable symlink to a container-local view that points at' \
+    '# either the live host mount or the box-local store.' \
     'COPILOT_SESSIONS=/home/yolo/.copilot/session-state' \
-    'if [ "${YOLOBOX_COPILOT_SESSIONS:-}" = "1" ]; then' \
-    '    mkdir -p /home/yolo/.copilot' \
-    '    if [ -d "$COPILOT_SESSIONS" ] && [ ! -L "$COPILOT_SESSIONS" ] && [ ! -e "$COPILOT_SESSIONS.container" ]; then' \
-    '        mv "$COPILOT_SESSIONS" "$COPILOT_SESSIONS.container"' \
+    'COPILOT_SESSIONS_LOCAL=/home/yolo/.copilot/session-state.container' \
+    'COPILOT_SESSIONS_VIEW=/var/lib/yolobox/copilot-session-state' \
+    'mkdir -p /home/yolo/.copilot' \
+    'if [ -d "$COPILOT_SESSIONS" ] && [ ! -L "$COPILOT_SESSIONS" ]; then' \
+    '    if [ -e "$COPILOT_SESSIONS_LOCAL" ]; then' \
+    '        cp -a -n "$COPILOT_SESSIONS/." "$COPILOT_SESSIONS_LOCAL/" && rm -rf "$COPILOT_SESSIONS"' \
+    '    else' \
+    '        mv "$COPILOT_SESSIONS" "$COPILOT_SESSIONS_LOCAL"' \
     '    fi' \
-    '    rm -rf "$COPILOT_SESSIONS"' \
-    '    ln -s /host-copilot-session-state "$COPILOT_SESSIONS"' \
-    'elif [ "$(readlink "$COPILOT_SESSIONS" 2>/dev/null || true)" = "/host-copilot-session-state" ]; then' \
-    '    rm -f "$COPILOT_SESSIONS"' \
-    '    if [ -d "$COPILOT_SESSIONS.container" ]; then' \
-    '        mv "$COPILOT_SESSIONS.container" "$COPILOT_SESSIONS"' \
+    'fi' \
+    'mkdir -p "$COPILOT_SESSIONS_LOCAL"' \
+    'if [ "${YOLOBOX_COPILOT_SESSIONS:-}" = "1" ]; then' \
+    '    COPILOT_SESSIONS_TARGET=/host-copilot-session-state' \
+    'else' \
+    '    COPILOT_SESSIONS_TARGET="$COPILOT_SESSIONS_LOCAL"' \
+    'fi' \
+    'sudo mkdir -p "$(dirname "$COPILOT_SESSIONS_VIEW")"' \
+    'sudo ln -sfn "$COPILOT_SESSIONS_TARGET" "$COPILOT_SESSIONS_VIEW"' \
+    'if [ -L "$COPILOT_SESSIONS" ] || [ ! -e "$COPILOT_SESSIONS" ]; then' \
+    '    if [ "$(readlink "$COPILOT_SESSIONS" 2>/dev/null || true)" != "$COPILOT_SESSIONS_VIEW" ]; then' \
+    '        ln -sfn "$COPILOT_SESSIONS_VIEW" "$COPILOT_SESSIONS"' \
     '    fi' \
     'fi' \
     '' \

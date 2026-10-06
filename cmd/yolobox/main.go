@@ -1585,8 +1585,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 
 	// Forward the host Copilot login. Copilot stores OAuth tokens in the OS
 	// keychain, which the container cannot reach, so hand the token over via
-	// COPILOT_GITHUB_TOKEN unless the caller already supplied one.
-	if cfg.CopilotConfig && !cfg.NoCopilotAuth && !copilotTokenEnvProvided(cfg, aliasedEnvKeys, autoPassthroughEnvKeys) {
+	// COPILOT_GITHUB_TOKEN unless the caller already supplied a login through
+	// COPILOT_GITHUB_TOKEN, GH_TOKEN, or GITHUB_TOKEN.
+	if cfg.CopilotConfig && !cfg.NoCopilotAuth && !copilotAuthEnvProvided(cfg, autoPassthroughEnvKeys) {
 		started = time.Now()
 		token, found := getCopilotToken()
 		if token != "" {

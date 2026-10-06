@@ -112,15 +112,6 @@ func readCopilotConfig(path string) (map[string]interface{}, error) {
 	return config, nil
 }
 
-func copilotConfigHasPlaintextToken(config map[string]interface{}) bool {
-	for _, key := range []string{"copilotTokens", "copilot_tokens"} {
-		if tokens, ok := config[key].(map[string]interface{}); ok && len(tokens) > 0 {
-			return true
-		}
-	}
-	return false
-}
-
 // preprocessCopilotConfig writes a comment-free copy of config.json to a
 // Docker-visible temp file, optionally stripping login state.
 func preprocessCopilotConfig(srcPath string, stripAuth bool) (string, error) {
@@ -231,21 +222,43 @@ func copilotConfigMounts(noAuth, appleContainer bool) ([]string, []string, map[s
 	return args, cleanup, files, nil
 }
 
-// copilotTokenEnvProvided reports whether COPILOT_GITHUB_TOKEN is already
-// being set explicitly or by automatic env passthrough.
-func copilotTokenEnvProvided(cfg Config, aliasedEnvKeys map[string]bool, autoPassthroughEnvKeys []string) bool {
-	const key = "COPILOT_GITHUB_TOKEN"
-	if aliasedEnvKeys[key] {
-		return true
-	}
-	for _, k := range autoPassthroughEnvKeys {
-		if k == key {
-			return true
-		}
+// copilotAuthEnvKeys are the env vars Copilot CLI reads for a login, in
+// precedence order. Any of them outranks the OS keychain.
+var copilotAuthEnvKeys = []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"}
+
+// copilotAuthEnvProvided reports whether the caller already supplies a Copilot
+// login through explicit env values, env_from_host aliases, or automatic
+// passthrough. Injecting a host login on top would silently override the
+// caller's account, since COPILOT_GITHUB_TOKEN has the highest precedence.
+func copilotAuthEnvProvided(cfg Config, autoPassthroughEnvKeys []string) bool {
+	values := map[string]string{}
+	present := map[string]bool{}
+	for _, key := range autoPassthroughEnvKeys {
+		values[key] = os.Getenv(key)
+		present[key] = true
 	}
 	for _, env := range cfg.Env {
-		name, _, _ := strings.Cut(env, "=")
-		if name == key {
+		name, value, hasValue := strings.Cut(env, "=")
+		if !hasValue {
+			value = os.Getenv(name)
+		}
+		values[name] = value
+		present[name] = true
+	}
+	for _, entry := range cfg.EnvFromHost {
+		key, hostVar, found := strings.Cut(entry, "=")
+		if !found {
+			continue
+		}
+		values[key] = os.Getenv(hostVar)
+		present[key] = true
+	}
+	// Never add a competing COPILOT_GITHUB_TOKEN, whatever its value.
+	if present["COPILOT_GITHUB_TOKEN"] {
+		return true
+	}
+	for _, key := range copilotAuthEnvKeys[1:] {
+		if copilotTokenUsable(values[key]) {
 			return true
 		}
 	}
@@ -257,29 +270,47 @@ func copilotTokenUsable(token string) bool {
 	return token != "" && !strings.HasPrefix(token, "ghp_")
 }
 
+// copilotAccount identifies the Copilot login selected by lastLoggedInUser.
+type copilotAccount struct {
+	host  string
+	login string
+}
+
+// key matches Copilot's keychain account and plaintext token map key.
+func (a copilotAccount) key() string {
+	return a.host + ":" + a.login
+}
+
+func (a copilotAccount) ghHostname() string {
+	host := strings.TrimPrefix(strings.TrimPrefix(a.host, "https://"), "http://")
+	return strings.TrimSuffix(host, "/")
+}
+
 // getCopilotToken resolves the host Copilot login the same way Copilot CLI
 // does after env vars: OS keychain, plaintext config, then `gh auth token`.
 // A plaintext config token is synced with config.json, so it is not returned,
-// but found still reports true.
+// but found still reports true. When config selects an account, every source
+// is scoped to it so another stored account is never forwarded instead.
 func getCopilotToken() (token string, found bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", false
 	}
 	config, _ := readCopilotConfig(filepath.Join(copilotHomeDir(home), "config.json"))
-	if token := getCopilotKeychainToken(config); copilotTokenUsable(token) {
+	account, selected := copilotLastLoggedInAccount(config)
+	if token := getCopilotKeychainToken(account, selected); copilotTokenUsable(token) {
 		return token, true
 	}
-	if copilotConfigHasPlaintextToken(config) {
+	if copilotConfigHasPlaintextToken(config, account, selected) {
 		return "", true
 	}
-	if token := getGhToken(); copilotTokenUsable(token) {
+	if token := getCopilotGhToken(account, selected); copilotTokenUsable(token) {
 		return token, true
 	}
 	return "", false
 }
 
-func copilotLastLoggedInAccount(config map[string]interface{}) string {
+func copilotLastLoggedInAccount(config map[string]interface{}) (copilotAccount, bool) {
 	for _, key := range []string{"lastLoggedInUser", "last_logged_in_user"} {
 		user, ok := config[key].(map[string]interface{})
 		if !ok {
@@ -288,38 +319,63 @@ func copilotLastLoggedInAccount(config map[string]interface{}) string {
 		host, _ := user["host"].(string)
 		login, _ := user["login"].(string)
 		if host != "" && login != "" {
-			return host + ":" + login
+			return copilotAccount{host: host, login: login}, true
 		}
 	}
-	return ""
+	return copilotAccount{}, false
 }
 
-func getCopilotKeychainToken(config map[string]interface{}) string {
-	switch runtime.GOOS {
+func copilotConfigHasPlaintextToken(config map[string]interface{}, account copilotAccount, selected bool) bool {
+	for _, key := range []string{"copilotTokens", "copilot_tokens"} {
+		tokens, ok := config[key].(map[string]interface{})
+		if !ok || len(tokens) == 0 {
+			continue
+		}
+		if !selected {
+			return true
+		}
+		if token, ok := tokens[account.key()].(string); ok && token != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// copilotKeychainGOOS is overridable so tests can exercise each platform path.
+var copilotKeychainGOOS = runtime.GOOS
+
+func getCopilotKeychainToken(account copilotAccount, selected bool) string {
+	switch copilotKeychainGOOS {
 	case "darwin":
-		if account := copilotLastLoggedInAccount(config); account != "" {
-			if token := runCredentialCommand("security", "find-generic-password", "-s", copilotKeychainService, "-a", account, "-w"); token != "" {
-				return token
-			}
+		if selected {
+			return runCredentialCommand("security", "find-generic-password", "-s", copilotKeychainService, "-a", account.key(), "-w")
 		}
 		return runCredentialCommand("security", "find-generic-password", "-s", copilotKeychainService, "-w")
 	case "linux":
 		if _, err := exec.LookPath("secret-tool"); err != nil {
 			return ""
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		out, err := exec.CommandContext(ctx, "secret-tool", "lookup", "service", copilotKeychainService).Output()
-		if err != nil {
-			return ""
+		if selected {
+			return runCredentialCommand("secret-tool", "lookup", "service", copilotKeychainService, "account", account.key())
 		}
-		return strings.TrimSpace(string(out))
+		return runCredentialCommand("secret-tool", "lookup", "service", copilotKeychainService)
 	}
 	return ""
 }
 
+// getCopilotGhToken mirrors Copilot's `gh auth token` fallback, scoped to the
+// selected account when config names one.
+func getCopilotGhToken(account copilotAccount, selected bool) string {
+	if !selected {
+		return getGhToken()
+	}
+	return runCredentialCommand("gh", "auth", "token", "--hostname", account.ghHostname(), "--user", account.login)
+}
+
 func runCredentialCommand(name string, args ...string) string {
-	out, err := exec.Command(name, args...).Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, name, args...).Output()
 	if err != nil {
 		return ""
 	}

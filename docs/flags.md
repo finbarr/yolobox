@@ -155,7 +155,7 @@ Authentication isolation does not isolate session history: `~/.claude/projects` 
 
 ## Copilot config and login
 
-`--copilot-config` syncs durable GitHub Copilot CLI config from `~/.copilot` (settings, MCP config, agents, skills, hooks, extensions, plugins) without deleting container-local files, skips host binaries, logs, caches, and databases, and live-mounts `~/.copilot/session-state` read/write. The host login is resolved from the `copilot-cli` keychain entry, a plaintext `config.json` token, or `gh auth token`, and forwarded as `COPILOT_GITHUB_TOKEN`.
+`--copilot-config` syncs durable GitHub Copilot CLI config from `~/.copilot` (settings, MCP config, agents, skills, hooks, extensions, plugins) without deleting container-local files, skips host binaries, logs, caches, and databases, and live-mounts `~/.copilot/session-state` read/write. The host login is resolved from the `copilot-cli` keychain entry, a plaintext `config.json` token, or `gh auth token`, and forwarded as `COPILOT_GITHUB_TOKEN`, scoped to the account selected in `config.json`. It is skipped when you already supply `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_TOKEN` via passthrough, `--env`, or `--env-from-host`.
 
 ```bash
 yolobox copilot --copilot-config
