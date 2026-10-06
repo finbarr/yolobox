@@ -78,6 +78,7 @@ yolobox update-agents       # Update AI CLIs and ACP adapters in persistent home
 yolobox update-agents codex # Update Codex and its ACP adapter; accepts multiple targets
 yolobox reset --force       # Remove yolobox named volumes (all architectures)
 yolobox uninstall --force   # Remove yolobox binary, image, and volumes
+yolobox completion bash     # Print a bash completion script (also: zsh)
 yolobox version             # Print version and platform
 yolobox help                # Show CLI help
 ```

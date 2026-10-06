@@ -126,7 +126,7 @@ func runCmd() error {
 	traceTiming("host: start")
 
 	// Check for updates, except for commands that are themselves maintenance or help.
-	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "update-agents")
+	skipCheck := len(args) > 0 && (args[0] == "version" || args[0] == "help" || args[0] == "upgrade" || args[0] == "update-agents" || args[0] == "completion")
 	if !skipCheck {
 		started := time.Now()
 		checkForUpdates()
@@ -224,6 +224,8 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		return resetVolumes(args[1:])
 	case "uninstall":
 		return uninstallYolobox(args[1:])
+	case "completion":
+		return runCompletion(args[1:], os.Stdout)
 	case "version":
 		printVersion()
 		return nil
@@ -306,6 +308,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
 	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes, all architectures (add --platform to target one)")
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
+	fmt.Fprintln(os.Stderr, "  yolobox completion <shell>  Print bash or zsh completion script")
 	fmt.Fprintln(os.Stderr, "  yolobox version             Show version info")
 	fmt.Fprintln(os.Stderr, "  yolobox help                Show this help")
 	fmt.Fprintln(os.Stderr, "")
@@ -403,7 +406,10 @@ func parseBaseFlags(name string, args []string, projectDir string) (Config, []st
 	return parseBaseFlagsWithConfig(name, args, projectDir, cfg)
 }
 
-func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg Config) (Config, []string, error) {
+// newBaseFlagSet defines the flags shared by run, shell, config, tool shortcuts,
+// and update-agents. It returns the FlagSet and a function that applies parsed
+// values onto a Config. Shell completions also introspect this FlagSet.
+func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.Usage = printUsage
@@ -512,6 +518,162 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 	fs.BoolVar(&rebuildImage, "rebuild-image", false, "force rebuild of the custom image")
 	fs.BoolVar(&ensureLatest, "ensure-latest", false, "force-pull the configured base image (and rebuild any derived image) before running")
 
+	return fs, func(cfg *Config) error {
+		if runtimeFlag != "" {
+			cfg.Runtime = runtimeFlag
+		}
+		if imageFlag != "" {
+			cfg.Image = imageFlag
+		}
+		if platformFlag != "" {
+			cfg.Platform = platformFlag
+		}
+		if containerName != "" {
+			cfg.ContainerName = containerName
+		}
+		if podFlag != "" {
+			cfg.Pod = podFlag
+		}
+		if sshAgent && noSSHAgent {
+			return fmt.Errorf("cannot use --ssh-agent with --no-ssh-agent")
+		}
+		if sshAgent {
+			cfg.SSHAgent = true
+		}
+		if noSSHAgent {
+			cfg.SSHAgent = false
+		}
+		if readonlyProject {
+			cfg.ReadonlyProject = true
+		}
+		if noNetwork {
+			cfg.NoNetwork = true
+		}
+		if noEnvPassthrough {
+			cfg.NoEnvPassthrough = true
+		}
+		if networkFlag != "" {
+			cfg.Network = networkFlag
+		}
+		if noYolo {
+			cfg.NoYolo = true
+		}
+		if scratch {
+			cfg.Scratch = true
+		}
+		if claudeConfig {
+			cfg.ClaudeConfig = true
+		}
+		if noClaudeAuth {
+			cfg.NoClaudeAuth = true
+		}
+		if codexConfig {
+			cfg.CodexConfig = true
+		}
+		if copilotConfig {
+			cfg.CopilotConfig = true
+		}
+		if noCopilotAuth {
+			cfg.NoCopilotAuth = true
+		}
+		if geminiConfig {
+			cfg.GeminiConfig = true
+		}
+		if kimiConfig {
+			cfg.KimiConfig = true
+		}
+		if opencodeConfig {
+			cfg.OpencodeConfig = true
+		}
+		if piConfig {
+			cfg.PiConfig = true
+		}
+		if gitConfig {
+			cfg.GitConfig = true
+		}
+		if ghToken {
+			cfg.GhToken = true
+		}
+		if rtk {
+			cfg.RTK = true
+		}
+		if copyAgentInstructions {
+			cfg.CopyAgentInstructions = true
+		}
+		if noProject {
+			cfg.NoProject = true
+		}
+		if docker {
+			cfg.Docker = true
+		}
+		if clipboard {
+			cfg.Clipboard = true
+		}
+		if openBridge {
+			cfg.OpenBridge = true
+		}
+		if setup {
+			cfg.Setup = true
+		}
+		if len(mounts) > 0 {
+			cfg.Mounts = append(cfg.Mounts, mounts...)
+		}
+		if len(excludes) > 0 {
+			cfg.Exclude = append(cfg.Exclude, excludes...)
+		}
+		if len(copyAs) > 0 {
+			cfg.CopyAs = append(cfg.CopyAs, copyAs...)
+		}
+		if len(envVars) > 0 {
+			cfg.Env = append(cfg.Env, envVars...)
+		}
+		if len(envFromHost) > 0 {
+			cfg.EnvFromHost = append(cfg.EnvFromHost, envFromHost...)
+		}
+
+		if cpus != "" {
+			cfg.CPUs = cpus
+		}
+		if memoryLimit != "" {
+			cfg.Memory = memoryLimit
+		}
+		if shmSize != "" {
+			cfg.ShmSize = shmSize
+		}
+		if gpus != "" {
+			cfg.GPUs = gpus
+		}
+
+		if len(devices) > 0 {
+			cfg.Devices = append(cfg.Devices, devices...)
+		}
+		if len(capAdd) > 0 {
+			cfg.CapAdd = append(cfg.CapAdd, capAdd...)
+		}
+		if len(capDrop) > 0 {
+			cfg.CapDrop = append(cfg.CapDrop, capDrop...)
+		}
+		if len(runtimeArgs) > 0 {
+			cfg.RuntimeArgs = append(cfg.RuntimeArgs, runtimeArgs...)
+		}
+		if packages != "" {
+			cfg.Customize.Packages = append(cfg.Customize.Packages, parseCommaSeparatedValues(packages)...)
+		}
+		if customizeFile != "" {
+			cfg.Customize.Dockerfile = customizeFile
+		}
+		if rebuildImage {
+			cfg.RebuildImage = true
+		}
+		if ensureLatest {
+			cfg.EnsureLatest = true
+		}
+		return nil
+	}
+}
+
+func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg Config) (Config, []string, error) {
+	fs, applyFlags := newBaseFlagSet(name)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage()
@@ -519,155 +681,8 @@ func parseBaseFlagsWithConfig(name string, args []string, projectDir string, cfg
 		}
 		return Config{}, nil, err
 	}
-
-	if runtimeFlag != "" {
-		cfg.Runtime = runtimeFlag
-	}
-	if imageFlag != "" {
-		cfg.Image = imageFlag
-	}
-	if platformFlag != "" {
-		cfg.Platform = platformFlag
-	}
-	if containerName != "" {
-		cfg.ContainerName = containerName
-	}
-	if podFlag != "" {
-		cfg.Pod = podFlag
-	}
-	if sshAgent && noSSHAgent {
-		return Config{}, nil, fmt.Errorf("cannot use --ssh-agent with --no-ssh-agent")
-	}
-	if sshAgent {
-		cfg.SSHAgent = true
-	}
-	if noSSHAgent {
-		cfg.SSHAgent = false
-	}
-	if readonlyProject {
-		cfg.ReadonlyProject = true
-	}
-	if noNetwork {
-		cfg.NoNetwork = true
-	}
-	if noEnvPassthrough {
-		cfg.NoEnvPassthrough = true
-	}
-	if networkFlag != "" {
-		cfg.Network = networkFlag
-	}
-	if noYolo {
-		cfg.NoYolo = true
-	}
-	if scratch {
-		cfg.Scratch = true
-	}
-	if claudeConfig {
-		cfg.ClaudeConfig = true
-	}
-	if noClaudeAuth {
-		cfg.NoClaudeAuth = true
-	}
-	if codexConfig {
-		cfg.CodexConfig = true
-	}
-	if copilotConfig {
-		cfg.CopilotConfig = true
-	}
-	if noCopilotAuth {
-		cfg.NoCopilotAuth = true
-	}
-	if geminiConfig {
-		cfg.GeminiConfig = true
-	}
-	if kimiConfig {
-		cfg.KimiConfig = true
-	}
-	if opencodeConfig {
-		cfg.OpencodeConfig = true
-	}
-	if piConfig {
-		cfg.PiConfig = true
-	}
-	if gitConfig {
-		cfg.GitConfig = true
-	}
-	if ghToken {
-		cfg.GhToken = true
-	}
-	if rtk {
-		cfg.RTK = true
-	}
-	if copyAgentInstructions {
-		cfg.CopyAgentInstructions = true
-	}
-	if noProject {
-		cfg.NoProject = true
-	}
-	if docker {
-		cfg.Docker = true
-	}
-	if clipboard {
-		cfg.Clipboard = true
-	}
-	if openBridge {
-		cfg.OpenBridge = true
-	}
-	if setup {
-		cfg.Setup = true
-	}
-	if len(mounts) > 0 {
-		cfg.Mounts = append(cfg.Mounts, mounts...)
-	}
-	if len(excludes) > 0 {
-		cfg.Exclude = append(cfg.Exclude, excludes...)
-	}
-	if len(copyAs) > 0 {
-		cfg.CopyAs = append(cfg.CopyAs, copyAs...)
-	}
-	if len(envVars) > 0 {
-		cfg.Env = append(cfg.Env, envVars...)
-	}
-	if len(envFromHost) > 0 {
-		cfg.EnvFromHost = append(cfg.EnvFromHost, envFromHost...)
-	}
-
-	if cpus != "" {
-		cfg.CPUs = cpus
-	}
-	if memoryLimit != "" {
-		cfg.Memory = memoryLimit
-	}
-	if shmSize != "" {
-		cfg.ShmSize = shmSize
-	}
-	if gpus != "" {
-		cfg.GPUs = gpus
-	}
-
-	if len(devices) > 0 {
-		cfg.Devices = append(cfg.Devices, devices...)
-	}
-	if len(capAdd) > 0 {
-		cfg.CapAdd = append(cfg.CapAdd, capAdd...)
-	}
-	if len(capDrop) > 0 {
-		cfg.CapDrop = append(cfg.CapDrop, capDrop...)
-	}
-	if len(runtimeArgs) > 0 {
-		cfg.RuntimeArgs = append(cfg.RuntimeArgs, runtimeArgs...)
-	}
-	if packages != "" {
-		cfg.Customize.Packages = append(cfg.Customize.Packages, parseCommaSeparatedValues(packages)...)
-	}
-	if customizeFile != "" {
-		cfg.Customize.Dockerfile = customizeFile
-	}
-	if rebuildImage {
-		cfg.RebuildImage = true
-	}
-	if ensureLatest {
-		cfg.EnsureLatest = true
+	if err := applyFlags(&cfg); err != nil {
+		return Config{}, nil, err
 	}
 
 	// Validate conflicting options after config + CLI values have been merged.
