@@ -231,10 +231,13 @@ jobs:
 
             def install
               bin.install Dir["yolobox-*"].first => "yolobox"
+              chmod 0755, bin/"yolobox"
+              generate_completions_from_executable(bin/"yolobox", "completion", shells: [:bash, :zsh])
             end
 
             test do
               assert_match version.to_s, shell_output("#{bin}/yolobox version")
+              assert_match "complete -F _yolobox yolobox", shell_output("#{bin}/yolobox completion bash")
             end
           end
           EOF

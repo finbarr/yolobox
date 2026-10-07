@@ -34,6 +34,28 @@ curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh |
 
 The install script downloads a release binary when one is available for your platform. If it cannot, it falls back to building from source.
 
+### Shell completions
+
+Homebrew installs bash and zsh completions automatically. With bash, they need Homebrew's `bash-completion@2` loaded; with zsh, Homebrew's `site-functions` directory must be on `fpath` before `compinit`.
+
+For script or source installs, load them from your shell profile:
+
+```bash
+# bash (~/.bashrc)
+eval "$(yolobox completion bash)"
+
+# zsh (~/.zshrc, after compinit)
+source <(yolobox completion zsh)
+```
+
+Or install the zsh script into a directory on your `fpath`:
+
+```bash
+yolobox completion zsh > "${fpath[1]}/_yolobox"
+```
+
+Completions cover subcommands, AI shortcuts, every yolobox flag, `--runtime` and `--platform` values, `update-agents` targets, and the command after `yolobox run`.
+
 ## First run
 
 Start from any project:

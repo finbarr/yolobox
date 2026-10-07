@@ -41,6 +41,8 @@ brew install finbarr/tap/yolobox
 curl -fsSL https://raw.githubusercontent.com/finbarr/yolobox/master/install.sh | bash
 ```
 
+Homebrew installs bash and zsh completions automatically. For script installs, see [shell completions](https://yolobox.dev/getting-started#shell-completions).
+
 Then from any project:
 
 ```bash
