@@ -225,3 +225,184 @@ func TestRunCmdArgsDispatchesCompletion(t *testing.T) {
 		t.Fatalf("expected bash completion script on stdout, got %q", out.String())
 	}
 }
+
+// completionFixtures creates a bin dir with a uniquely named executable and a
+// data dir containing a filename with spaces.
+func completionFixtures(t *testing.T) (binDir, dataDir string) {
+	t.Helper()
+	root := t.TempDir()
+	binDir = filepath.Join(root, "bin")
+	dataDir = filepath.Join(root, "data")
+	for _, dir := range []string{binDir, dataDir} {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(binDir, "pr71-command"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dataDir, "Docker fragment"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return binDir, dataDir
+}
+
+func writeCompletionScript(t *testing.T, shell string) string {
+	t.Helper()
+	var out bytes.Buffer
+	if err := runCompletion([]string{shell}, &out); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "yolobox."+shell)
+	if err := os.WriteFile(path, out.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+const bashCompletionDriver = `
+source "$1"; shift
+COMP_WORDS=("$@")
+COMP_CWORD=$(( ${#COMP_WORDS[@]} - 1 ))
+COMP_LINE="${COMP_WORDS[*]}"
+COMP_POINT=${#COMP_LINE}
+_yolobox
+(( ${#COMPREPLY[@]} )) && printf '%s\0' "${COMPREPLY[@]}"
+exit 0
+`
+
+// bashComplete invokes _yolobox with COMP_WORDS as bash's readline would split
+// them (COMP_WORDBREAKS splits "--flag=value" into "--flag" "=" "value").
+func bashComplete(t *testing.T, bash, script, binDir string, words ...string) []string {
+	t.Helper()
+	args := append([]string{"--norc", "--noprofile", "-c", bashCompletionDriver, "driver", script}, words...)
+	cmd := exec.Command(bash, args...)
+	cmd.Env = append(os.Environ(), "PATH="+binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("bash completion %q: %v", words, err)
+	}
+	var got []string
+	for _, s := range strings.Split(string(out), "\x00") {
+		if s != "" {
+			got = append(got, s)
+		}
+	}
+	return got
+}
+
+func TestBashCompletionBehavior(t *testing.T) {
+	bash, err := exec.LookPath("bash")
+	if err != nil {
+		t.Skip("bash not installed")
+	}
+	script := writeCompletionScript(t, "bash")
+	binDir, dataDir := completionFixtures(t)
+	spaced := filepath.Join(dataDir, "Docker fragment")
+	partial := filepath.Join(dataDir, "Dock")
+
+	exact := []struct {
+		name  string
+		words []string
+		want  []string
+	}{
+		{"runtime space", []string{"yolobox", "run", "--runtime", "d"}, []string{"docker"}},
+		{"runtime equals", []string{"yolobox", "run", "--runtime", "=", "d"}, []string{"docker"}},
+		{"runtime equals empty", []string{"yolobox", "run", "--runtime", "="}, []string{"docker", "podman", "container"}},
+		{"runtime equals unsplit", []string{"yolobox", "run", "--runtime=d"}, []string{"--runtime=docker"}},
+		{"runtime top-level equals", []string{"yolobox", "--runtime", "=", "p"}, []string{"podman"}},
+		{"runtime tool shortcut equals", []string{"yolobox", "claude", "--runtime", "=", "c"}, []string{"container"}},
+		{"platform space", []string{"yolobox", "run", "--platform", "linux/ar"}, []string{"linux/arm64"}},
+		{"platform equals", []string{"yolobox", "shell", "--platform", "=", "linux/ar"}, []string{"linux/arm64"}},
+		{"reset platform space", []string{"yolobox", "reset", "--platform", "linux/am"}, []string{"linux/amd64"}},
+		{"reset platform equals", []string{"yolobox", "reset", "--platform", "=", "linux/am"}, []string{"linux/amd64"}},
+		{"customize-file spaces", []string{"yolobox", "run", "--customize-file", partial}, []string{spaced}},
+		{"customize-file equals spaces", []string{"yolobox", "run", "--customize-file", "=", partial}, []string{spaced}},
+		{"mount spaces", []string{"yolobox", "run", "--mount", partial}, []string{spaced}},
+		{"copy-as spaces", []string{"yolobox", "run", "--copy-as", partial}, []string{spaced}},
+		{"run command", []string{"yolobox", "run", "pr71"}, []string{"pr71-command"}},
+		{"run command after equals flag", []string{"yolobox", "run", "--runtime", "=", "docker", "pr71"}, []string{"pr71-command"}},
+		{"fork command", []string{"yolobox", "fork", "--name", "unit", "pr71"}, []string{"pr71-command"}},
+		{"fork command after equals name", []string{"yolobox", "fork", "--name", "=", "unit", "pr71"}, []string{"pr71-command"}},
+	}
+	for _, tc := range exact {
+		t.Run(tc.name, func(t *testing.T) {
+			got := bashComplete(t, bash, script, binDir, tc.words...)
+			if strings.Join(got, "\n") != strings.Join(tc.want, "\n") {
+				t.Fatalf("completion %q = %q, want %q", tc.words, got, tc.want)
+			}
+		})
+	}
+}
+
+const zshCompletionDriver = `
+zmodload zsh/zpty || exit 3
+script=$1 out=$2 bindir=$3
+shift 3
+zpty z zsh -f -i
+zpty -w z "unsetopt beep; PS1='> '; PATH=${(q)bindir}:\$PATH; autoload -Uz compinit; compinit -u -D; source ${(q)script}"
+zpty -w z "yb_dump() { print -r -- \"<\$BUFFER>\" >> ${(q)out}; BUFFER=''; }; zle -N yb_dump; bindkey '^X' yb_dump"
+for line in "$@"; do
+    zpty -w -n z "$line"$'\t\x18'
+    while zpty -r -t z chunk; do :; done
+done
+integer i
+for (( i = 0; i < 200; i++ )); do
+    while zpty -r -t z chunk; do :; done
+    [[ -f $out ]] && (( ${#${(f)"$(<$out)"}} >= $# )) && break
+    sleep 0.05
+done
+zpty -d z
+`
+
+// zshComplete types each line into an interactive zsh, presses Tab, and
+// returns the resulting command line buffers.
+func zshComplete(t *testing.T, zsh, script, binDir string, lines ...string) []string {
+	t.Helper()
+	out := filepath.Join(t.TempDir(), "buffers")
+	args := append([]string{"-f", "-c", zshCompletionDriver, "driver", script, out, binDir}, lines...)
+	cmd := exec.Command(zsh, args...)
+	if msg, err := cmd.CombinedOutput(); err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 3 {
+			t.Skip("zsh/zpty module unavailable")
+		}
+		t.Fatalf("zsh driver: %v\n%s", err, msg)
+	}
+	data, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatalf("zsh completion produced no output: %v", err)
+	}
+	return strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+}
+
+func TestZshCompletionBehavior(t *testing.T) {
+	zsh, err := exec.LookPath("zsh")
+	if err != nil {
+		t.Skip("zsh not installed")
+	}
+	script := writeCompletionScript(t, "zsh")
+	binDir, dataDir := completionFixtures(t)
+
+	cases := []struct{ line, want string }{
+		{"yolobox run pr71", "yolobox run pr71-command "},
+		{"yolobox fork --name unit pr71", "yolobox fork --name unit pr71-command "},
+		{"yolobox run --runtime d", "yolobox run --runtime docker "},
+		{"yolobox run --runtime=d", "yolobox run --runtime=docker "},
+		{"yolobox run --platform linux/ar", "yolobox run --platform linux/arm64 "},
+		{"yolobox run --platform=linux/ar", "yolobox run --platform=linux/arm64 "},
+		{"yolobox run --customize-file " + dataDir + "/Dock", "yolobox run --customize-file " + dataDir + `/Docker\ fragment `},
+	}
+	var lines []string
+	for _, tc := range cases {
+		lines = append(lines, tc.line)
+	}
+	got := zshComplete(t, zsh, script, binDir, lines...)
+	if len(got) != len(cases) {
+		t.Fatalf("expected %d buffers, got %d: %q", len(cases), len(got), got)
+	}
+	for i, tc := range cases {
+		if want := "<" + tc.want + ">"; got[i] != want {
+			t.Errorf("zsh completion of %q = %q, want %q", tc.line, got[i], want)
+		}
+	}
+}

@@ -130,15 +130,49 @@ __yolobox_value_flag() {
     return 1
 }
 
+# Reads newline-separated candidates from stdin into COMPREPLY without word
+# splitting, so candidates containing spaces stay intact.
+__yolobox_reply_lines() {
+    local line
+    COMPREPLY=()
+    while IFS= read -r line; do
+        COMPREPLY+=("$line")
+    done
+}
+
 __yolobox_complete_flag_value() {
     case "$1" in
         --runtime) COMPREPLY=($(compgen -W "docker podman container" -- "$2")) ;;
         --platform) COMPREPLY=($(compgen -W "%s" -- "$2")) ;;
         --mount|--copy-as|--customize-file)
             compopt -o filenames 2>/dev/null
-            COMPREPLY=($(compgen -f -- "$2")) ;;
+            __yolobox_reply_lines < <(compgen -f -- "$2") ;;
         *) COMPREPLY=() ;;
     esac
+}
+
+# Sets flag/flag_cur/flag_prefix for the flag whose value is being completed,
+# normalizing "--flag value", "--flag=value" split by COMP_WORDBREAKS into
+# "--flag" "=" "value", and "--flag=value" kept as a single word.
+__yolobox_flag_context() {
+    flag="" flag_cur="$cur" flag_prefix=""
+    if [[ "$cur" == "=" && "$prev" == -* ]]; then
+        flag="$prev" flag_cur=""
+    elif [[ "$prev" == "=" ]] && (( COMP_CWORD >= 2 )) && [[ "${COMP_WORDS[COMP_CWORD-2]}" == -* ]]; then
+        flag="${COMP_WORDS[COMP_CWORD-2]}"
+    elif [[ "$cur" == -*=* ]]; then
+        flag="${cur%%%%=*}" flag_cur="${cur#*=}" flag_prefix="${cur%%%%=*}="
+    elif [[ "$prev" == -* ]]; then
+        flag="$prev"
+    fi
+}
+
+__yolobox_add_prefix() {
+    local i
+    [[ -z "$1" ]] && return
+    for i in "${!COMPREPLY[@]}"; do
+        COMPREPLY[i]="$1${COMPREPLY[i]}"
+    done
 }
 
 # Prints the index of the first positional word in COMP_WORDS[start..COMP_CWORD-1],
@@ -150,7 +184,13 @@ __yolobox_first_positional() {
         case "$w" in
             --) echo $((i + 1)); return ;;
             -*=*) ;;
-            -*) if __yolobox_value_flag "$w"; then ((i++)); fi ;;
+            -*)
+                if [[ "${COMP_WORDS[i+1]}" == "=" ]]; then
+                    ((i += 2))
+                elif __yolobox_value_flag "$w"; then
+                    ((i++))
+                fi
+                ;;
             *) echo "$i"; return ;;
         esac
         ((i++))
@@ -158,10 +198,11 @@ __yolobox_first_positional() {
 }
 
 _yolobox() {
-    local cur prev cmd pos
+    local cur prev cmd pos flag flag_cur flag_prefix
     COMPREPLY=()
     cur="${COMP_WORDS[COMP_CWORD]}"
     prev="${COMP_WORDS[COMP_CWORD-1]}"
+    __yolobox_flag_context
 
     local commands="%s"
     local tools="%s"
@@ -180,8 +221,9 @@ _yolobox() {
     cmd="${COMP_WORDS[1]}"
     case "$cmd" in
         run|shell|config|update-agents|-*)
-            if __yolobox_value_flag "$prev"; then
-                __yolobox_complete_flag_value "$prev" "$cur"
+            if __yolobox_value_flag "$flag"; then
+                __yolobox_complete_flag_value "$flag" "$flag_cur"
+                __yolobox_add_prefix "$flag_prefix"
                 return
             fi
             if [[ "$cmd" == -* ]]; then
@@ -199,7 +241,7 @@ _yolobox() {
             if [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "$base_flags" -- "$cur"))
             elif [[ "$cmd" == run ]]; then
-                COMPREPLY=($(compgen -c -- "$cur"))
+                __yolobox_reply_lines < <(compgen -c -- "$cur")
             elif [[ "$cmd" == update-agents ]]; then
                 COMPREPLY=($(compgen -W "$agent_targets" -- "$cur"))
             fi
@@ -219,14 +261,14 @@ _yolobox() {
                     COMPREPLY=($(compgen -W "--force" -- "$cur"))
                     ;;
                 *)
-                    [[ "$prev" == --name ]] && return
+                    [[ "$flag" == --name ]] && return
                     pos=$(__yolobox_first_positional 2)
                     if [[ -n "$pos" ]]; then
                         compopt -o default 2>/dev/null
                     elif [[ "$cur" == -* ]]; then
                         COMPREPLY=($(compgen -W "--name" -- "$cur"))
                     else
-                        COMPREPLY=($(compgen -c -- "$cur"))
+                        __yolobox_reply_lines < <(compgen -c -- "$cur")
                     fi
                     ;;
             esac
@@ -235,8 +277,9 @@ _yolobox() {
             COMPREPLY=($(compgen -W "--check" -- "$cur"))
             ;;
         reset)
-            if [[ "$prev" == --platform ]]; then
-                COMPREPLY=($(compgen -W "%s" -- "$cur"))
+            if [[ "$flag" == --platform ]]; then
+                COMPREPLY=($(compgen -W "%s" -- "$flag_cur"))
+                __yolobox_add_prefix "$flag_prefix"
             else
                 COMPREPLY=($(compgen -W "--force --platform" -- "$cur"))
             fi
@@ -251,8 +294,9 @@ _yolobox() {
             ;;
         *)
             # Tool shortcuts: yolobox flags first, then args for the tool itself.
-            if __yolobox_value_flag "$prev"; then
-                __yolobox_complete_flag_value "$prev" "$cur"
+            if __yolobox_value_flag "$flag"; then
+                __yolobox_complete_flag_value "$flag" "$flag_cur"
+                __yolobox_add_prefix "$flag_prefix"
             elif [[ "$cur" == -* ]]; then
                 COMPREPLY=($(compgen -W "$base_flags" -- "$cur"))
             else
@@ -331,11 +375,11 @@ func zshCompletionScript() string {
 #   source <(yolobox completion zsh)
 
 _yolobox() {
-    local -a base_flags commands tools agent_targets
+    local -a base_flags command_descriptions tools agent_targets
     base_flags=(
 %s
     )
-    commands=(%s)
+    command_descriptions=(%s)
     tools=(%s)
     agent_targets=(%s)
 
@@ -345,7 +389,7 @@ _yolobox() {
         if [[ "$words[CURRENT]" == -* ]]; then
             _arguments -S $base_flags && ret=0
         else
-            _describe -t commands 'yolobox command' commands && ret=0
+            _describe -t commands 'yolobox command' command_descriptions && ret=0
             _describe -t tools 'tool shortcut' tools && ret=0
         fi
         return ret
