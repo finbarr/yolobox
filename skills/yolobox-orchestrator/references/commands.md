@@ -38,6 +38,17 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
+## Host shell completions
+
+Print completion scripts for the host's `yolobox` launcher:
+
+```bash
+yolobox completion bash
+yolobox completion zsh
+```
+
+Homebrew installs both scripts automatically; Bash needs Homebrew's `bash-completion@2` loaded, and Zsh needs Homebrew's `site-functions` directory on `fpath` before `compinit`. For script or source installs, load `eval "$(yolobox completion bash)"` in the host's Bash profile, or `source <(yolobox completion zsh)` after `compinit` in the host's Zsh profile. Configure these on the host when requested; they help launch agents and do not add shell setup inside the box.
+
 ## ACP clients
 
 Configure an ACP client or editor to spawn `yolobox` from the project directory, using one of these stdio agent commands:

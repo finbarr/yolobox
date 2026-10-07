@@ -8,9 +8,11 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.7 - 2026-10-06
+
 ### Added
 
-- Added `yolobox completion bash|zsh` to print shell completion scripts for subcommands, AI shortcuts, flags, and common flag values. The Homebrew formula now installs bash and zsh completions automatically.
+- Added `yolobox completion bash|zsh` to print host-side shell completion scripts for subcommands, AI shortcuts, flags, and common flag values. The Homebrew formula now installs bash and zsh completions automatically.
 
 ## v0.19.6 - 2026-10-06
 
