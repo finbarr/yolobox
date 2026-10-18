@@ -8,6 +8,13 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.8 - 2026-10-17
+
+### Fixed
+
+- Fixed OpenCode failing to launch in the base image when npm blocks its required postinstall script.
+- Preserved OpenCode launchability after `yolobox update-agents opencode` and added OpenCode to the container smoke tests.
+
 ## v0.19.7 - 2026-10-06
 
 ### Added
