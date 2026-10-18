@@ -185,6 +185,8 @@ yolobox update-agents antigravity
 
 `update-agents` runs inside the persistent yolobox home volume and refreshes Claude Code, Codex, Gemini, Kimi Code, Antigravity, OpenCode, Copilot, and Pi. It uses global/default runtime settings, ignores `.yolobox.toml`, skips the project mount, and rejects `--scratch`, because updates made in scratch mode would disappear when the container exits.
 
+OpenCode installs and updates explicitly allow its required npm postinstall script.
+
 The `claude` target also updates `claude-agent-acp`, and the `codex` target also updates `codex-acp`. Updating all agents includes both adapters. Use the existing `claude` and `codex` targets; adapter command names are not separate update targets.
 
 ### Reset persistent state

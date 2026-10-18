@@ -80,6 +80,8 @@ Update all bundled AI CLIs and ACP adapters in the persistent yolobox home:
 yolobox update-agents
 ```
 
+OpenCode installs and updates explicitly allow its required npm postinstall script.
+
 Target one or more tools when you do not want the full update path:
 
 ```bash

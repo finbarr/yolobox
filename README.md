@@ -127,6 +127,8 @@ yolobox upgrade                       # Update binary and pull the latest image
 yolobox update-agents                 # Update AI CLIs and ACP adapters in the persistent box
 ```
 
+OpenCode installs and updates explicitly allow its required npm postinstall script.
+
 `--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only. `--copilot-config` does the same for GitHub Copilot CLI: it syncs durable `~/.copilot` settings, agents, skills, and MCP config, forwards the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mounts `~/.copilot/session-state` read/write; add `--no-copilot-auth` to keep the box's Copilot login independent.
 
 Automatic RTK setup leaves telemetry disabled unless you opt in interactively from inside the box with `rtk telemetry enable`.
