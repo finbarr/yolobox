@@ -2178,7 +2178,7 @@ func TestDockerfileConfiguresRTK(t *testing.T) {
 		"RTK_TELEMETRY_DISABLED=1 rtk init -g --auto-patch",
 		"RTK_TELEMETRY_DISABLED=1 rtk init -g --codex",
 		"RTK_TELEMETRY_DISABLED=1 rtk init -g --gemini --auto-patch",
-		"RTK_TELEMETRY_DISABLED=1 rtk init -g --opencode",
+		"RTK_TELEMETRY_DISABLED=1 rtk init -g --opencode --auto-patch",
 		"enable_rtk",
 	} {
 		if !strings.Contains(dockerfile, want) {
