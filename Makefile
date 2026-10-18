@@ -99,6 +99,7 @@ smoke-test: build
 	fi; \
 	[ $$failed -eq 0 ]
 	python3 scripts/smoke-acp.py --yolobox ./$(BINARY) -- $(SMOKE_ARGS)
+	python3 scripts/smoke-rtk.py --yolobox ./$(BINARY) -- $(SMOKE_ARGS)
 	@echo "Smoke tests passed!"
 
 smoke-acp: build
