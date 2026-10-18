@@ -38,6 +38,10 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
+## RTK command compression
+
+Use `yolobox opencode --rtk` (or the Claude, Codex, or Gemini shortcut) to initialize RTK inside the box. Setup applies the integration without interactive prompts, including on first OpenCode startup; telemetry stays disabled unless the user opts in with `rtk telemetry enable` inside the box.
+
 ## Host shell completions
 
 Print completion scripts for the host's `yolobox` launcher:
