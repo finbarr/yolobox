@@ -188,7 +188,11 @@ npm_update() {
     local package="$3"
     require_command npm "$label"
     printf 'updating %s (%s)\n' "$label" "$package"
-    npm install -g --no-audit --no-fund "$package@latest"
+    local install_args=()
+    if [ "$package" = "opencode-ai" ]; then
+        install_args+=(--allow-scripts=opencode-ai)
+    fi
+    npm install -g --no-audit --no-fund "${install_args[@]}" "$package@latest"
     print_version "$label" "$bin"
 }
 

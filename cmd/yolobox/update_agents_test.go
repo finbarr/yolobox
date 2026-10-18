@@ -39,6 +39,14 @@ func TestUpdateAgentsShellScriptUpdatesSelectedTools(t *testing.T) {
 			},
 		},
 		{
+			name:    "opencode",
+			targets: []string{"opencode"},
+			calls: []string{
+				"npm install -g --no-audit --no-fund --allow-scripts=opencode-ai opencode-ai@latest",
+				"opencode --version",
+			},
+		},
+		{
 			name:    "unrelated tool",
 			targets: []string{"gemini"},
 			calls: []string{
@@ -163,6 +171,7 @@ case "$package" in
     @agentclientprotocol/codex-acp@latest) bin=codex-acp ;;
     @agentclientprotocol/claude-agent-acp@latest) bin=claude-agent-acp ;;
     @google/gemini-cli@latest) bin=gemini ;;
+    opencode-ai@latest) bin=opencode ;;
     *) exit 43 ;;
 esac
 cp "$UPDATE_TEST_VERSION_SCRIPT" "$NPM_CONFIG_PREFIX/bin/$bin"

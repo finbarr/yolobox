@@ -2922,7 +2922,7 @@ func TestRunCmdArgsUpdateAgentsUsesPersistentNoProjectContainer(t *testing.T) {
 		"yolobox-home:/home/yolo",
 		"\nbash\n-lc\n",
 		"targets=(\"codex\" \"kimi\" \"agy\")",
-		"npm install -g --no-audit --no-fund \"$package@latest\"",
+		"npm install -g --no-audit --no-fund \"${install_args[@]}\" \"$package@latest\"",
 		"@openai/codex",
 		"https://code.kimi.com/kimi-code/install.sh",
 		"CURL_HOME=\"$curl_home\"",

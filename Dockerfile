@@ -929,8 +929,10 @@ RUN echo 'echo ""' >> ~/.bashrc \
 # AI coding CLIs (updated more frequently than dev tools above)
 # NPM_CONFIG_PREFIX is set above for runtime user installs; unset it here
 # so these install to the default system location like the dev tools.
+# npm 12+ blocks install scripts unless they are explicitly allowlisted.
 USER root
 RUN NPM_CONFIG_PREFIX="" NPM_CONFIG_MIN_RELEASE_AGE="${NPM_MIN_RELEASE_AGE_DAYS}" npm install -g --no-audit --no-fund \
+    --allow-scripts=opencode-ai,@github/keytar,node-pty,@google/genai,protobufjs \
     @google/gemini-cli \
     @openai/codex \
     @agentclientprotocol/codex-acp \
