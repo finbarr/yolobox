@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.9 - 2026-10-18
+
+### Fixed
+
+- Fixed first-launch OpenCode startup with `--rtk` waiting for input at an invisible RTK integration setup prompt.
+
 ## v0.19.8 - 2026-10-17
 
 ### Fixed
