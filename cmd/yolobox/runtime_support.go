@@ -284,8 +284,11 @@ func pullImage(runtimePath, image, platform string) error {
 		args = []string{"pull", "--platform", platform, image}
 	}
 	cmd := exec.Command(runtimePath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
+	// Pull progress is yolobox's own chatter, and it is emitted before the
+	// container command starts; keep it off stdout so it cannot land in the
+	// protocol stream of a stdio command such as `yolobox run codex-acp`.
+	cmd.Stdin = nil
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
