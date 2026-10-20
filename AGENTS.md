@@ -104,6 +104,7 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 - Help text for auto-forwarded env vars must be generated from `autoPassthroughEnvVars`. Hardcoded copies drift and create auth debugging noise.
 - Allocating a container TTY (`-t`) merges stdout and stderr at the PTY boundary. Only enable TTY for genuinely interactive commands, or host-side redirection and piping will behave incorrectly.
 - Host-side stdin pipes need `docker run -i`/`podman run -i` even when no TTY is allocated. Keep `-i` separate from `-t` so piped data works without merging stdout and stderr.
+- Image preparation runs before the container's stdio command. Keep pull/build output on stderr and disconnect their stdin so progress cannot corrupt ACP responses or consume the client's first request; verify both streams with preparation enabled.
 - Codex trust is separate from execution mode. `--ask-for-approval never` plus `--sandbox danger-full-access` still shows the trust prompt for a new directory, so verify trusted-project startup separately when changing Codex launch flags.
 - Any `sudo` re-exec path in the entrypoint must preserve `PATH` (for example `--preserve-env=PATH`) or `/opt/yolobox/bin` wrappers get bypassed and AI CLIs lose pinned yolo flags.
 - Avoid parallel Git commands in this repo while another Git operation is active. We have repeatedly hit misleading `.git/index.lock` failures from overlapping status/checkout/rebase calls.

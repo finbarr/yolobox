@@ -77,6 +77,8 @@ Inside yolobox, supported AI CLIs are wrapped to skip permission prompts. No con
 
 For an ACP client or editor, use `yolobox run codex-acp` or `yolobox run claude-agent-acp` as its stdio agent command. The adapters bundle compatible engines and use the client's permission modes; yolobox's CLI YOLO wrappers and `--no-yolo` do not control them. Existing config sync and authentication options apply. See [ACP clients](https://yolobox.dev/commands#acp-clients) for launch examples.
 
+Image pull and custom-image build progress goes to stderr, leaving stdout and piped stdin for the container command, including during ACP startup.
+
 For the full tool list, YOLO-mode wrapper table, RTK notes, npm package freshness policy, and bundled CLI upgrade behavior, see [What's in the Box](https://yolobox.dev/whats-in-the-box).
 
 ## Project Customization

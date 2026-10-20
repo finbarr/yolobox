@@ -49,6 +49,8 @@ yolobox run claude-agent-acp
 
 Launch from the project directory. The ACP client pipes protocol messages into stdin and reads responses from stdout; diagnostic output stays on stderr. These commands serve ACP sessions rather than opening an interactive agent prompt.
 
+Image pulls and custom-image builds also send their progress to stderr and leave stdin untouched. This keeps the protocol stream clean when using `--ensure-latest`, `--packages`, or a `.yolobox.Dockerfile`. Keep stderr separate from stdout in the client's launch configuration.
+
 Reuse the login stored in the persistent box, or opt into host config and login sync with the existing options:
 
 ```bash

@@ -27,9 +27,9 @@ if [ "$1" = "image" ] && [ "$2" = "inspect" ]; then
 	esac
 fi
 case "$1" in
-	pull) echo "PULL-PROGRESS" ;;
-	build) echo "STEP 1/2: FROM fake" ;;
-	run) echo "COMMAND-OUTPUT" ;;
+	pull) echo "PULL-PROGRESS"; cat >/dev/null ;;
+	build) echo "STEP 1/2: FROM fake"; cat >/dev/null ;;
+	run) echo "COMMAND-OUTPUT"; cat ;;
 esac
 exit 0
 `
@@ -51,6 +51,11 @@ func captureStdout(t *testing.T, fn func()) string {
 		t.Fatalf("os.Pipe() error = %v", err)
 	}
 	os.Stdout = w
+	defer func() {
+		os.Stdout = oldStdout
+		_ = w.Close()
+		_ = r.Close()
+	}()
 	fn()
 	os.Stdout = oldStdout
 	_ = w.Close()
@@ -66,11 +71,32 @@ func captureStdout(t *testing.T, fn func()) string {
 // `yolobox run` is a stdio transport: `yolobox run codex-acp` and `yolobox run
 // claude-agent-acp` speak JSON-RPC over the pipe an ACP client is reading, so
 // image pull and build progress must not be written there.
-func TestImagePrepOutputStaysOffStdout(t *testing.T) {
+func TestImagePrepPreservesCommandStdio(t *testing.T) {
 	projectDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	installNoisyDockerRuntime(t)
+
+	// A client can send its first protocol request before image preparation
+	// finishes. Even a runtime that reads stdin must leave it for the command.
+	input, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	oldStdin := os.Stdin
+	os.Stdin = input
+	t.Cleanup(func() {
+		os.Stdin = oldStdin
+		_ = input.Close()
+		_ = writer.Close()
+	})
+	const request = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\"}\n"
+	if _, err := writer.WriteString(request); err != nil {
+		t.Fatal(err)
+	}
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	var runErr error
 	var stdout string
@@ -94,7 +120,7 @@ func TestImagePrepOutputStaysOffStdout(t *testing.T) {
 
 	// The container command's own output still belongs on stdout; redirecting
 	// the preparation steps must not take that with it.
-	if !strings.Contains(stdout, "COMMAND-OUTPUT") {
-		t.Errorf("expected the command's output on stdout, got:\n%s", stdout)
+	if want := "COMMAND-OUTPUT\n" + request; stdout != want {
+		t.Errorf("command stdout = %q, want %q (including untouched stdin)", stdout, want)
 	}
 }
