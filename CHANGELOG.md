@@ -8,6 +8,10 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Fixed
+
+- Kept `podman build`/`docker build` and image pull progress off stdout, so `yolobox run codex-acp` and `yolobox run claude-agent-acp` no longer inject it into the ACP client's protocol stream. Image preparation now reports on stderr with every other yolobox message.
+
 ## v0.19.9 - 2026-10-18
 
 ### Fixed

@@ -270,10 +270,10 @@ func findSSHAgentSocket(runtimePath string) (string, error) {
 	return "", fmt.Errorf("could not determine SSH agent socket path for macOS Docker VM")
 }
 
-// pullImage force-pulls image with the resolved runtime, wiring through the
-// current stdio so progress is visible. The subcommand is runtime-aware: Apple's
-// container CLI spells it `container image pull <image>`, whereas Docker/Podman
-// use `<runtime> pull <image>`.
+// pullImage force-pulls image with the resolved runtime, sending progress to
+// stderr and leaving stdin for the container command. Apple's container CLI
+// spells it `container image pull <image>`, whereas Docker/Podman use
+// `<runtime> pull <image>`.
 func pullImage(runtimePath, image, platform string) error {
 	platform = dockerPlatform(platform)
 	args := []string{"pull", image}
@@ -284,8 +284,11 @@ func pullImage(runtimePath, image, platform string) error {
 		args = []string{"pull", "--platform", platform, image}
 	}
 	cmd := exec.Command(runtimePath, args...)
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
+	// Pull progress is yolobox's own chatter, and it is emitted before the
+	// container command starts; keep it off stdout so it cannot land in the
+	// protocol stream of a stdio command such as `yolobox run codex-acp`.
+	cmd.Stdin = nil
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

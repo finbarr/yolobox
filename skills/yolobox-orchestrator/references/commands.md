@@ -64,6 +64,8 @@ yolobox run claude-agent-acp
 
 The client must pipe ACP protocol messages into stdin and read responses from stdout. These are protocol servers, not interactive CLI shortcuts.
 
+Keep stderr separate from stdout. Image pull and custom-image build progress goes to stderr, and those preparation steps leave piped stdin for the adapter, including with `--ensure-latest`, `--packages`, or `.yolobox.Dockerfile`.
+
 Existing persistent-box authentication and config sync options apply:
 
 ```bash

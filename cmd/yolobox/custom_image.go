@@ -138,8 +138,12 @@ func buildCustomImage(runtimePath, tag, dockerfilePath, contextDir, platform str
 	buildArgs = append(buildArgs, contextDir)
 	cmd := exec.Command(runtimePath, buildArgs...)
 	cmd.Env = append(os.Environ(), "DOCKER_BUILDKIT=1")
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
+	// The build runs before the container command starts, and `yolobox run`
+	// is a stdio transport for ACP adapters (`yolobox run codex-acp`), so
+	// stdout belongs to the command, not to us: build progress goes to
+	// stderr with every other yolobox message, and the build gets no stdin.
+	cmd.Stdin = nil
+	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
