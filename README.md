@@ -127,7 +127,10 @@ yolobox run --no-network make test    # Run one command with no network
 yolobox fork --name bruno codex       # Give an agent its own project copy
 yolobox upgrade                       # Update binary and pull the latest image
 yolobox update-agents                 # Update AI CLIs and ACP adapters in the persistent box
+yolobox reset --force                 # Remove yolobox volumes from the configured runtime
 ```
+
+Reset works with Docker, Podman, and Apple container. It removes only existing yolobox volumes and succeeds when none remain. `yolobox uninstall --force` also cleans up those volumes before removing the binary and global config; a runtime failure stops uninstall so it can be retried. Add `--keep-volumes` to uninstall while preserving runtime data.
 
 OpenCode installs and updates explicitly allow its required npm postinstall script.
 

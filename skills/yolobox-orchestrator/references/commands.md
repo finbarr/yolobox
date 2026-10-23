@@ -100,6 +100,19 @@ The `codex` target updates Codex and `codex-acp`; the `claude` target updates Cl
 
 This is a global maintenance command: it ignores `.yolobox.toml` and does not mount the current project. Do not add `--scratch`; agent updates need the persistent `yolobox-home` volume.
 
+## Reset and uninstall
+
+```bash
+yolobox reset --force
+yolobox reset --force --platform linux/amd64
+yolobox uninstall --force
+yolobox uninstall --force --keep-volumes
+```
+
+Reset deletes existing yolobox volumes from the configured Docker, Podman, or Apple container runtime. Without `--platform` it includes all architecture variants; with it, only that architecture's existing volumes are selected. An empty match succeeds without a deletion command. `--force` confirms the yolobox operation. Apple container rejects volumes still in use; stop and remove the containers using them before retrying. Docker and Podman retain their runtime-specific force-deletion behavior.
+
+Uninstall cleans up volumes before removing global config/cache and the binary. A runtime or cleanup failure returns an error and preserves config and the binary for retry. Use `--keep-volumes` when the intended uninstall should preserve volumes and skip runtime access. Never treat a failed cleanup as completed.
+
 ## Isolation controls
 
 Use a fresh home/cache state:

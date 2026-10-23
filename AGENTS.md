@@ -87,6 +87,7 @@ Also update [README.md](README.md), the docs site under [docs/](docs/), and the 
 ## Hard Learnings
 
 - Named volumes shadow image contents. Anything baked into `/home/yolo` disappears behind `yolobox-home` for existing users.
+- Apple container volume deletion has no `-f`, and volume listing does not accept Docker Go templates. Use `volume ls --quiet`, delete only discovered matching names, and handle an empty match without invoking deletion. Propagate listing/deletion errors; uninstall must finish runtime cleanup before removing the config that selects that runtime or its own binary.
 - On macOS, Docker socket source paths are resolved inside the Docker VM. Use `/var/run/docker.sock` as the mount source, not host-side paths like `~/.colima/default/docker.sock`.
 - On macOS, `SSH_AUTH_SOCK` from the host is not directly mountable into Docker. Docker Desktop uses `/run/host-services/ssh-auth.sock`; Colima requires `forwardAgent: true` and a VM-side socket path from `colima ssh -- printenv SSH_AUTH_SOCK`.
 - On macOS, resolve VM-local socket mounts against the selected container runtime. Docker Desktop, Colima, and Podman machine use different VMs; never choose an agent socket by probing an unrelated installed runtime.

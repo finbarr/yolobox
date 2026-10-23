@@ -8,6 +8,11 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Fixed
+
+- Fixed `yolobox reset --force` with Apple container by using compatible volume listing and deletion commands. Reset removes only existing matching volumes, handles empty or partially populated stores, and reports listing/deletion failures.
+- Made uninstall clean up volumes with the configured runtime before removing global config/cache and the binary, preserving the installation when runtime cleanup fails. `--keep-volumes` skips runtime access.
+
 ## v0.19.10 - 2026-10-19
 
 ### Fixed

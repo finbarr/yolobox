@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 )
@@ -39,45 +40,70 @@ func resetVolumes(args []string) error {
 		return err
 	}
 
-	var volumes []string
 	if *platform != "" {
-		volumes, err = volumesForPlatform(*platform)
-		if err != nil {
-			return err
-		}
 		warn("Removing yolobox volumes for %s...", *platform)
 	} else {
-		volumes = discoverYoloboxVolumes(runtimePath)
 		warn("Removing yolobox volumes (all architectures)...")
 	}
-	args = append([]string{"volume", "rm", "-f"}, volumes...)
-	if err := execCommand(runtimePath, args); err != nil {
+	if err := removeYoloboxVolumes(runtimePath, *platform); err != nil {
 		return err
 	}
-	success("Fresh start! Volumes removed.")
+	success("Reset complete.")
 	return nil
 }
 
 // discoverYoloboxVolumes lists the runtime's volumes and returns the yolobox
-// persistent volumes, including per-architecture variants. Falls back to the
-// legacy fixed names when the query fails.
-func discoverYoloboxVolumes(runtimePath string) []string {
-	output, err := exec.Command(runtimePath, "volume", "ls", "--format", "{{.Name}}").Output()
+// persistent volumes, including per-architecture variants. Quiet listing works
+// on Docker, Podman, and Apple container; Docker's Go templates do not.
+func discoverYoloboxVolumes(runtimePath string) ([]string, error) {
+	cmd := exec.Command(runtimePath, "volume", "ls", "--quiet")
+	cmd.Stderr = os.Stderr
+	output, err := cmd.Output()
 	if err != nil {
-		return persistentVolumeBases
+		return nil, fmt.Errorf("failed to list volumes: %w", err)
 	}
-	volumes := matchYoloboxVolumes(strings.Fields(string(output)))
+	return matchYoloboxVolumes(strings.Fields(string(output))), nil
+}
+
+func removeYoloboxVolumes(runtimePath, platform string) error {
+	var selected []string
+	if platform != "" {
+		var err error
+		selected, err = volumesForPlatform(platform)
+		if err != nil {
+			return err
+		}
+	}
+	volumes, err := discoverYoloboxVolumes(runtimePath)
+	if err != nil {
+		return err
+	}
+	if platform != "" {
+		volumes = slices.DeleteFunc(volumes, func(name string) bool {
+			return !slices.Contains(selected, name)
+		})
+	}
 	if len(volumes) == 0 {
-		return persistentVolumeBases
+		info("No matching yolobox volumes to remove.")
+		return nil
 	}
-	return volumes
+	args := []string{"volume", "rm"}
+	// --force confirms the yolobox operation. Apple container has no force
+	// deletion flag and rejects missing names, so only pass discovered volumes.
+	if filepath.Base(runtimePath) != "container" {
+		args = append(args, "-f")
+	}
+	if err := execCommand(runtimePath, append(args, volumes...)); err != nil {
+		return fmt.Errorf("failed to remove yolobox volumes: %w", err)
+	}
+	return nil
 }
 
 func uninstallYolobox(args []string) error {
 	fs := flag.NewFlagSet("uninstall", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	force := fs.Bool("force", false, "confirm uninstall")
-	keepVolumes := fs.Bool("keep-volumes", false, "keep Docker volumes")
+	keepVolumes := fs.Bool("keep-volumes", false, "keep runtime volumes")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			printUsage()
@@ -88,32 +114,47 @@ func uninstallYolobox(args []string) error {
 	if !*force {
 		fmt.Println("This will remove:")
 		fmt.Println("  - yolobox binary")
-		fmt.Println("  - ~/.config/yolobox/ (config and cache)")
+		fmt.Println("  - Global yolobox config and update cache")
 		if !*keepVolumes {
-			fmt.Println("  - Docker volumes (yolobox-home, yolobox-cache, yolobox-output, and per-architecture variants)")
+			fmt.Println("  - Runtime volumes (yolobox-home, yolobox-cache, yolobox-output, and per-architecture variants)")
 		}
 		fmt.Println("")
-		return fmt.Errorf("run with --force to confirm (use --keep-volumes to preserve Docker data)")
+		return fmt.Errorf("run with --force to confirm (use --keep-volumes to preserve runtime data)")
 	}
 
-	configDir, err := os.UserConfigDir()
-	if err == nil {
-		yoloboxConfig := filepath.Join(configDir, "yolobox")
-		if _, err := os.Stat(yoloboxConfig); err == nil {
-			info("Removing %s...", yoloboxConfig)
-			_ = os.RemoveAll(yoloboxConfig)
+	// Resolve and use the configured runtime before deleting its configuration.
+	// On cleanup failure, keep the installation intact so the user can retry.
+	if !*keepVolumes {
+		cfg, err := loadConfigFromEnv()
+		if err != nil {
+			return err
+		}
+		runtimePath, err := resolveRuntime(cfg.Runtime)
+		if err != nil {
+			return err
+		}
+		info("Removing yolobox volumes...")
+		if err := removeYoloboxVolumes(runtimePath, ""); err != nil {
+			return err
 		}
 	}
 
-	if !*keepVolumes {
-		cfg, err := loadConfigFromEnv()
-		if err == nil {
-			runtimePath, err := resolveRuntime(cfg.Runtime)
-			if err == nil {
-				info("Removing Docker volumes...")
-				volumes := discoverYoloboxVolumes(runtimePath)
-				_ = execCommand(runtimePath, append([]string{"volume", "rm", "-f"}, volumes...))
-			}
+	configPath, err := globalConfigPath()
+	if err != nil {
+		return err
+	}
+	cacheDir, err := os.UserConfigDir()
+	if err != nil {
+		return err
+	}
+	// The update cache lives separately from config on macOS.
+	for _, dir := range []string{filepath.Dir(configPath), filepath.Join(cacheDir, "yolobox")} {
+		if _, err := os.Stat(dir); os.IsNotExist(err) {
+			continue
+		}
+		info("Removing %s...", dir)
+		if err := os.RemoveAll(dir); err != nil {
+			return fmt.Errorf("failed to remove %s: %w", dir, err)
 		}
 	}
 

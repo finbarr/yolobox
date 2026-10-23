@@ -79,7 +79,7 @@ yolobox upgrade --check     # Show latest release notes without upgrading
 yolobox update-agents       # Update AI CLIs and ACP adapters in persistent home
 yolobox update-agents codex # Update Codex and its ACP adapter; accepts multiple targets
 yolobox reset --force       # Remove yolobox named volumes (all architectures)
-yolobox uninstall --force   # Remove yolobox binary, image, and volumes
+yolobox uninstall --force   # Remove yolobox volumes, global config/cache, and binary
 yolobox completion bash     # Print a bash completion script (also: zsh)
 yolobox version             # Print version and platform
 yolobox help                # Show CLI help
@@ -199,6 +199,17 @@ yolobox reset --force --platform linux/amd64
 ```
 
 Without `--platform`, reset removes the yolobox volumes for every architecture. With `--platform`, it removes only the volumes that runs with that same `--platform` value use — for example the `-amd64`-suffixed volumes of x86-emulated sessions, leaving native volumes untouched.
+
+Reset supports Docker, Podman, and Apple container using the configured runtime. It lists existing volumes first, leaves unrelated volumes alone, and succeeds without deleting anything when no matching volumes exist. `--force` confirms the yolobox reset. Apple container rejects volumes still in use; stop and remove containers using those volumes before retrying. Docker and Podman retain their runtime-specific force-deletion behavior. Listing or deletion failures return a nonzero exit status.
+
+### Uninstall
+
+```bash
+yolobox uninstall --force
+yolobox uninstall --force --keep-volumes
+```
+
+Uninstall uses the same volume cleanup as reset, then removes the global config, update cache, and running yolobox binary. It resolves the configured runtime before removing config. If volume listing or deletion fails, uninstall returns an error and keeps the config and binary so you can retry. `--keep-volumes` skips runtime access and preserves all volumes while removing the local installation.
 
 ## Mental model
 
