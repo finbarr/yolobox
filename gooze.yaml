@@ -1,0 +1,16 @@
+# Mutation testing settings for gooze. Keys left out keep their defaults.
+# Reference: https://gooze.dev/docs/config/
+version: 1
+
+run:
+  mutation_timeout: 30        # Per-mutation timeout in seconds; the tests take a few.
+
+# Quality gates; failing one, gooze exits with code 3.
+threshold:
+  total: 50                   # Score of all mutants.
+  average: 50                 # Average of the per-file scores.
+  file: 0                     # Score every file must reach.
+  diff:                       # --diff runs, scored on the lines a change touches: every mutant must be killed.
+    total: 100
+    average: 100
+    file: 100

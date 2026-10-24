@@ -1,0 +1,87 @@
+name: mutation
+
+# Mutation testing with gooze (https://gooze.dev), in two shards with two
+# workers each. Pull requests mutate only the lines they change, and the merge
+# job fails at a surviving mutant on them. Run the workflow by hand to mutate
+# the whole module.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # Diff runs write their shards under run/, full runs at the top level.
+  REPORTS_DIR: ${{ github.event_name == 'pull_request' && '.gooze-reports/run' || '.gooze-reports' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # --diff needs the base branch history
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+
+      # gooze needs Go 1.27.3 to build. setup-go sets GOTOOLCHAIN=local, so pick
+      # the toolchain for this one command; the tests still run on the Go above.
+      - name: Install gooze
+        run: GOTOOLCHAIN=go1.27.3 go install gooze.dev/pkg/gooze@v1.4.1
+
+      # A shard stops at its first survivor (exit 3); the merge job gates.
+      - name: Mutation testing, shard ${{ matrix.shard }} (changed lines)
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: gooze run -p 2 -s ${{ matrix.shard }}/2 --fail-fast first --diff "origin/$BASE_REF" ./... || [ $? -eq 3 ]
+
+      - name: Mutation testing, shard ${{ matrix.shard }} (whole module)
+        if: github.event_name == 'workflow_dispatch'
+        run: gooze run -p 2 -s ${{ matrix.shard }}/2 ./... || [ $? -eq 3 ]
+
+      - name: Archive shard reports
+        run: tar -czf "shard_${{ matrix.shard }}.tgz" -C "$REPORTS_DIR" "shard_${{ matrix.shard }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: shard_${{ matrix.shard }}
+          path: shard_${{ matrix.shard }}.tgz
+          if-no-files-found: error
+
+  merge:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: 'go.mod'
+      - name: Install gooze
+        run: GOTOOLCHAIN=go1.27.3 go install gooze.dev/pkg/gooze@v1.4.1
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: shard-archives
+          pattern: shard_*
+          merge-multiple: true
+      - name: Merge shards
+        run: |
+          mkdir -p "$REPORTS_DIR"
+          for archive in shard-archives/*.tgz; do
+            tar -xzf "$archive" -C "$REPORTS_DIR"
+          done
+          gooze report merge -o "$REPORTS_DIR" || [ $? -eq 3 ] # the gates step below decides
+
+      # Surviving mutants as annotations on their lines.
+      - name: Report survivors
+        run: gooze report view -o "$REPORTS_DIR" --format github || [ $? -eq 3 ]
+
+      # The gates of gooze.yaml: threshold.diff on pull requests, threshold on full runs.
+      - name: Quality gates
+        run: gooze report view -o "$REPORTS_DIR"
