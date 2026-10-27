@@ -151,6 +151,8 @@ yolobox is designed for AI agents, not humans. You launch the AI and let it work
 
 The agent has sudo inside the container. If it needs a compiler, database, package, or framework, it can install one. Named volumes preserve that setup across sessions, so you do not have to turn the README into a hundred-line package matrix. Point it at your project and let it cook.
 
+Boxes using the same runtime and architecture share their persistent home, cache, and output volumes, including concurrent rootless Podman boxes on SELinux hosts. Use `--scratch` for a run without those shared volumes.
+
 ## Security Model
 
 yolobox is protection from accidents, not a magic anti-container-escape theorem.

@@ -39,9 +39,10 @@ func persistentVolumeMount(name, target string, rootlessPodman bool) string {
 	if !rootlessPodman {
 		return name + ":" + target
 	}
-	// :Z keeps SELinux labels stable across runs; :U migrates existing rootless
-	// Podman volumes from subordinate-ID ownership to the keep-id container user.
-	return name + ":" + target + ":Z,U"
+	// :z gives shared volumes a shared SELinux label so concurrent containers
+	// retain access. :Z would relabel them privately for only the newest container.
+	// :U migrates subordinate-ID ownership to the keep-id container user.
+	return name + ":" + target + ":z,U"
 }
 
 // dirContainsSymlinks reports whether dir contains any symbolic links.

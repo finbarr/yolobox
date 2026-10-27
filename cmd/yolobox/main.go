@@ -1186,7 +1186,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewInput().
 				Title("Default container name (--name)").
-				Description("Optional; fixed names cannot run concurrently").
+				Description("Optional; concurrent boxes need unique names and share persistent state").
 				Placeholder("e.g. yolobox-dev").
 				Value(&containerName),
 			huh.NewInput().
@@ -1649,9 +1649,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	// Named volumes for persistence (skip if --scratch).
-	// Rootless Podman on SELinux-enabled hosts assigns per-container MCS
-	// labels; without :Z, files created in one run are inaccessible to the
-	// next. :U also repairs older keep-id volumes that were created with
+	// Rootless Podman needs a shared SELinux label (:z) so starting another
+	// container does not revoke existing containers' access to these volumes.
+	// :U also repairs older keep-id volumes that were created with
 	// subordinate-ID ownership and now appear as uid/gid 999 in-container.
 	if !cfg.Scratch {
 		args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-home", containerArch), "/home/yolo", rootlessPodman))

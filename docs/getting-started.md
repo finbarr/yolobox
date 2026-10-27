@@ -88,7 +88,7 @@ yolobox auto-detects the first supported runtime it can use.
 
 | Platform | Supported runtimes |
 |---|---|
-| macOS | Docker Desktop, OrbStack, Colima, Apple container (macOS Tahoe+) |
+| macOS | Docker Desktop, OrbStack, Colima, Podman machine, Apple container (macOS Tahoe+) |
 | Linux | Docker, Podman |
 
 Force a runtime explicitly:
@@ -98,6 +98,8 @@ yolobox claude --runtime docker
 yolobox claude --runtime podman
 yolobox claude --runtime container
 ```
+
+Boxes using the same runtime and architecture share persistent home, cache, and output volumes. Rootless Podman uses shared SELinux labels (`:z,U`) so starting another box preserves the running boxes' access to those volumes. Use `--scratch` for a run without shared persistent state.
 
 ## Next pages
 

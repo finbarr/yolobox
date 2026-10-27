@@ -41,6 +41,7 @@ If you are defending against hostile code rather than careless code, move up to 
 - your project directory, which is mounted read-write by default
 - network access unless you turn it off
 - the container's own filesystem and state
+- persistent home, cache, and output data from other boxes using the same runtime and architecture; these volumes are shared, including on SELinux hosts with rootless Podman (`:z,U`); use `--scratch` to omit them
 - the host from runtime or kernel escape vulnerabilities
 
 If you want to narrow the container's view of the project itself, use `--exclude` and `--copy-as` to hide or replace selected files before the agent sees them.

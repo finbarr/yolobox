@@ -2216,14 +2216,14 @@ func TestBuildRunArgsRootlessPodmanPersistentVolumes(t *testing.T) {
 	if !strings.Contains(argsStr, "--userns=keep-id:uid=1000,gid=1000") {
 		t.Fatalf("expected rootless podman keep-id user namespace, got %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "yolobox-home:/home/yolo:Z,U") {
-		t.Fatalf("expected rootless podman home volume to use :Z,U, got %s", argsStr)
+	if !strings.Contains(argsStr, "yolobox-home:/home/yolo:z,U") {
+		t.Fatalf("expected rootless podman home volume to use shared :z,U, got %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "yolobox-cache:/var/cache:Z,U") {
-		t.Fatalf("expected rootless podman cache volume to use :Z,U, got %s", argsStr)
+	if !strings.Contains(argsStr, "yolobox-cache:/var/cache:z,U") {
+		t.Fatalf("expected rootless podman cache volume to use shared :z,U, got %s", argsStr)
 	}
-	if !strings.Contains(argsStr, "yolobox-output:/output:Z,U") {
-		t.Fatalf("expected rootless podman output volume to use :Z,U, got %s", argsStr)
+	if !strings.Contains(argsStr, "yolobox-output:/output:z,U") {
+		t.Fatalf("expected rootless podman output volume to use shared :z,U, got %s", argsStr)
 	}
 }
 

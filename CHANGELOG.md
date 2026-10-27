@@ -8,6 +8,12 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.12 - 2026-10-27
+
+### Fixed
+
+- Fixed concurrent rootless Podman boxes losing access to their shared home, cache, and output volumes on SELinux hosts, including macOS Podman machine. Persistent volumes now use a shared SELinux label while retaining ownership repair for older volumes.
+
 ## v0.19.11 - 2026-10-23
 
 ### Fixed
