@@ -40,9 +40,13 @@ func TestUpdateAgentsShellScriptUpdatesSelectedTools(t *testing.T) {
 		},
 		{
 			name:    "opencode",
-			targets: []string{"opencode"},
+			targets: []string{"opencode", "opencode"},
 			calls: []string{
-				"npm install -g --no-audit --no-fund --allow-scripts=opencode-ai opencode-ai@latest",
+				"npm uninstall -g --ignore-scripts opencode-ai",
+				"npm install -g --no-audit --no-fund --allow-scripts=@opencode/cli @opencode/cli@latest",
+				"opencode --version",
+				"npm uninstall -g --ignore-scripts opencode-ai",
+				"npm install -g --no-audit --no-fund --allow-scripts=@opencode/cli @opencode/cli@latest",
 				"opencode --version",
 			},
 		},
@@ -77,6 +81,21 @@ func TestUpdateAgentsShellScriptStopsOnUpdateFailure(t *testing.T) {
 		fail    string
 		calls   []string
 	}{
+		{
+			name:    "OpenCode removal failure skips installation",
+			targets: []string{"opencode", "gemini"},
+			fail:    "opencode-ai",
+			calls:   []string{"npm uninstall -g --ignore-scripts opencode-ai"},
+		},
+		{
+			name:    "OpenCode installation failure skips remaining targets",
+			targets: []string{"opencode", "gemini"},
+			fail:    "@opencode/cli@latest",
+			calls: []string{
+				"npm uninstall -g --ignore-scripts opencode-ai",
+				"npm install -g --no-audit --no-fund --allow-scripts=@opencode/cli @opencode/cli@latest",
+			},
+		},
 		{
 			name:    "Claude CLI failure skips adapter",
 			targets: []string{"claude", "gemini"},
@@ -171,11 +190,38 @@ case "$package" in
     @agentclientprotocol/codex-acp@latest) bin=codex-acp ;;
     @agentclientprotocol/claude-agent-acp@latest) bin=claude-agent-acp ;;
     @google/gemini-cli@latest) bin=gemini ;;
-    opencode-ai@latest) bin=opencode ;;
+    opencode-ai)
+        [ "$*" = 'uninstall -g --ignore-scripts opencode-ai' ]
+        if [ -d "$NPM_CONFIG_PREFIX/lib/node_modules/opencode-ai" ]; then
+            rm "$NPM_CONFIG_PREFIX/bin/opencode"
+            rm -r "$NPM_CONFIG_PREFIX/lib/node_modules/opencode-ai"
+        fi
+        exit 0
+        ;;
+    @opencode/cli@latest)
+        # Like npm, reject another package's launcher instead of overwriting it.
+        [ ! -d "$NPM_CONFIG_PREFIX/lib/node_modules/opencode-ai" ] || exit 44
+        [[ " $* " = *' --allow-scripts=@opencode/cli '* ]] || exit 45
+        bin=opencode
+        ;;
     *) exit 43 ;;
 esac
 cp "$UPDATE_TEST_VERSION_SCRIPT" "$NPM_CONFIG_PREFIX/bin/$bin"
 `)
+
+	// Model an existing v1 user install and unrelated durable OpenCode state.
+	legacyDir := filepath.Join(home, ".npm-global", "lib", "node_modules", "opencode-ai")
+	for _, dir := range []string{legacyDir, filepath.Join(home, ".npm-global", "bin"), filepath.Join(home, ".config", "opencode")} {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeScript(filepath.Join(home, ".npm-global", "bin", "opencode"), "exit 46\n")
+	configPath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	config := []byte("{\"model\":\"user/model\"}\n")
+	if err := os.WriteFile(configPath, config, 0600); err != nil {
+		t.Fatal(err)
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -199,5 +245,9 @@ cp "$UPDATE_TEST_VERSION_SCRIPT" "$NPM_CONFIG_PREFIX/bin/$bin"
 	if _, err := os.Stat(filepath.Join(home, ".npm-global", "bin")); err != nil {
 		t.Fatalf("default persistent npm prefix was not created: %v\n%s", err, output)
 	}
+	if got, err := os.ReadFile(configPath); err != nil || string(got) != string(config) {
+		t.Fatalf("agent update changed OpenCode config: %q, %v", got, err)
+	}
+
 	return string(output), strings.Split(strings.TrimSpace(string(data)), "\n"), runErr
 }

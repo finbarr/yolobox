@@ -24,7 +24,7 @@ image:
 		docker build -t $(IMAGE) .
 
 SMOKE_ARGS ?= --image $(IMAGE)
-SMOKE_TOOLS := node bun python3 uv gh fd bat rg eza opencode
+SMOKE_TOOLS := node bun python3 uv gh fd bat rg eza
 
 smoke-test: build
 	@echo "Running smoke tests..."
@@ -37,6 +37,13 @@ smoke-test: build
 			failed=1; \
 		fi; \
 	done; \
+	if OPENCODE_VER=$$(./$(BINARY) run $(SMOKE_ARGS) --scratch opencode --version 2>/dev/null) && \
+		case "$$OPENCODE_VER" in 2.*|opencode\ v2.*) true ;; *) false ;; esac; then \
+		echo "  ✓ opencode v2 ($$OPENCODE_VER)"; \
+	else \
+		echo "  ✗ opencode v2 (got: $$OPENCODE_VER)"; \
+		failed=1; \
+	fi; \
 	if ./$(BINARY) run $(SMOKE_ARGS) --scratch go version >/dev/null 2>&1; then \
 		echo "  ✓ go"; \
 	else \

@@ -189,8 +189,11 @@ npm_update() {
     require_command npm "$label"
     printf 'updating %s (%s)\n' "$label" "$package"
     local install_args=()
-    if [ "$package" = "opencode-ai" ]; then
-        install_args+=(--allow-scripts=opencode-ai)
+    if [ "$package" = "@opencode/cli" ]; then
+        # V1 and V2 own the same launcher. Remove only the old package in this
+        # npm prefix; leave OpenCode config, credentials, and sessions intact.
+        npm uninstall -g --ignore-scripts opencode-ai
+        install_args+=(--allow-scripts=@opencode/cli)
     fi
     npm install -g --no-audit --no-fund "${install_args[@]}" "$package@latest"
     print_version "$label" "$bin"
@@ -271,7 +274,7 @@ for target in "${targets[@]}"; do
             update_antigravity
             ;;
         opencode)
-            npm_update "OpenCode" opencode "opencode-ai"
+            npm_update "OpenCode v2" opencode "@opencode/cli"
             ;;
         copilot)
             npm_update "GitHub Copilot" copilot "@github/copilot"

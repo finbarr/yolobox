@@ -1141,7 +1141,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Gemini", "gemini"),
 					huh.NewOption("Kimi Code", "kimi"),
 					huh.NewOption("Antigravity", "agy"),
-					huh.NewOption("OpenCode", "opencode"),
+					huh.NewOption("OpenCode v2", "opencode"),
 					huh.NewOption("Copilot", "copilot"),
 				).
 				Value(&defaultHarness),

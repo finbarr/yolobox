@@ -86,7 +86,9 @@ Update all bundled AI CLIs and ACP adapters in the persistent yolobox home:
 yolobox update-agents
 ```
 
-OpenCode installs and updates explicitly allow its required npm postinstall script.
+The image bundles OpenCode v2 (`@opencode/cli`). `yolobox update-agents opencode` also installs v2, removing the old `opencode-ai` package from the persistent npm prefix first to avoid a launcher conflict. Installs explicitly allow the required postinstall script. Existing user-installed v1 copies remain in place until you update them; pulling a new image alone does not replace persistent tools.
+
+OpenCode v2 keeps the `opencode` command and existing config locations. Back up your setup before switching: v1 plugins and server API integrations need migration. See the [upstream migration guide](https://opencode.ai/v2/docs/migrate-v1).
 
 Target one or more tools when you do not want the full update path:
 

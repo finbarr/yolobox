@@ -8,6 +8,13 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+## v0.19.13 - 2026-10-31
+
+### Changed
+
+- Switched the bundled OpenCode CLI and `yolobox update-agents opencode` to OpenCode v2 (`@opencode/cli`), with its required npm postinstall script enabled. The updater removes the old `opencode-ai` package from the persistent npm prefix before installing v2 to avoid a launcher conflict; config, credentials, and session data are left in place.
+- Existing user-installed OpenCode v1 copies remain until explicitly updated. OpenCode v2 uses the same command and config locations; back up your setup and migrate v1 plugins and server API integrations using the [upstream migration guide](https://opencode.ai/v2/docs/migrate-v1).
+
 ## v0.19.12 - 2026-10-27
 
 ### Fixed

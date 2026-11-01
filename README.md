@@ -132,7 +132,9 @@ yolobox reset --force                 # Remove yolobox volumes from the configur
 
 Reset works with Docker, Podman, and Apple container. It removes only existing yolobox volumes and succeeds when none remain. `yolobox uninstall --force` also cleans up those volumes before removing the binary and global config; a runtime failure stops uninstall so it can be retried. Add `--keep-volumes` to uninstall while preserving runtime data.
 
-OpenCode installs and updates explicitly allow its required npm postinstall script.
+The image bundles OpenCode v2 (`@opencode/cli`). `yolobox update-agents opencode` also installs v2, removing the old `opencode-ai` package from the persistent npm prefix first to avoid a launcher conflict. Installs explicitly allow the required postinstall script. Existing user-installed v1 copies remain in place until you update them; pulling a new image alone does not replace persistent tools.
+
+OpenCode v2 keeps the `opencode` command and existing config locations. Back up your setup before switching: v1 plugins and server API integrations need migration. See the [upstream migration guide](https://opencode.ai/v2/docs/migrate-v1).
 
 `--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only. `--copilot-config` does the same for GitHub Copilot CLI: it syncs durable `~/.copilot` settings, agents, skills, and MCP config, forwards the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mounts `~/.copilot/session-state` read/write; add `--no-copilot-auth` to keep the box's Copilot login independent.
 

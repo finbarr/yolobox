@@ -932,12 +932,12 @@ RUN echo 'echo ""' >> ~/.bashrc \
 # npm 12+ blocks install scripts unless they are explicitly allowlisted.
 USER root
 RUN NPM_CONFIG_PREFIX="" NPM_CONFIG_MIN_RELEASE_AGE="${NPM_MIN_RELEASE_AGE_DAYS}" npm install -g --no-audit --no-fund \
-    --allow-scripts=opencode-ai,@github/keytar,node-pty,@google/genai,protobufjs \
+    --allow-scripts=@opencode/cli,@github/keytar,node-pty,@google/genai,protobufjs \
     @google/gemini-cli \
     @openai/codex \
     @agentclientprotocol/codex-acp \
     @agentclientprotocol/claude-agent-acp \
-    opencode-ai \
+    @opencode/cli \
     @github/copilot \
     @earendil-works/pi-coding-agent \
     && NPM_CONFIG_PREFIX="" npm cache clean --force

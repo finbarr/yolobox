@@ -11,7 +11,7 @@ The base image is meant to be useful immediately without turning into a giant ki
 - Antigravity CLI
 - OpenAI Codex
 - Kimi Code
-- OpenCode
+- OpenCode v2 (`@opencode/cli`)
 - GitHub Copilot
 - Pi
 

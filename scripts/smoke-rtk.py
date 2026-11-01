@@ -62,10 +62,11 @@ def main():
                         break
                     output.extend(chunk)
             process.wait(timeout=max(0.1, deadline - time.monotonic()))
-            text = output.decode(errors="replace")
+            # OpenCode v2 styles its version output when attached to a TTY.
+            text = re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", output.decode(errors="replace"))
             if process.returncode or "RTK command compression enabled for opencode" not in text:
                 raise RuntimeError("OpenCode exited without successful RTK setup")
-            if not re.search(r"(?m)^\d+\.\d+\.\d+[^\r\n]*\r?$", text):
+            if not re.search(r"(?m)^(?:opencode v)?2\.\d+\.\d+[^\r\n]*\r?$", text):
                 raise RuntimeError("OpenCode did not report its version")
             print("  ✓ opencode: RTK initialized and CLI launched in a TTY without input")
         except Exception:
