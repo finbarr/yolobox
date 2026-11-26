@@ -1,5 +1,15 @@
 # Recipes
 
+## Add instructions to a fresh Claude session
+
+Claude Code's native `--append-system-prompt-file` option also works through yolobox. Run from the project directory with the file in the mounted project.
+
+```bash
+yolobox claude -- --append-system-prompt-file ./review.md
+```
+
+For the same Yolobox syntax with Claude and Codex, use [`--instructions FILE`](/commands#session-instructions).
+
 ## Parallel agents on one project
 
 Use `fork` when you want each agent to work like another developer sitting beside you with their own machine. Name forks like developer environments, not necessarily like features.

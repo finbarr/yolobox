@@ -75,6 +75,8 @@ Need something else? The agent has sudo.
 
 Inside yolobox, supported AI CLIs are wrapped to skip permission prompts. No confirmations, no guardrails. Just pure unfiltered AI, the way nature intended.
 
+The base image disables Codex's built-in analytics by default. Explicit Codex settings can override that default.
+
 For an ACP client or editor, use `yolobox run codex-acp` or `yolobox run claude-agent-acp` as its stdio agent command. The adapters bundle compatible engines and use the client's permission modes; yolobox's CLI YOLO wrappers and `--no-yolo` do not control them. Existing config sync and authentication options apply. See [ACP clients](https://yolobox.dev/commands#acp-clients) for launch examples.
 
 Image pull and custom-image build progress goes to stderr, leaving stdout and piped stdin for the container command, including during ACP startup.
@@ -122,6 +124,7 @@ yolobox config                        # Show resolved config for this project
 yolobox claude --docker --gh-token    # Give the agent Docker and GitHub access
 yolobox claude --claude-config --no-claude-auth # Share config, keep the box login independent
 yolobox copilot --copilot-config        # Share Copilot settings, login, and session history
+yolobox codex --instructions ./review.md # Give a fresh session extra Markdown instructions
 yolobox codex --rtk                   # Enable RTK command-output compression
 yolobox run --no-network make test    # Run one command with no network
 yolobox fork --name bruno codex       # Give an agent its own project copy
@@ -139,6 +142,8 @@ OpenCode v2 keeps the `opencode` command and existing config locations. Back up 
 `--claude-config` incrementally syncs durable Claude settings and live-mounts host `~/.claude/projects` read/write so session resume history stays current. `--no-claude-auth` keeps the box login independent, but does not make that project-history mount read-only. `--copilot-config` does the same for GitHub Copilot CLI: it syncs durable `~/.copilot` settings, agents, skills, and MCP config, forwards the host Copilot login as `COPILOT_GITHUB_TOKEN`, and live-mounts `~/.copilot/session-state` read/write; add `--no-copilot-auth` to keep the box's Copilot login independent.
 
 Automatic RTK setup applies the supported CLI integrations without prompting, including on first OpenCode startup, and leaves telemetry disabled unless you opt in interactively from inside the box with `rtk telemetry enable`.
+
+Use `--instructions FILE` with `yolobox claude` or `yolobox codex` to add one Markdown file to a fresh session's instructions. [Session instructions](https://yolobox.dev/commands#session-instructions)
 
 The detailed references are intentionally in the docs site:
 

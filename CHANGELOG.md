@@ -8,6 +8,14 @@ there is no `v0.6.0` tag in this repository.
 
 ## Unreleased
 
+### Added
+
+- Added `--instructions FILE` to pass extra Markdown instructions to a fresh Claude or Codex session.
+
+### Changed
+
+- Disabled Codex's built-in analytics by default in the base image. Explicit Codex settings can override this default.
+
 ## v0.19.13 - 2026-10-31
 
 ### Changed

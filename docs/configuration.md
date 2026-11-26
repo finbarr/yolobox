@@ -165,9 +165,15 @@ Set `rtk = true` or pass `--rtk` to enable RTK command-output compression for su
 
 yolobox does not auto-update RTK at startup. To get a newer RTK release, rebuild or pull a newer yolobox image. Copilot and Pi are not auto-initialized because RTK does not currently provide a matching non-project config hook for them.
 
+## Codex analytics
+
+The base image disables Codex's built-in analytics through `/etc/codex/config.toml`. To opt in, set `analytics.enabled = true` in your Codex configuration inside the box or in the Codex configuration you sync with `--codex-config`. Explicit OpenTelemetry exporters use their own settings.
+
 ## Global agent instructions {#global-agent-instructions}
 
 The `--copy-agent-instructions` flag copies your global or user-level instruction files and skills into the container.
+
+For a single fresh Claude or Codex launch, pass `--instructions FILE` on the command line to supply extra guidance alongside these files. [Session instructions](/commands#session-instructions)
 
 Files copied if they exist on your host:
 

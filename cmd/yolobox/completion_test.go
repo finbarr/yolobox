@@ -88,7 +88,7 @@ func TestCompletionScriptsParse(t *testing.T) {
 }
 
 func TestNewBaseFlagSetAppliesEveryFlag(t *testing.T) {
-	fs, applyFlags := newBaseFlagSet("test")
+	fs, applyFlags := newBaseFlagSet("claude")
 	var args []string
 	fs.VisitAll(func(f *flag.Flag) {
 		if f.Name == "no-ssh-agent" {
@@ -132,6 +132,7 @@ func TestNewBaseFlagSetAppliesEveryFlag(t *testing.T) {
 		"gh-token":      cfg.GhToken,
 		"rtk":           cfg.RTK,
 		"copy-agent":    cfg.CopyAgentInstructions,
+		"instructions":  cfg.InstructionsFile == "val-instructions",
 		"no-project":    cfg.NoProject,
 		"docker":        cfg.Docker,
 		"clipboard":     cfg.Clipboard,
@@ -318,6 +319,10 @@ func TestBashCompletionBehavior(t *testing.T) {
 		{"reset platform equals", []string{"yolobox", "reset", "--platform", "=", "linux/am"}, []string{"linux/amd64"}},
 		{"customize-file spaces", []string{"yolobox", "run", "--customize-file", partial}, []string{spaced}},
 		{"customize-file equals spaces", []string{"yolobox", "run", "--customize-file", "=", partial}, []string{spaced}},
+		{"instructions space", []string{"yolobox", "claude", "--instructions", partial}, []string{spaced}},
+		{"instructions equals", []string{"yolobox", "codex", "--instructions", "=", partial}, []string{spaced}},
+		{"instructions flag", []string{"yolobox", "codex", "--inst"}, []string{"--instructions"}},
+		{"instructions on unsupported shortcut", []string{"yolobox", "gemini", "--inst"}, nil},
 		{"mount spaces", []string{"yolobox", "run", "--mount", partial}, []string{spaced}},
 		{"copy-as spaces", []string{"yolobox", "run", "--copy-as", partial}, []string{spaced}},
 		{"run command", []string{"yolobox", "run", "pr71"}, []string{"pr71-command"}},
@@ -391,6 +396,7 @@ func TestZshCompletionBehavior(t *testing.T) {
 		{"yolobox run --platform linux/ar", "yolobox run --platform linux/arm64 "},
 		{"yolobox run --platform=linux/ar", "yolobox run --platform=linux/arm64 "},
 		{"yolobox run --customize-file " + dataDir + "/Dock", "yolobox run --customize-file " + dataDir + `/Docker\ fragment `},
+		{"yolobox codex --instructions " + dataDir + "/Dock", "yolobox codex --instructions " + dataDir + `/Docker\ fragment `},
 	}
 	var lines []string
 	for _, tc := range cases {

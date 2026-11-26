@@ -981,6 +981,14 @@ USER yolo
 RUN mkdir -p /home/yolo/.local/bin && \
     /usr/local/bin/claude install || true
 
+# Set a system default so Codex user config and CLI overrides still take precedence.
+USER root
+RUN mkdir -p /etc/codex && \
+    printf '%s\n' '[analytics]' 'enabled = false' > /etc/codex/config.toml
+COPY --chmod=0755 scripts/yolobox-session-instructions.sh /usr/local/bin/yolobox-session-instructions
+COPY agent-instructions/codex/session-hooks.json /opt/yolobox/codex-session-hooks.json
+USER yolo
+
 WORKDIR /home/yolo
 
 # Working directory is set by yolobox CLI to the actual project path

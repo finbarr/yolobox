@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "^startup$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/bin/yolobox-session-instructions --codex-hook",
+            "additionalContextLimit": 0
+          }
+        ]
+      }
+    ]
+  }
+}

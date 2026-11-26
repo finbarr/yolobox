@@ -64,6 +64,7 @@ These target different layers:
 | `--gh-token` | Forward GitHub token for `gh` and HTTPS Git auth from `gh auth token` | |
 | `--rtk` | Enable RTK command-output compression for supported AI CLIs | |
 | `--copy-agent-instructions` | Copy global instruction files and skills into the container | |
+| `--instructions <file>` | Add a nonempty UTF-8 Markdown file up to 64 KiB to a fresh [Claude or Codex session](/commands#session-instructions) | Other shortcuts, resumed sessions, `--append-system-prompt-file` |
 | `--clipboard` | Bridge text clipboard copy/paste between the container and host | `--no-network` |
 | `--open-bridge` | Bridge `open`/`xdg-open` HTTP(S) URLs to the host browser | `--no-network` |
 

@@ -112,7 +112,9 @@ func bashCompletionScript() string {
 	flags := baseCompletionFlags()
 	var flagNames, valueFlags []string
 	for _, f := range flags {
-		flagNames = append(flagNames, "--"+f.Name)
+		if f.Name != "instructions" {
+			flagNames = append(flagNames, "--"+f.Name)
+		}
 		if !f.IsBool {
 			valueFlags = append(valueFlags, "--"+f.Name)
 		}
@@ -144,7 +146,7 @@ __yolobox_complete_flag_value() {
     case "$1" in
         --runtime) COMPREPLY=($(compgen -W "docker podman container" -- "$2")) ;;
         --platform) COMPREPLY=($(compgen -W "%s" -- "$2")) ;;
-        --mount|--copy-as|--customize-file)
+        --mount|--copy-as|--customize-file|--instructions)
             compopt -o filenames 2>/dev/null
             __yolobox_reply_lines < <(compgen -f -- "$2") ;;
         *) COMPREPLY=() ;;
@@ -207,11 +209,12 @@ _yolobox() {
     local commands="%s"
     local tools="%s"
     local base_flags="%s"
+    local shortcut_flags="$base_flags --instructions"
     local agent_targets="%s"
 
     if (( COMP_CWORD == 1 )); then
         if [[ "$cur" == -* ]]; then
-            COMPREPLY=($(compgen -W "$base_flags" -- "$cur"))
+            COMPREPLY=($(compgen -W "$shortcut_flags" -- "$cur"))
         else
             COMPREPLY=($(compgen -W "$commands $tools" -- "$cur"))
         fi
@@ -220,6 +223,11 @@ _yolobox() {
 
     cmd="${COMP_WORDS[1]}"
     case "$cmd" in
+        claude|codex|-*) ;;
+        *) shortcut_flags="$base_flags"
+           [[ "$flag" == --instructions ]] && return ;;
+    esac
+    case "$cmd" in
         run|shell|config|update-agents|-*)
             if __yolobox_value_flag "$flag"; then
                 __yolobox_complete_flag_value "$flag" "$flag_cur"
@@ -227,7 +235,7 @@ _yolobox() {
                 return
             fi
             if [[ "$cmd" == -* ]]; then
-                COMPREPLY=($(compgen -W "$base_flags" -- "$cur"))
+                COMPREPLY=($(compgen -W "$shortcut_flags" -- "$cur"))
                 return
             fi
             if [[ "$cmd" == run ]]; then
@@ -298,7 +306,7 @@ _yolobox() {
                 __yolobox_complete_flag_value "$flag" "$flag_cur"
                 __yolobox_add_prefix "$flag_prefix"
             elif [[ "$cur" == -* ]]; then
-                COMPREPLY=($(compgen -W "$base_flags" -- "$cur"))
+                COMPREPLY=($(compgen -W "$shortcut_flags" -- "$cur"))
             else
                 compopt -o default 2>/dev/null
             fi
@@ -344,7 +352,7 @@ func zshFlagSpec(f completionFlag) string {
 		action = "(docker podman container)"
 	case "platform":
 		action = "(" + strings.Join(completionPlatforms, " ") + ")"
-	case "mount", "copy-as", "customize-file":
+	case "mount", "copy-as", "customize-file", "instructions":
 		action = "_files"
 	}
 	return zshQuote(fmt.Sprintf("%s--%s=[%s]:%s:%s", prefix, f.Name, desc, f.Name, action))
@@ -360,7 +368,12 @@ func zshDescribeItems(items []completionItem) string {
 
 func zshCompletionScript() string {
 	var flagSpecs []string
+	var instructionsSpec string
 	for _, f := range baseCompletionFlags() {
+		if f.Name == "instructions" {
+			instructionsSpec = zshFlagSpec(f)
+			continue
+		}
 		flagSpecs = append(flagSpecs, "        "+zshFlagSpec(f))
 	}
 	var tools []completionItem
@@ -379,6 +392,7 @@ _yolobox() {
     base_flags=(
 %s
     )
+    local instructions_flag=%s
     command_descriptions=(%s)
     tools=(%s)
     agent_targets=(%s)
@@ -387,7 +401,7 @@ _yolobox() {
 
     if (( CURRENT == 2 )); then
         if [[ "$words[CURRENT]" == -* ]]; then
-            _arguments -S $base_flags && ret=0
+            _arguments -S $base_flags "$instructions_flag" && ret=0
         else
             _describe -t commands 'yolobox command' command_descriptions && ret=0
             _describe -t tools 'tool shortcut' tools && ret=0
@@ -397,7 +411,7 @@ _yolobox() {
 
     local cmd="$words[2]"
     if [[ "$cmd" == -* ]]; then
-        _arguments -S $base_flags && ret=0
+        _arguments -S $base_flags "$instructions_flag" && ret=0
         return ret
     fi
 
@@ -462,6 +476,9 @@ _yolobox() {
             ;;
         setup|version|help)
             ;;
+        claude|codex)
+            _arguments -S $base_flags "$instructions_flag" '*:: :_default' && ret=0
+            ;;
         *)
             _arguments -S $base_flags '*:: :_default' && ret=0
             ;;
@@ -476,6 +493,7 @@ else
 fi
 `,
 		strings.Join(flagSpecs, "\n"),
+		instructionsSpec,
 		zshDescribeItems(completionCommands),
 		zshDescribeItems(tools),
 		strings.Join(updateAgentCompletionTargets(), " "),

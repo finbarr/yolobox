@@ -38,6 +38,19 @@ yolobox pi
 
 These launch the matching tool inside yolobox and apply the tool-specific YOLO-mode wrapper when one exists.
 
+### Session instructions
+
+With an updated Yolobox image, pass a local Markdown file to add guidance for a fresh Claude or Codex session. Use a nonempty, regular UTF-8 file up to 64 KiB.
+
+```bash
+yolobox claude --instructions ./review.md
+yolobox codex --instructions ./review.md
+```
+
+With `default_harness` set to `claude` or `codex`, you can also run `yolobox --instructions ./review.md`. The agent loads its default, project, and user instructions alongside the extra guidance.
+
+Codex requires session hooks enabled and the agent running inside the box. Use either `--instructions` or Claude's native `--append-system-prompt-file` for a given launch. The launcher stages the file in the container for that run, and the agent can include its contents in session history.
+
 ### ACP clients
 
 The base image includes Codex and Claude adapters for Agent Client Protocol clients and editors. Set the client's stdio agent command to `yolobox`, with arguments for one of these launches:

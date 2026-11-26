@@ -255,6 +255,11 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 }
 
 func runToolShortcut(cfg Config, toolName string, toolArgs []string) error {
+	if cfg.InstructionsFile != "" {
+		if err := validateSessionInstructionsArgs(toolName, toolArgs); err != nil {
+			return err
+		}
+	}
 	fmt.Fprint(os.Stderr, colorCyan+logo+colorReset)
 	command := append([]string{toolName}, toolArgs...)
 	return runCommand(cfg, command, false)
@@ -351,6 +356,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --gh-token            Forward GitHub token for gh and HTTPS git")
 	fmt.Fprintln(os.Stderr, "  --rtk                 Enable RTK command-output compression for supported AI CLIs")
 	fmt.Fprintln(os.Stderr, "  --copy-agent-instructions  Copy global agent instructions and skills")
+	fmt.Fprintln(os.Stderr, "  --instructions FILE        Add Markdown instructions to a fresh Claude or Codex session")
 	fmt.Fprintln(os.Stderr, "  --no-project          Skip automatic project mount (caller provides mounts)")
 	fmt.Fprintln(os.Stderr, "  --docker              Mount Docker socket and join shared network")
 	fmt.Fprintln(os.Stderr, "  --clipboard           Bridge text clipboard copy/paste to the host")
@@ -450,6 +456,7 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 		ghToken               bool
 		rtk                   bool
 		copyAgentInstructions bool
+		instructionsFile      string
 		noProject             bool
 		docker                bool
 		clipboard             bool
@@ -502,6 +509,19 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 	fs.BoolVar(&ghToken, "gh-token", false, "forward GitHub CLI token (from gh auth token)")
 	fs.BoolVar(&rtk, "rtk", false, "enable RTK command-output compression for supported AI CLIs")
 	fs.BoolVar(&copyAgentInstructions, "copy-agent-instructions", false, "copy agent instruction files and skills")
+	fs.Func("instructions", "Markdown file for one fresh Claude or Codex session", func(path string) error {
+		if name != "claude" && name != "codex" {
+			return errors.New("use --instructions with the claude or codex shortcut")
+		}
+		if strings.TrimSpace(path) == "" {
+			return errors.New("--instructions requires a Markdown file path")
+		}
+		if instructionsFile != "" {
+			return errors.New("--instructions accepts one Markdown file")
+		}
+		instructionsFile = path
+		return nil
+	})
 	fs.BoolVar(&noProject, "no-project", false, "skip automatic project mount (caller provides mounts and workdir)")
 	fs.BoolVar(&docker, "docker", false, "mount Docker socket and join shared network")
 	fs.BoolVar(&clipboard, "clipboard", false, "bridge text clipboard copy/paste to the host")
@@ -528,6 +548,7 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 	fs.BoolVar(&ensureLatest, "ensure-latest", false, "force-pull the configured base image (and rebuild any derived image) before running")
 
 	return fs, func(cfg *Config) error {
+		cfg.InstructionsFile = instructionsFile
 		if runtimeFlag != "" {
 			cfg.Runtime = runtimeFlag
 		}
@@ -1133,7 +1154,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default command for bare yolobox").
-				Description("Choose none to keep bare yolobox as an interactive shell").
+				Description("Choose none for a shell. Claude and Codex accept --instructions FILE for one fresh session").
 				Options(
 					huh.NewOption("None (interactive shell)", noDefaultHarness),
 					huh.NewOption("Claude", "claude"),
@@ -1354,7 +1375,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 		"ssh-agent": true, "no-ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
 		"no-yolo": true, "scratch": true, "claude-config": true, "no-claude-auth": true,
 		"codex-config": true, "copilot-config": true, "no-copilot-auth": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
-		"copy-agent-instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
+		"copy-agent-instructions": true, "instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
 		"exclude": true, "copy-as": true,
 		"env": true, "env-from-host": true, "h": true, "help": true, "platform": true,
@@ -1365,7 +1386,7 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 
 	flagsWithValues := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true, "platform": true,
-		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "cpus": true, "memory": true,
+		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "instructions": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
 	}
@@ -1431,6 +1452,13 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		return nil, nil, err
 	}
 	traceDuration("host: resolve project path", started)
+	var instructionsPayload string
+	if cfg.InstructionsFile != "" {
+		instructionsPayload, err = encodeSessionInstructions(cfg.InstructionsFile, absProject)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	projectMountTarget := absProject
 	containerWorkingDir := absProject
 	if cfg.Fork.Name != "" {
@@ -2128,6 +2156,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 	args = append(args, "-e", yoloboxContextPayloadEnv+"="+contextPayload)
 	args = append(args, "-e", "YOLOBOX_CONTEXT_FILE="+yoloboxContextFile)
+	if instructionsPayload != "" {
+		args = append(args, "-e", "YOLOBOX_SESSION_INSTRUCTIONS_B64="+instructionsPayload)
+	}
 
 	if len(cfg.RuntimeArgs) > 0 {
 		// The effective platform is already emitted, normalized, above; a raw
@@ -2136,6 +2167,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	}
 
 	args = append(args, cfg.Image)
+	if instructionsPayload != "" {
+		args = append(args, "yolobox-session-instructions")
+	}
 	args = append(args, command...)
 	return args, cleanupPaths, nil
 }

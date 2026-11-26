@@ -38,6 +38,17 @@ If `default_harness` is set to a shortcut such as `codex`, bare `yolobox` launch
 yolobox shell
 ```
 
+## Session instructions
+
+Use `--instructions FILE` with Claude or Codex to add one local Markdown file to a fresh session. Use a nonempty, regular UTF-8 file up to 64 KiB and an updated Yolobox image.
+
+```bash
+yolobox claude --instructions ./review.md
+yolobox codex --instructions ./review.md
+```
+
+With `default_harness` set to `claude` or `codex`, `yolobox --instructions ./review.md` uses that shortcut. Codex applies the guidance through a session-start hook when hooks are enabled. Use either `--instructions` or Claude's native `--append-system-prompt-file` for a given launch.
+
 ## RTK command compression
 
 Use `yolobox opencode --rtk` (or the Claude, Codex, or Gemini shortcut) to initialize RTK inside the box. Setup applies the integration without interactive prompts, including on first OpenCode startup; telemetry stays disabled unless the user opts in with `rtk telemetry enable` inside the box.

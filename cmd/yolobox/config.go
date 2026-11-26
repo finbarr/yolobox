@@ -69,10 +69,11 @@ type Config struct {
 	RuntimeArgs []string        `toml:"runtime_args"`
 	Customize   CustomizeConfig `toml:"customize"`
 
-	Setup        bool       `toml:"-"`
-	RebuildImage bool       `toml:"-"`
-	EnsureLatest bool       `toml:"-"`
-	Fork         ForkConfig `toml:"-"`
+	Setup            bool       `toml:"-"`
+	RebuildImage     bool       `toml:"-"`
+	EnsureLatest     bool       `toml:"-"`
+	Fork             ForkConfig `toml:"-"`
+	InstructionsFile string     `toml:"-"`
 
 	ClipboardEndpoint  string `toml:"-"`
 	ClipboardToken     string `toml:"-"`
