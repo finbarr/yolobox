@@ -4,6 +4,8 @@ The base image is meant to be useful immediately without turning into a giant ki
 
 ## Preinstalled tools
 
+The image includes GitLab's `glab` CLI. Enable `--gitlab-proxy` to read one project through the host's credentials. [GitLab proxy](/gitlab-proxy)
+
 ### AI CLIs
 
 - Claude Code

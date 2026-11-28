@@ -67,16 +67,19 @@ These target different layers:
 | `--instructions <file>` | Add a nonempty UTF-8 Markdown file up to 64 KiB to a fresh [Claude or Codex session](/commands#session-instructions) | Other shortcuts, resumed sessions, `--append-system-prompt-file` |
 | `--clipboard` | Bridge text clipboard copy/paste between the container and host | `--no-network` |
 | `--open-bridge` | Bridge `open`/`xdg-open` HTTP(S) URLs to the host browser | `--no-network` |
+| `--gitlab-proxy HOST/GROUP/PROJECT` | Give `glab` read-only access to one project through the host [GitLab proxy](/gitlab-proxy) | `--no-network`, explicit GitLab credentials or routing env |
 
 ## Networking and behavior
 
 | Flag | Description | Incompatible with |
 |------|-------------|-------------------|
-| `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard`, `--open-bridge` |
+| `--no-network` | Disable network access | `--network`, `--pod`, `--docker`, `--clipboard`, `--open-bridge`, `--gitlab-proxy` |
 | `--network <name>` | Join a specific network | `--no-network`, `--pod` |
 | `--pod <name>` | Join an existing Podman pod | `--no-network`, `--network`, `--docker` |
 | `--no-yolo` | Disable auto-confirmations in wrapped AI CLIs; ACP uses client permission modes | |
 | `--scratch` | Start with a fresh home and cache | |
+| `--reuse-login` | Borrow the current Claude or Codex access token from the regular home for a [scratch launch](/commands#reuse-a-login-in-a-scratch-box) | Without `--scratch`, other agents, Apple `container`, same-agent host config or credentials |
+| `--home-volume NAME` | Use an existing named volume as the persistent home [Home volume backups](/commands#back-up-and-restore-a-home-volume) | `--scratch` |
 | `--docker` | Mount the Docker socket and join the shared `yolobox-net` network | `--no-network`, `--pod` |
 
 ## Resources and low-level runtime control

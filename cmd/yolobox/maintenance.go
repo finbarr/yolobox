@@ -56,13 +56,32 @@ func resetVolumes(args []string) error {
 // persistent volumes, including per-architecture variants. Quiet listing works
 // on Docker, Podman, and Apple container; Docker's Go templates do not.
 func discoverYoloboxVolumes(runtimePath string) ([]string, error) {
+	names, err := runtimeVolumeNames(runtimePath)
+	if err != nil {
+		return nil, err
+	}
+	return matchYoloboxVolumes(names), nil
+}
+
+func runtimeVolumeNames(runtimePath string) ([]string, error) {
 	cmd := exec.Command(runtimePath, "volume", "ls", "--quiet")
 	cmd.Stderr = os.Stderr
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("failed to list volumes: %w", err)
 	}
-	return matchYoloboxVolumes(strings.Fields(string(output))), nil
+	return strings.Fields(string(output)), nil
+}
+
+func requireHomeVolume(runtimePath, name string) error {
+	names, err := runtimeVolumeNames(runtimePath)
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(names, name) {
+		return fmt.Errorf("home volume %q does not exist in %s", name, filepath.Base(runtimePath))
+	}
+	return nil
 }
 
 func removeYoloboxVolumes(runtimePath, platform string) error {
@@ -172,8 +191,11 @@ func uninstallYolobox(args []string) error {
 	return nil
 }
 
-func execCommand(bin string, args []string) error {
+func execCommand(bin string, args []string, env ...string) error {
 	cmd := exec.Command(bin, args...)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

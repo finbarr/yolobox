@@ -23,6 +23,7 @@ var completionCommands = []completionItem{
 	{"update-agents", "Update bundled AI CLIs in persistent home"},
 	{"config", "Print resolved configuration"},
 	{"reset", "Remove named volumes"},
+	{"volume", "Back up and restore persistent home volumes"},
 	{"uninstall", "Uninstall yolobox completely"},
 	{"completion", "Generate shell completion script"},
 	{"version", "Show version info"},
@@ -292,6 +293,21 @@ _yolobox() {
                 COMPREPLY=($(compgen -W "--force --platform" -- "$cur"))
             fi
             ;;
+        volume)
+            if (( COMP_CWORD == 2 )); then
+                COMPREPLY=($(compgen -W "backup restore --help" -- "$cur"))
+            elif __yolobox_value_flag "$flag"; then
+                __yolobox_complete_flag_value "$flag" "$flag_cur"
+                __yolobox_add_prefix "$flag_prefix"
+            elif [[ "$cur" == -* ]]; then
+                local volume_flags="--runtime --platform --image --help"
+                [[ "${COMP_WORDS[2]}" == backup ]] && volume_flags="$volume_flags --home-volume"
+                COMPREPLY=($(compgen -W "$volume_flags" -- "$cur"))
+            else
+                compopt -o filenames 2>/dev/null
+                __yolobox_reply_lines < <(compgen -f -- "$cur")
+            fi
+            ;;
         uninstall)
             COMPREPLY=($(compgen -W "--force --keep-volumes" -- "$cur"))
             ;;
@@ -467,6 +483,23 @@ _yolobox() {
         reset)
             _arguments '--force[remove volumes]' \
                 '--platform=[only remove volumes for this platform]:platform:(%s)' && ret=0
+            ;;
+        volume)
+            if (( CURRENT == 2 )); then
+                compadd -- backup restore --help && ret=0
+            else
+                local -a volume_options
+                volume_options=(
+                    '--runtime=[container runtime]:runtime:(docker podman)'
+                    '--platform=[container architecture]:platform:(linux/amd64 linux/arm64)'
+                    '--image=[helper image]:image: '
+                    '--help[show usage]'
+                )
+                [[ "$words[2]" == backup ]] && volume_options+=('--home-volume=[source volume]:name: ')
+                shift words
+                (( CURRENT-- ))
+                _arguments -S $volume_options '1:archive file:_files' && ret=0
+            fi
             ;;
         uninstall)
             _arguments '--force[confirm uninstall]' '--keep-volumes[keep container volumes]' && ret=0

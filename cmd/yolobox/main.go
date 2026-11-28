@@ -222,6 +222,8 @@ func runCmdArgs(args []string, projectDir string, fork *ForkConfig) error {
 		return printConfig(cfg)
 	case "reset":
 		return resetVolumes(args[1:])
+	case "volume":
+		return runVolumeCommand(args[1:])
 	case "uninstall":
 		return uninstallYolobox(args[1:])
 	case "completion":
@@ -312,6 +314,8 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  yolobox update-agents [name...]  Update AI CLIs and ACP adapters in persistent home")
 	fmt.Fprintln(os.Stderr, "  yolobox config              Print resolved configuration")
 	fmt.Fprintln(os.Stderr, "  yolobox reset --force       Remove named volumes, all architectures (add --platform to target one)")
+	fmt.Fprintln(os.Stderr, "  yolobox volume backup FILE  Save a persistent home volume archive")
+	fmt.Fprintln(os.Stderr, "  yolobox volume restore FILE Restore into a new home volume")
 	fmt.Fprintln(os.Stderr, "  yolobox uninstall --force   Uninstall yolobox completely")
 	fmt.Fprintln(os.Stderr, "  yolobox completion <shell>  Print bash or zsh completion script")
 	fmt.Fprintln(os.Stderr, "  yolobox version             Show version info")
@@ -342,6 +346,9 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable wrapped AI CLIs YOLO mode (ACP uses client modes)")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
+	fmt.Fprintln(os.Stderr, "  --reuse-login         Reuse an existing box login in a scratch session")
+	fmt.Fprintln(os.Stderr, "  --home-volume NAME    Use an existing volume for the persistent home")
+	fmt.Fprintln(os.Stderr, "  --gitlab-proxy HOST/GROUP/PROJECT  Read one GitLab project through the host")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
 	fmt.Fprintln(os.Stderr, "  --claude-config       Sync host Claude config; live-mount projects")
 	fmt.Fprintln(os.Stderr, "  --no-claude-auth      Keep Claude login container-local with --claude-config")
@@ -443,6 +450,9 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 		noEnvPassthrough      bool
 		noYolo                bool
 		scratch               bool
+		reuseLogin            bool
+		homeVolume            string
+		gitLabProxy           string
 		claudeConfig          bool
 		noClaudeAuth          bool
 		codexConfig           bool
@@ -496,6 +506,21 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 	fs.BoolVar(&noEnvPassthrough, "no-env-passthrough", false, "disable automatic host environment passthrough")
 	fs.BoolVar(&noYolo, "no-yolo", false, "disable wrapped AI CLIs YOLO mode (ACP uses client modes)")
 	fs.BoolVar(&scratch, "scratch", false, "fresh environment, no persistent volumes")
+	fs.BoolVar(&reuseLogin, "reuse-login", false, "reuse existing box login with --scratch")
+	fs.Func("home-volume", "existing volume for the persistent home", func(value string) error {
+		if value == "" {
+			return errors.New("a home volume name is required")
+		}
+		homeVolume = value
+		return nil
+	})
+	fs.Func("gitlab-proxy", "read-only host GitLab proxy for HOST/GROUP/PROJECT", func(value string) error {
+		if value == "" {
+			return errors.New("a GitLab host and project are required")
+		}
+		gitLabProxy = value
+		return nil
+	})
 	fs.BoolVar(&claudeConfig, "claude-config", false, "sync host Claude config and live-mount projects")
 	fs.BoolVar(&noClaudeAuth, "no-claude-auth", false, "keep Claude login container-local when syncing host config")
 	fs.BoolVar(&codexConfig, "codex-config", false, "sync host Codex config and live-mount sessions")
@@ -591,6 +616,9 @@ func newBaseFlagSet(name string) (*flag.FlagSet, func(*Config) error) {
 		if scratch {
 			cfg.Scratch = true
 		}
+		cfg.HomeVolume = homeVolume
+		cfg.ReuseLogin = reuseLogin
+		cfg.GitLabProxy = gitLabProxy
 		if claudeConfig {
 			cfg.ClaudeConfig = true
 		}
@@ -748,6 +776,28 @@ func validateConfigConflicts(cfg Config) error {
 	if cfg.OpenBridge && cfg.NoNetwork {
 		return fmt.Errorf("cannot use --open-bridge with --no-network")
 	}
+	if cfg.HomeVolume != "" {
+		if cfg.Scratch {
+			return fmt.Errorf("cannot use --home-volume with --scratch")
+		}
+		if err := validateHomeVolumeName(cfg.HomeVolume); err != nil {
+			return err
+		}
+	}
+	if cfg.ReuseLogin && !cfg.Scratch {
+		return fmt.Errorf("--reuse-login requires --scratch")
+	}
+	if cfg.GitLabProxy != "" {
+		if cfg.NoNetwork {
+			return fmt.Errorf("cannot use --gitlab-proxy with --no-network")
+		}
+		if _, err := parseGitLabProxyScope(cfg.GitLabProxy); err != nil {
+			return err
+		}
+		if err := validateGitLabProxyEnv(cfg); err != nil {
+			return err
+		}
+	}
 	if cfg.NoClaudeAuth && !cfg.ClaudeConfig {
 		return fmt.Errorf("cannot use --no-claude-auth without --claude-config")
 	}
@@ -883,6 +933,9 @@ func runShell(cfg Config) error {
 			// so CLI/config-file settings win and setup fills the gaps.
 			mergeConfig(&newCfg, cfg)
 			newCfg.Fork = cfg.Fork
+			newCfg.HomeVolume = cfg.HomeVolume
+			newCfg.ReuseLogin = cfg.ReuseLogin
+			newCfg.GitLabProxy = cfg.GitLabProxy
 			cfg = newCfg
 		}
 	}
@@ -919,6 +972,18 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 	}); err != nil {
 		return err
 	}
+	if err := validateScratchLogin(cfg, command); err != nil {
+		return err
+	}
+	if cfg.HomeVolume != "" {
+		runtimePath, err := resolveRuntime(cfg.Runtime)
+		if err != nil {
+			return err
+		}
+		if err := requireHomeVolume(runtimePath, cfg.HomeVolume); err != nil {
+			return err
+		}
+	}
 	if cfg.EnsureLatest {
 		started = time.Now()
 		err := pullLatestBaseImage(cfg)
@@ -935,6 +1000,12 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 			return err
 		}
 		cfg.Image = customImage
+	}
+	if cfg.ReuseLogin {
+		cfg.scratchLogin, err = prepareScratchLogin(cfg, command)
+		if err != nil {
+			return err
+		}
 	}
 	warnSecurityRelaxations(cfg)
 
@@ -969,6 +1040,19 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		cfg.OpenBridgeToken = open.Token
 		info("Host open bridge enabled")
 	}
+	if cfg.GitLabProxy != "" {
+		scope, err := parseGitLabProxyScope(cfg.GitLabProxy)
+		if err != nil {
+			return err
+		}
+		proxy, err := startGitLabProxy(cfg.Runtime, scope)
+		if err != nil {
+			return err
+		}
+		defer proxy.Close()
+		cfg.gitLabEnv = gitLabProxyLaunchEnv(cfg, proxy.Env)
+		info("Read-only GitLab proxy enabled for %s", cfg.GitLabProxy)
+	}
 
 	// Ensure Docker network exists before starting container
 	if cfg.Docker {
@@ -997,6 +1081,9 @@ func runCommand(cfg Config, command []string, interactive bool) error {
 		}
 	}()
 	return traceTimed("host: runtime execution", func() error {
+		if cfg.scratchLogin != "" {
+			return execRuntime(cfg.Runtime, args, scratchLoginEnv+"="+cfg.scratchLogin)
+		}
 		return execRuntime(cfg.Runtime, args)
 	})
 }
@@ -1154,7 +1241,7 @@ func runSetup() (Config, error) {
 		huh.NewGroup(
 			huh.NewSelect[string]().
 				Title("Default command for bare yolobox").
-				Description("Choose none for a shell. Claude and Codex accept --instructions FILE for one fresh session").
+				Description("Choose none for a shell. Use the CLI flags to add instructions or reuse a login in one fresh session").
 				Options(
 					huh.NewOption("None (interactive shell)", noDefaultHarness),
 					huh.NewOption("Claude", "claude"),
@@ -1373,7 +1460,8 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 	knownFlags := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true,
 		"ssh-agent": true, "no-ssh-agent": true, "readonly-project": true, "no-network": true, "no-env-passthrough": true,
-		"no-yolo": true, "scratch": true, "claude-config": true, "no-claude-auth": true,
+		"no-yolo": true, "scratch": true, "reuse-login": true, "home-volume": true, "gitlab-proxy": true,
+		"claude-config": true, "no-claude-auth": true,
 		"codex-config": true, "copilot-config": true, "no-copilot-auth": true, "gemini-config": true, "kimi-config": true, "opencode-config": true, "pi-config": true, "git-config": true, "gh-token": true, "rtk": true,
 		"copy-agent-instructions": true, "instructions": true, "no-project": true, "docker": true, "setup": true, "mount": true,
 		"clipboard": true, "open-bridge": true,
@@ -1386,7 +1474,8 @@ func splitToolArgs(args []string) (yoloboxArgs, toolArgs []string) {
 
 	flagsWithValues := map[string]bool{
 		"runtime": true, "image": true, "name": true, "network": true, "pod": true, "platform": true,
-		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "instructions": true, "cpus": true, "memory": true,
+		"mount": true, "exclude": true, "copy-as": true, "env": true, "env-from-host": true, "instructions": true,
+		"home-volume": true, "gitlab-proxy": true, "cpus": true, "memory": true,
 		"shm-size": true, "device": true, "cap-add": true, "cap-drop": true,
 		"gpus": true, "runtime-arg": true, "packages": true, "customize-file": true,
 	}
@@ -1569,7 +1658,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		)
 		if !hostBridgeRuntimeArgsAdded {
 			args = append(args, hostBridgeRuntimeArgs(cfg.Runtime)...)
+			hostBridgeRuntimeArgsAdded = true
 		}
+	}
+	if len(cfg.gitLabEnv) > 0 && !hostBridgeRuntimeArgsAdded {
+		args = append(args, hostBridgeRuntimeArgs(cfg.Runtime)...)
 	}
 	if !cfg.NoEnvPassthrough {
 		if termEnv := os.Getenv("TERM"); termEnv != "" {
@@ -1593,6 +1686,9 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	autoPassthroughEnvKeys := make([]string, 0, len(autoPassthroughEnvVars))
 	if !cfg.NoEnvPassthrough {
 		for _, key := range autoPassthroughEnvVars {
+			if cfg.GitLabProxy != "" && isGitLabProxyEnv(key) {
+				continue
+			}
 			if cfg.NoClaudeAuth && key == "CLAUDE_CODE_OAUTH_TOKEN" {
 				continue
 			}
@@ -1682,7 +1778,11 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 	// :U also repairs older keep-id volumes that were created with
 	// subordinate-ID ownership and now appear as uid/gid 999 in-container.
 	if !cfg.Scratch {
-		args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-home", containerArch), "/home/yolo", rootlessPodman))
+		homeVolume := cfg.HomeVolume
+		if homeVolume == "" {
+			homeVolume = volumeNameForArch("yolobox-home", containerArch)
+		}
+		args = append(args, "-v", persistentVolumeMount(homeVolume, "/home/yolo", rootlessPodman))
 		args = append(args, "-v", persistentVolumeMount(volumeNameForArch("yolobox-cache", containerArch), "/var/cache", rootlessPodman))
 	}
 
@@ -2165,6 +2265,12 @@ func buildRunArgs(cfg Config, projectDir string, command []string, interactive b
 		// --platform here would override it (last flag wins).
 		args = append(args, stripPlatformFromRuntimeArgs(cfg.RuntimeArgs)...)
 	}
+	for _, env := range cfg.gitLabEnv {
+		args = append(args, "-e", env)
+	}
+	if cfg.scratchLogin != "" {
+		args = append(args, "-e", scratchLoginEnv)
+	}
 
 	args = append(args, cfg.Image)
 	if instructionsPayload != "" {
@@ -2266,12 +2372,12 @@ func resolveRuntime(name string) (string, error) {
 	return path, nil
 }
 
-func execRuntime(runtime string, args []string) error {
+func execRuntime(runtime string, args []string, env ...string) error {
 	runtimePath, err := resolveRuntime(runtime)
 	if err != nil {
 		return err
 	}
-	return execCommand(runtimePath, args)
+	return execCommand(runtimePath, args, env...)
 }
 
 // getGhToken extracts the GitHub CLI token from the host's credential store

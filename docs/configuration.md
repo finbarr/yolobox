@@ -169,6 +169,10 @@ yolobox does not auto-update RTK at startup. To get a newer RTK release, rebuild
 
 The base image disables Codex's built-in analytics through `/etc/codex/config.toml`. To opt in, set `analytics.enabled = true` in your Codex configuration inside the box or in the Codex configuration you sync with `--codex-config`. Explicit OpenTelemetry exporters use their own settings.
 
+## Per-run access and storage
+
+Choose a different persistent home with `--home-volume NAME`, reuse a login for one scratch launch with `--scratch --reuse-login`, or delegate one GitLab project with `--gitlab-proxy HOST/GROUP/PROJECT`. Set these on the command line for each run. [Home volumes](/commands#back-up-and-restore-a-home-volume) · [Scratch logins](/commands#reuse-a-login-in-a-scratch-box) · [GitLab proxy](/gitlab-proxy)
+
 ## Global agent instructions {#global-agent-instructions}
 
 The `--copy-agent-instructions` flag copies your global or user-level instruction files and skills into the container.

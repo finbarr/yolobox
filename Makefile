@@ -24,7 +24,7 @@ image:
 		docker build -t $(IMAGE) .
 
 SMOKE_ARGS ?= --image $(IMAGE)
-SMOKE_TOOLS := node bun python3 uv gh fd bat rg eza
+SMOKE_TOOLS := node bun python3 uv gh glab fd bat rg eza
 
 smoke-test: build
 	@echo "Running smoke tests..."

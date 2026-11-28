@@ -74,6 +74,12 @@ type Config struct {
 	EnsureLatest     bool       `toml:"-"`
 	Fork             ForkConfig `toml:"-"`
 	InstructionsFile string     `toml:"-"`
+	HomeVolume       string     `toml:"-"`
+	ReuseLogin       bool       `toml:"-"`
+	GitLabProxy      string     `toml:"-"`
+
+	scratchLogin string
+	gitLabEnv    []string
 
 	ClipboardEndpoint  string `toml:"-"`
 	ClipboardToken     string `toml:"-"`
@@ -311,6 +317,15 @@ func printConfig(cfg Config) error {
 	fmt.Printf("%spod:%s %s\n", colorBold, colorReset, cfg.Pod)
 	fmt.Printf("%sno_yolo:%s %t\n", colorBold, colorReset, cfg.NoYolo)
 	fmt.Printf("%sscratch:%s %t\n", colorBold, colorReset, cfg.Scratch)
+	if cfg.HomeVolume != "" {
+		printStringConfigField("home_volume", cfg.HomeVolume)
+	}
+	if cfg.ReuseLogin {
+		fmt.Printf("%sreuse_login:%s true\n", colorBold, colorReset)
+	}
+	if cfg.GitLabProxy != "" {
+		printStringConfigField("gitlab_proxy", cfg.GitLabProxy)
+	}
 	fmt.Printf("%sclaude_config:%s %t\n", colorBold, colorReset, cfg.ClaudeConfig)
 	fmt.Printf("%sno_claude_auth:%s %t\n", colorBold, colorReset, cfg.NoClaudeAuth)
 	fmt.Printf("%scodex_config:%s %t\n", colorBold, colorReset, cfg.CodexConfig)

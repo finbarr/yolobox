@@ -64,6 +64,8 @@ These are useful, but they are explicit trust decisions.
 
 ## Hardening options
 
+`--scratch --reuse-login` makes the regular box's current Claude or Codex access token available to the agent for the token's remaining lifetime. Use it for projects you trust with that account. Home volume archives can contain refresh credentials and other secrets. Keep them private and restore archives from trusted sources. `--gitlab-proxy` delegates read-only access to the selected project and keeps the upstream token on the host. [Scratch logins](/commands#reuse-a-login-in-a-scratch-box) · [GitLab proxy](/gitlab-proxy)
+
 ### Level 1: default
 
 ```bash

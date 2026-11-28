@@ -77,6 +77,9 @@ type contextConfigManifest struct {
 	Pod                   string                         `json:"pod"`
 	NoYolo                bool                           `json:"no_yolo"`
 	Scratch               bool                           `json:"scratch"`
+	HomeVolume            string                         `json:"home_volume,omitempty"`
+	ReuseLogin            bool                           `json:"reuse_login,omitempty"`
+	GitLabProxy           string                         `json:"gitlab_proxy,omitempty"`
 	ClaudeConfig          bool                           `json:"claude_config"`
 	NoClaudeAuth          bool                           `json:"no_claude_auth"`
 	CodexConfig           bool                           `json:"codex_config"`
@@ -199,6 +202,9 @@ func buildContextManifest(cfg Config, projectDir string, command []string, inter
 			Pod:                   cfg.Pod,
 			NoYolo:                cfg.NoYolo,
 			Scratch:               cfg.Scratch,
+			HomeVolume:            cfg.HomeVolume,
+			ReuseLogin:            cfg.ReuseLogin,
+			GitLabProxy:           cfg.GitLabProxy,
 			ClaudeConfig:          cfg.ClaudeConfig,
 			NoClaudeAuth:          cfg.NoClaudeAuth,
 			CodexConfig:           cfg.CodexConfig,

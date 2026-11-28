@@ -894,6 +894,18 @@ RUN mkdir -p /host-claude /host-claude-projects /host-codex /host-codex-sessions
     '    fi' \
     'fi' \
     '' \
+    '# Import a short-lived scratch login only after host and image initialization.' \
+    'if [ -n "${YOLOBOX_SCRATCH_LOGIN:-}" ]; then' \
+    '    if [ "$(findmnt -n -o TARGET -T /home/yolo)" != / ] || [ "$(findmnt -n -o TARGET -T /home/yolo/.codex)" != / ]; then' \
+    '        echo "yolobox: --reuse-login requires a container-local scratch home" >&2' \
+    '        exit 1' \
+    '    fi' \
+    '    scratch_oauth=$(/usr/local/bin/yolobox-scratch-login import) || exit 1' \
+    '    unset YOLOBOX_SCRATCH_LOGIN' \
+    '    if [ -n "$scratch_oauth" ]; then export CLAUDE_CODE_OAUTH_TOKEN="$scratch_oauth"; fi' \
+    '    unset scratch_oauth' \
+    'fi' \
+    '' \
     '# Re-exec with refreshed groups if we added docker group above' \
     'if [ "$_YOLOBOX_NEED_REGROUP" = "1" ]; then' \
     '    exec sudo -E --preserve-env=PATH setpriv --reuid="$(id -u)" --regid="$(id -g)" --init-groups -- "$@"' \
@@ -985,7 +997,20 @@ RUN mkdir -p /home/yolo/.local/bin && \
 USER root
 RUN mkdir -p /etc/codex && \
     printf '%s\n' '[analytics]' 'enabled = false' > /etc/codex/config.toml
+# Use a glab release that reports rejected REST requests as command failures.
+ARG GLAB_VERSION=1.133.0
+RUN set -eux; \
+    tmp_dir="$(mktemp -d)"; \
+    release="https://gitlab.com/gitlab-org/cli/-/releases/v${GLAB_VERSION}/downloads"; \
+    archive="glab_${GLAB_VERSION}_linux_$(dpkg --print-architecture).tar.gz"; \
+    curl -fsSL "$release/checksums.txt" -o "$tmp_dir/checksums.txt"; \
+    curl -fsSL "$release/$archive" -o "$tmp_dir/$archive"; \
+    (cd "$tmp_dir" && sha256sum --ignore-missing -c checksums.txt); \
+    tar -xzf "$tmp_dir/$archive" -C "$tmp_dir" bin/glab; \
+    install -m 0755 "$tmp_dir/bin/glab" /usr/local/bin/glab; \
+    rm -rf "$tmp_dir"
 COPY --chmod=0755 scripts/yolobox-session-instructions.sh /usr/local/bin/yolobox-session-instructions
+COPY --chmod=0755 cmd/yolobox/assets/yolobox-scratch-login.py /usr/local/bin/yolobox-scratch-login
 COPY agent-instructions/codex/session-hooks.json /opt/yolobox/codex-session-hooks.json
 USER yolo
 

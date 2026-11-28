@@ -145,6 +145,10 @@ Automatic RTK setup applies the supported CLI integrations without prompting, in
 
 Use `--instructions FILE` with `yolobox claude` or `yolobox codex` to add one Markdown file to a fresh session's instructions. [Session instructions](https://yolobox.dev/commands#session-instructions)
 
+- `yolobox volume backup FILE` saves the home volume. Restore an archive into a new volume and select it with `--home-volume`. [Home volume backups](https://yolobox.dev/commands#back-up-and-restore-a-home-volume)
+- `yolobox codex --scratch --reuse-login` starts a fresh box with the current access token from your regular box. Claude supports the same option. [Scratch logins](https://yolobox.dev/commands#reuse-a-login-in-a-scratch-box)
+- `yolobox shell --gitlab-proxy gitlab.com/group/project` gives `glab` read access to one project through the host. [GitLab proxy](https://yolobox.dev/gitlab-proxy)
+
 The detailed references are intentionally in the docs site:
 
 - [Commands](https://yolobox.dev/commands): shortcuts, maintenance commands, `fork`, and examples
@@ -158,7 +162,7 @@ yolobox is designed for AI agents, not humans. You launch the AI and let it work
 
 The agent has sudo inside the container. If it needs a compiler, database, package, or framework, it can install one. Named volumes preserve that setup across sessions, so you do not have to turn the README into a hundred-line package matrix. Point it at your project and let it cook.
 
-Boxes using the same runtime and architecture share their persistent home, cache, and output volumes, including concurrent rootless Podman boxes on SELinux hosts. Use `--scratch` for a run without those shared volumes.
+By default, boxes using the same runtime and architecture share their persistent home, cache, and output volumes, including concurrent rootless Podman boxes on SELinux hosts. Use `--home-volume` to select a different home or `--scratch` for a run without shared volumes.
 
 ## Security Model
 

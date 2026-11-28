@@ -11,6 +11,9 @@ there is no `v0.6.0` tag in this repository.
 ### Added
 
 - Added `--instructions FILE` to pass extra Markdown instructions to a fresh Claude or Codex session.
+- Added home volume backup and restore on Docker and Podman, with `--home-volume` to select a restored home.
+- Added `--scratch --reuse-login` to reuse an unexpired Claude or Codex box login without copying its refresh token.
+- Added an opt-in read-only GitLab proxy for one project and bundled `glab` in the base image.
 
 ### Changed
 

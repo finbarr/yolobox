@@ -51,6 +51,21 @@ With `default_harness` set to `claude` or `codex`, you can also run `yolobox --i
 
 Codex requires session hooks enabled and the agent running inside the box. Use either `--instructions` or Claude's native `--append-system-prompt-file` for a given launch. The launcher stages the file in the container for that run, and the agent can include its contents in session history.
 
+### Reuse a login in a scratch box
+
+On Docker and Podman, add `--reuse-login` to a scratch Claude or Codex launch to reuse the current access token from the regular box on the same runtime and architecture.
+
+```bash
+yolobox claude --scratch --reuse-login
+yolobox codex --scratch --reuse-login
+```
+
+The scratch box receives a temporary credential and keeps its home, cache, and sessions separate. Sign in first with the normal box. If its access token has expired, use the normal box to refresh the login and launch another scratch box. This mode keeps refresh tokens in the original box. Specify a single credential source for the selected agent, including any environment variables or host config sync.
+
+### Read a GitLab project
+
+Launch with `--gitlab-proxy HOST/GROUP/PROJECT` to give `glab` read access to one project through the host. [GitLab proxy usage](/gitlab-proxy)
+
 ### ACP clients
 
 The base image includes Codex and Claude adapters for Agent Client Protocol clients and editors. Set the client's stdio agent command to `yolobox`, with arguments for one of these launches:
@@ -205,6 +220,18 @@ The image bundles OpenCode v2 (`@opencode/cli`). `yolobox update-agents opencode
 OpenCode v2 keeps the `opencode` command and existing config locations. Back up your setup before switching: v1 plugins and server API integrations need migration. See the [upstream migration guide](https://opencode.ai/v2/docs/migrate-v1).
 
 The `claude` target also updates `claude-agent-acp`, and the `codex` target also updates `codex-acp`. Updating all agents includes both adapters. Use the existing `claude` and `codex` targets; adapter command names are not separate update targets.
+
+### Back up and restore a home volume
+
+On Docker and Podman, close all boxes using the home volume before starting a backup. Keep them stopped until the command finishes. The archive covers `/home/yolo`, including installed tools, configs, logins, and sessions. Keep the archive private because it can contain credentials.
+
+```bash
+yolobox volume backup ./yolobox-home.tar.gz
+restored=$(yolobox volume restore ./yolobox-home.tar.gz)
+yolobox shell --home-volume "$restored"
+```
+
+Restore creates a new volume and prints its name. Use `--home-volume` to inspect and use it while keeping the original home available. Each archive carries its source architecture. Use the matching `--platform` at restore and launch time. Both archive commands accept `--runtime`, `--platform`, and `--image` and use global settings by default. Add `--home-volume NAME` to `volume backup` to back up a named home. `--home-volume` selects only the home, so the cache and output still follow the normal architecture-specific rules. `reset` and `uninstall` manage the standard Yolobox volumes. Manage restored volumes using the selected container runtime.
 
 ### Reset persistent state
 

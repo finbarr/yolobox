@@ -181,6 +181,7 @@ export default defineConfig({
           { text: 'Project-Level Customization', link: '/customizing' },
           { text: 'Configuration', link: '/configuration' },
           { text: 'Flags', link: '/flags' },
+          { text: 'GitLab Proxy', link: '/gitlab-proxy' },
         ]
       },
       {

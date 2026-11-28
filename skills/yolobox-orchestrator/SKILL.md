@@ -18,6 +18,9 @@ Do not use it for questions about the current environment from inside a running 
    - If `default_harness` is set, bare `yolobox` launches that shortcut; use `yolobox shell` for an explicit shell.
 3. Prefer explicit isolation and safety flags:
    - `--scratch` for disposable or concurrent sessions that must not share `/home/yolo`.
+   - Use `--scratch --reuse-login` only when the user wants the current regular-box Claude or Codex access token available in that scratch session.
+   - Use `volume backup` for a stopped home volume and `volume restore` to create a separate copy. Select the new volume with `--home-volume`.
+   - Use `--gitlab-proxy HOST/GROUP/PROJECT` for read-only GitLab access scoped to one project.
    - `--readonly-project` when the agent only needs read access to the project tree.
    - `--no-env-passthrough` when host API/token environment variables should not enter the box automatically.
    - `--claude-config --no-claude-auth` when host Claude settings should be synced but the persistent box must keep its own `/login` credentials. This still live-mounts host Claude project history read/write.
@@ -26,4 +29,4 @@ Do not use it for questions about the current environment from inside a running 
    - `--docker` only when the agent needs Docker access or sibling containers.
 4. When you need exact command patterns or edge-case reminders, read [references/commands.md](references/commands.md).
 5. If you launch a box for another agent, point it at `yolobox` and `YOLOBOX_CONTEXT_FILE` for inside-the-box introspection.
-6. When discussing concurrency, distinguish isolated per-run manifests from shared persistent state: manifests are per-run, but `/home/yolo` and `/var/cache` are shared unless `--scratch` is used.
+6. When discussing concurrency, use the per-run manifest to identify shared state. Persistent boxes share `/var/cache` by runtime and architecture. They share `/home/yolo` when they use the same home volume.
