@@ -99,7 +99,7 @@ yolobox claude --runtime podman
 yolobox claude --runtime container
 ```
 
-Boxes using the same runtime and architecture share persistent home, cache, and output volumes. Rootless Podman uses shared SELinux labels (`:z,U`) so starting another box preserves the running boxes' access to those volumes. Use `--scratch` for a run without shared persistent state.
+By default, boxes using the same runtime and architecture share persistent home, cache, and output volumes. Rootless Podman uses shared SELinux labels (`:z,U`) so starting another box preserves the running boxes' access to those volumes. Use `--home-volume` to select a different home or `--scratch` for a run without shared volumes.
 
 ## Next pages
 

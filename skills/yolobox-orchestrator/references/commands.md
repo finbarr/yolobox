@@ -217,11 +217,7 @@ If an agent inside the box needs to orient itself to the environment, direct it 
 
 Concurrent `yolobox` runs each get their own manifest, even with different args.
 
-Persistent state is still shared unless `--scratch` is used:
-
-- `/home/yolo`
-- `/var/cache`
-- the mounted project tree
+Persistent boxes share `/home/yolo` when they select the same home volume. Cache and output volumes are shared by runtime and architecture. `--scratch` omits those shared volumes. Boxes that mount the same project tree can still share its files.
 
 ## Nested yolobox reminder
 

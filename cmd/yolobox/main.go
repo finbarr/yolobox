@@ -346,7 +346,7 @@ func printUsage() {
 	fmt.Fprintln(os.Stderr, "  --network <name>      Join container network (e.g., docker compose network)")
 	fmt.Fprintln(os.Stderr, "  --no-yolo             Disable wrapped AI CLIs YOLO mode (ACP uses client modes)")
 	fmt.Fprintln(os.Stderr, "  --scratch             Fresh environment, no persistent volumes")
-	fmt.Fprintln(os.Stderr, "  --reuse-login         Reuse an existing box login in a scratch session")
+	fmt.Fprintln(os.Stderr, "  --reuse-login         Reuse a Claude or Codex login with --scratch on Docker or Podman")
 	fmt.Fprintln(os.Stderr, "  --home-volume NAME    Use an existing volume for the persistent home")
 	fmt.Fprintln(os.Stderr, "  --gitlab-proxy HOST/GROUP/PROJECT  Read one GitLab project through the host")
 	fmt.Fprintln(os.Stderr, "  --readonly-project    Mount project directory read-only")
@@ -1273,7 +1273,7 @@ func runSetup() (Config, error) {
 					huh.NewOption("Host clipboard (text copy/paste bridge; requires network)", "clipboard"),
 					huh.NewOption("Host open bridge (open URLs in host browser; requires network)", "open_bridge"),
 					huh.NewOption("No automatic project mount (advanced; provide mounts/workdir)", "no_project"),
-					huh.NewOption("No network (disables network, pod, Docker, clipboard, and open bridge)", "no_network"),
+					huh.NewOption("No network (disables network, pod, Docker, and host bridges including GitLab)", "no_network"),
 					huh.NewOption("No env passthrough (disable automatic host env vars)", "no_env_passthrough"),
 					huh.NewOption("No YOLO (wrapped AI CLIs only; ACP uses client modes)", "no_yolo"),
 				).

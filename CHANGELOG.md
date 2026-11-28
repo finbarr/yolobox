@@ -6,7 +6,7 @@ This changelog was backfilled from Git tags, annotated tag messages, and commit
 history. Versions are listed newest first. There is no `v0.6.0` entry because
 there is no `v0.6.0` tag in this repository.
 
-## Unreleased
+## v0.19.14 - 2026-11-27
 
 ### Added
 
@@ -18,6 +18,10 @@ there is no `v0.6.0` tag in this repository.
 ### Changed
 
 - Disabled Codex's built-in analytics by default in the base image. Explicit Codex settings can override this default.
+
+### Fixed
+
+- Made documentation headings readable in light mode.
 
 ## v0.19.13 - 2026-10-31
 
