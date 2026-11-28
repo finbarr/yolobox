@@ -1,0 +1,112 @@
+name: Verify WSL2
+
+on:
+  push:
+    branches: [codex/verify-wsl2]
+
+permissions:
+  contents: read
+
+jobs:
+  podman:
+    name: Ubuntu 24.04 WSL2 with rootless Podman
+    runs-on: windows-2025
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build the Linux CLI
+        env:
+          GOOS: linux
+          GOARCH: amd64
+          CGO_ENABLED: '0'
+        run: go build -ldflags "-X main.Version=v0.19.14" -o yolobox-linux-amd64 ./cmd/yolobox
+
+      - uses: Vampire/setup-wsl@4c48163d9f981914dd8caa0fc335fe19cca5bff4 # v7.2.0
+        with:
+          distribution: Ubuntu-24.04
+          wsl-version: '2'
+          use-cache: 'false'
+          wsl-shell-user: yolobox
+          additional-packages: podman uidmap slirp4netns fuse-overlayfs curl ca-certificates python3
+
+      - name: Show installed WSL distros and versions
+        run: wsl.exe --list --verbose
+
+      - name: Install and exercise Yolobox inside WSL2
+        shell: wsl-bash -u yolobox {0}
+        run: |
+          uname -r
+          grep -qi microsoft-standard-wsl2 /proc/sys/kernel/osrelease
+          test "$(id -u)" -ne 0
+          source_dir="$PWD"
+          smoke_dir="$(mktemp -d "$HOME/yolobox-wsl.XXXXXXXX")"
+          export XDG_RUNTIME_DIR="$smoke_dir/runtime"
+          export XDG_CONFIG_HOME="$smoke_dir/config"
+          mkdir -m 700 "$XDG_RUNTIME_DIR" "$XDG_CONFIG_HOME"
+          mkdir "$smoke_dir/project"
+
+          YOLOBOX_BINDIR="$smoke_dir/release" bash "$source_dir/install.sh"
+          "$smoke_dir/release/yolobox" version
+
+          export smoke_bin="$smoke_dir/yolobox"
+          install -m 755 "$source_dir/yolobox-linux-amd64" "$smoke_bin"
+          "$smoke_bin" version
+          "$smoke_bin" config
+
+          podman --version
+          test "$(podman info --format '{{.Host.Security.Rootless}}')" = true
+          export smoke_image='ghcr.io/finbarr/yolobox:v0.19.14'
+          podman pull "$smoke_image"
+          podman image inspect --format '{{.Digest}}' "$smoke_image"
+          podman run --rm --network none --entrypoint /bin/true "$smoke_image"
+
+          cd "$smoke_dir/project"
+          runtime=(--runtime podman --image "$smoke_image")
+          isolated=(--no-network --no-ssh-agent --no-env-passthrough)
+          printf 'host\n' > host.txt
+          "$smoke_bin" run "${runtime[@]}" "${isolated[@]}" --scratch bash -ec '
+            test "$(pwd -P)" = "$YOLOBOX_PROJECT_PATH"
+            grep -qx host host.txt
+            printf "container\n" > container.txt
+          '
+          grep -qx container container.txt
+          echo 'Read-write project bind mount passed'
+
+          "$smoke_bin" run "${runtime[@]}" "${isolated[@]}" --scratch --readonly-project bash -ec '
+            grep -qx host host.txt
+            if touch denied.txt; then
+              exit 1
+            fi
+            printf "output\n" > /output/smoke.txt
+            grep -qx output /output/smoke.txt
+          '
+          test ! -e denied.txt
+          echo 'Read-only project and writable output passed'
+
+          home_volume='yolobox-wsl-verify'
+          podman volume create "$home_volume"
+          "$smoke_bin" run "${runtime[@]}" "${isolated[@]}" --home-volume "$home_volume" bash -ec '
+            printf "persisted\n" > "$HOME/smoke.txt"
+          '
+          "$smoke_bin" run "${runtime[@]}" "${isolated[@]}" --home-volume "$home_volume" bash -ec '
+            grep -qx persisted "$HOME/smoke.txt"
+          '
+          podman volume rm "$home_volume"
+          echo 'Persistent home passed'
+
+          script --quiet --return --command '
+            "$smoke_bin" run --runtime podman --image "$smoke_image" --scratch \
+              --no-network --no-ssh-agent --no-env-passthrough \
+              bash -ic "test -t 0 && test -t 1 && claude --version"
+          ' /dev/null
+          echo 'Interactive TTY and Claude CLI passed'
+
+          python3 "$source_dir/scripts/smoke-acp.py" --yolobox "$smoke_bin" -- "${runtime[@]}"
